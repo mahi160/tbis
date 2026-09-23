@@ -4,10 +4,12 @@
 
 **Blocked by:** 01 — App shell, Login, and session
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Movies from every Library appear in one grid
 - [ ] Each sort option reorders the grid as described
+- [ ] The chosen sort is remembered across launches (in the existing config file)
+- [ ] The list refreshes every time the tab opens and keeps showing the old list until the new one arrives
 - [ ] Watched Movies show the check badge
 - [ ] A missing poster shows a placeholder
 - [ ] Scrolling a large library stays smooth

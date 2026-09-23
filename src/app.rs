@@ -5,8 +5,9 @@ use gpui_kit::component::{ActiveTheme as _, Sizable as _, TitleBar, h_flex, v_fl
 use gpui_kit::*;
 
 use crate::config::{self, Config};
-use crate::jellyfin::Session;
+use crate::jellyfin::{Api, Session};
 use crate::login::{LoggedIn, LoginView};
+use crate::movies::{MoviesView, SortChanged};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -29,6 +30,8 @@ enum Screen {
     Main {
         session: Session,
         tab: Tab,
+        movies: Entity<MoviesView>,
+        _subscription: Subscription,
     },
 }
 
@@ -41,10 +44,7 @@ impl AppView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let config = config::load();
         let screen = match config.session.clone() {
-            Some(session) => Screen::Main {
-                session,
-                tab: Tab::Home,
-            },
+            Some(session) => Self::main_screen(session, &config, cx),
             None => Self::login_screen(&config, window, cx),
         };
         Self { config, screen }
@@ -57,14 +57,28 @@ impl AppView {
             if let Err(err) = config::save(&this.config) {
                 eprintln!("failed to save session: {err}");
             }
-            this.screen = Screen::Main {
-                session: session.clone(),
-                tab: Tab::Home,
-            };
+            this.screen = Self::main_screen(session.clone(), &this.config, cx);
             cx.notify();
         });
         Screen::Login {
             view: login,
+            _subscription: subscription,
+        }
+    }
+
+    fn main_screen(session: Session, config: &Config, cx: &mut Context<Self>) -> Screen {
+        let api = Api::new(cx.http_client(), session.clone(), config.device_id.clone());
+        let movies = cx.new(|_| MoviesView::new(api, config.movies_sort));
+        let subscription = cx.subscribe(&movies, |this, _, SortChanged(sort), _| {
+            this.config.movies_sort = *sort;
+            if let Err(err) = config::save(&this.config) {
+                eprintln!("failed to save sort: {err}");
+            }
+        });
+        Screen::Main {
+            session,
+            tab: Tab::Home,
+            movies,
             _subscription: subscription,
         }
     }
@@ -79,7 +93,7 @@ impl AppView {
     }
 
     fn render_title_bar(&self, cx: &mut Context<Self>) -> TitleBar {
-        let Screen::Main { session, tab } = &self.screen else {
+        let Screen::Main { session, tab, .. } = &self.screen else {
             return TitleBar::new();
         };
         let selected = TABS.iter().position(|(t, _)| t == tab).unwrap_or(0);
@@ -93,8 +107,11 @@ impl AppView {
                     .children(TABS.map(|(_, label)| label))
                     .selected_index(selected)
                     .on_click(cx.listener(|this, index: &usize, _, cx| {
-                        if let Screen::Main { tab, .. } = &mut this.screen {
+                        if let Screen::Main { tab, movies, .. } = &mut this.screen {
                             *tab = TABS[*index].0;
+                            if *tab == Tab::Movies {
+                                movies.update(cx, |movies, cx| movies.refresh(cx));
+                            }
                             cx.notify();
                         }
                     })),
@@ -123,6 +140,11 @@ impl Render for AppView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let content = match &self.screen {
             Screen::Login { view, .. } => view.clone().into_any_element(),
+            Screen::Main {
+                tab: Tab::Movies,
+                movies,
+                ..
+            } => movies.clone().into_any_element(),
             Screen::Main { tab, .. } => {
                 let title = TABS
                     .iter()

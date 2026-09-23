@@ -2,6 +2,7 @@ mod app;
 mod config;
 mod jellyfin;
 mod login;
+mod movies;
 
 use std::sync::Arc;
 

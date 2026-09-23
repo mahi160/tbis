@@ -5,13 +5,15 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::jellyfin::Session;
+use crate::jellyfin::{Session, Sort};
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     /// Survives Log out, so the server sees one device per install.
     pub device_id: String,
     pub session: Option<Session>,
+    #[serde(default)]
+    pub movies_sort: Sort,
 }
 
 fn path() -> PathBuf {
@@ -27,6 +29,7 @@ pub fn load() -> Config {
         .unwrap_or_else(|| Config {
             device_id: uuid::Uuid::new_v4().to_string(),
             session: None,
+            movies_sort: Sort::default(),
         })
 }
 

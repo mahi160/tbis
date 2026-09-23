@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use futures::AsyncReadExt as _;
 use gpui_kit::http_client::{AsyncBody, HttpClient, Method, Request, Response, Url};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -39,6 +40,116 @@ async fn read_json<T: DeserializeOwned>(response: Response<AsyncBody>) -> Result
     let mut bytes = Vec::new();
     response.into_body().read_to_end(&mut bytes).await?;
     Ok(serde_json::from_slice(&bytes)?)
+}
+
+/// Order of the Movies and Series pages. Ties fall back to name.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum Sort {
+    #[default]
+    Name,
+    DateAdded,
+    Year,
+    Rating,
+}
+
+impl Sort {
+    pub const ALL: [Sort; 4] = [Sort::Name, Sort::DateAdded, Sort::Year, Sort::Rating];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Sort::Name => "Name",
+            Sort::DateAdded => "Date added",
+            Sort::Year => "Year",
+            Sort::Rating => "Rating",
+        }
+    }
+
+    fn query(self) -> &'static str {
+        match self {
+            Sort::Name => "SortBy=SortName&SortOrder=Ascending",
+            Sort::DateAdded => "SortBy=DateCreated,SortName&SortOrder=Descending,Ascending",
+            Sort::Year => "SortBy=ProductionYear,SortName&SortOrder=Descending,Ascending",
+            Sort::Rating => "SortBy=CommunityRating,SortName&SortOrder=Descending,Ascending",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct Item {
+    pub id: String,
+    pub name: String,
+    pub production_year: Option<i32>,
+    #[serde(default)]
+    image_tags: HashMap<String, String>,
+    #[serde(default)]
+    pub user_data: UserData,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct UserData {
+    #[serde(default)]
+    pub played: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct ItemsResult {
+    items: Vec<Item>,
+}
+
+/// Signed-in client; every request carries the session token.
+#[derive(Clone)]
+pub struct Api {
+    http: Arc<dyn HttpClient>,
+    session: Session,
+    device_id: String,
+}
+
+impl Api {
+    pub fn new(http: Arc<dyn HttpClient>, session: Session, device_id: String) -> Self {
+        Self {
+            http,
+            session,
+            device_id,
+        }
+    }
+
+    async fn get<T: DeserializeOwned>(&self, path_and_query: &str) -> Result<T> {
+        let request = Request::builder()
+            .uri(format!("{}{path_and_query}", self.session.server))
+            .header(
+                "Authorization",
+                auth_header(&self.device_id, Some(&self.session.token)),
+            )
+            .body(AsyncBody::empty())?;
+        let response = self.http.send(request).await?;
+        ensure!(
+            response.status().is_success(),
+            "HTTP {}",
+            response.status().as_u16()
+        );
+        read_json(response).await
+    }
+
+    /// Every Movie from all Libraries.
+    pub async fn movies(&self, sort: Sort) -> Result<Vec<Item>> {
+        let query = format!(
+            "/Items?userId={}&IncludeItemTypes=Movie&Recursive=true&{}&Fields=ProductionYear&EnableImageTypes=Primary&ImageTypeLimit=1",
+            self.session.user_id,
+            sort.query()
+        );
+        Ok(self.get::<ItemsResult>(&query).await?.items)
+    }
+
+    pub fn poster_url(&self, item: &Item) -> Option<String> {
+        let tag = item.image_tags.get("Primary")?;
+        Some(format!(
+            "{}/Items/{}/Images/Primary?fillWidth=320&quality=90&tag={tag}",
+            self.session.server, item.id
+        ))
+    }
 }
 
 #[derive(Deserialize)]
