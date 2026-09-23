@@ -1,10 +1,12 @@
 mod app;
+mod card;
 mod config;
 mod jellyfin;
 mod login;
 mod movies;
 mod mpv;
 mod player;
+mod search;
 
 use std::sync::Arc;
 
@@ -49,7 +51,10 @@ fn main() {
             gpui_kit::init(cx);
             Theme::change(ThemeMode::Dark, None, cx);
 
-            cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+            cx.bind_keys([
+                KeyBinding::new("cmd-q", Quit, None),
+                KeyBinding::new("cmd-f", app::FocusSearch, None),
+            ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
             // single-window app: closing window quits
             cx.on_window_closed(|cx, _| cx.quit()).detach();

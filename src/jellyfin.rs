@@ -84,6 +84,40 @@ pub struct Item {
     image_tags: HashMap<String, String>,
     #[serde(default)]
     pub user_data: UserData,
+    /// Episodes only.
+    pub series_name: Option<String>,
+    /// Season number (Episodes only).
+    pub parent_index_number: Option<i32>,
+    /// Episode number (Episodes only).
+    pub index_number: Option<i32>,
+}
+
+impl Item {
+    /// `S2E3 · Name`, or just the name when numbers are missing.
+    pub fn episode_label(&self) -> String {
+        match (self.parent_index_number, self.index_number) {
+            (Some(season), Some(episode)) => format!("S{season}E{episode} · {}", self.name),
+            _ => self.name.clone(),
+        }
+    }
+}
+
+/// Item type searched on its own, so one type can't crowd out the others.
+#[derive(Clone, Copy)]
+pub enum Kind {
+    Movie,
+    Series,
+    Episode,
+}
+
+impl Kind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Kind::Movie => "Movie",
+            Kind::Series => "Series",
+            Kind::Episode => "Episode",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -246,6 +280,17 @@ impl Api {
             "/Items?userId={}&IncludeItemTypes=Movie&Recursive=true&{}&Fields=ProductionYear&EnableImageTypes=Primary&ImageTypeLimit=1",
             self.session.user_id,
             sort.query()
+        );
+        Ok(self.get::<ItemsResult>(&query).await?.items)
+    }
+
+    /// Server-side search across all Libraries, one type at a time.
+    pub async fn search(&self, term: &str, kind: Kind, limit: usize) -> Result<Vec<Item>> {
+        let term: String = url::form_urlencoded::byte_serialize(term.as_bytes()).collect();
+        let query = format!(
+            "/Items?userId={}&searchTerm={term}&IncludeItemTypes={}&Recursive=true&Limit={limit}&Fields=ProductionYear&EnableImageTypes=Primary&ImageTypeLimit=1",
+            self.session.user_id,
+            kind.as_str()
         );
         Ok(self.get::<ItemsResult>(&query).await?.items)
     }

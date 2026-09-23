@@ -1,14 +1,21 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::tab::TabBar;
-use gpui_kit::component::{ActiveTheme as _, Root, Sizable as _, TitleBar, h_flex, v_flex};
+use gpui_kit::component::{
+    ActiveTheme as _, Icon, IconName, Root, Sizable as _, TitleBar, h_flex, v_flex,
+};
 use gpui_kit::*;
 
+use crate::card::Play;
 use crate::config::{self, Config};
 use crate::jellyfin::{Api, Item, Session};
 use crate::login::{LoggedIn, LoginView};
-use crate::movies::{MoviesView, Play, SortChanged};
+use crate::movies::{MoviesView, SortChanged};
 use crate::player::{Closed, PlayerView};
+use crate::search::SearchView;
+
+actions!(tbis, [FocusSearch]);
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -28,8 +35,16 @@ struct Main {
     api: Api,
     tab: Tab,
     movies: Entity<MoviesView>,
+    search_input: Entity<InputState>,
+    search: Entity<SearchView>,
     player: Option<(Entity<PlayerView>, Subscription)>,
-    _subscriptions: [Subscription; 2],
+    _subscriptions: [Subscription; 4],
+}
+
+impl Main {
+    fn searching(&self, cx: &App) -> bool {
+        !self.search_input.read(cx).value().trim().is_empty()
+    }
 }
 
 #[allow(clippy::large_enum_variant)] // one instance
@@ -44,6 +59,8 @@ enum Screen {
 pub struct AppView {
     config: Config,
     screen: Screen,
+    /// Keeps app-wide shortcuts (⌘F) reachable when nothing else has focus.
+    focus: FocusHandle,
 }
 
 impl AppView {
@@ -53,7 +70,15 @@ impl AppView {
             Some(session) => Self::main_screen(session, &config, window, cx),
             None => Self::login_screen(&config, window, cx),
         };
-        Self { config, screen }
+        let focus = cx.focus_handle();
+        if matches!(screen, Screen::Main(_)) {
+            focus.focus(window, cx);
+        }
+        Self {
+            config,
+            screen,
+            focus,
+        }
     }
 
     fn login_screen(config: &Config, window: &mut Window, cx: &mut Context<Self>) -> Screen {
@@ -65,6 +90,7 @@ impl AppView {
                     eprintln!("failed to save session: {err}");
                 }
                 this.screen = Self::main_screen(session.clone(), &this.config, window, cx);
+                this.focus.focus(window, cx);
                 cx.notify();
             });
         Screen::Login {
@@ -81,6 +107,12 @@ impl AppView {
     ) -> Screen {
         let api = Api::new(cx.http_client(), session.clone(), config.device_id.clone());
         let movies = cx.new(|_| MoviesView::new(api.clone(), config.movies_sort));
+        let search = cx.new(|_| SearchView::new(api.clone()));
+        let search_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Search")
+                .clean_on_escape()
+        });
         let _subscriptions = [
             cx.subscribe(&movies, |this, _, SortChanged(sort), _| {
                 this.config.movies_sort = *sort;
@@ -91,15 +123,53 @@ impl AppView {
             cx.subscribe_in(&movies, window, |this, _, Play(item), window, cx| {
                 this.open_player(item, window, cx)
             }),
+            cx.subscribe_in(&search, window, |this, _, Play(item), window, cx| {
+                this.open_player(item, window, cx)
+            }),
+            cx.subscribe(&search_input, |this, input, event: &InputEvent, cx| {
+                if let (InputEvent::Change, Screen::Main(main)) = (event, &this.screen) {
+                    let query = input.read(cx).value();
+                    main.search
+                        .update(cx, |search, cx| search.set_query(&query, cx));
+                    cx.notify();
+                }
+            }),
         ];
         Screen::Main(Main {
             session,
             api,
             tab: Tab::Home,
             movies,
+            search_input,
+            search,
             player: None,
             _subscriptions,
         })
+    }
+
+    fn select_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Screen::Main(main) = &mut self.screen else {
+            return;
+        };
+        main.tab = TABS[index].0;
+        // picking a tab leaves Search
+        main.search_input
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        main.search
+            .update(cx, |search, cx| search.set_query("", cx));
+        if main.tab == Tab::Movies {
+            main.movies.update(cx, |movies, cx| movies.refresh(cx));
+        }
+        cx.notify();
+    }
+
+    fn focus_search(&mut self, _: &FocusSearch, window: &mut Window, cx: &mut Context<Self>) {
+        if let Screen::Main(main) = &self.screen
+            && main.player.is_none()
+        {
+            main.search_input
+                .update(cx, |input, cx| input.focus(window, cx));
+        }
     }
 
     fn open_player(&mut self, item: &Item, window: &mut Window, cx: &mut Context<Self>) {
@@ -125,6 +195,7 @@ impl AppView {
         if main.tab == Tab::Movies {
             main.movies.update(cx, |movies, cx| movies.refresh(cx));
         }
+        self.focus.focus(window, cx);
         cx.notify();
     }
 
@@ -138,10 +209,10 @@ impl AppView {
     }
 
     fn render_title_bar(&self, cx: &mut Context<Self>) -> TitleBar {
-        let Screen::Main(Main { session, tab, .. }) = &self.screen else {
+        let Screen::Main(main) = &self.screen else {
             return TitleBar::new();
         };
-        let selected = TABS.iter().position(|(t, _)| t == tab).unwrap_or(0);
+        let selected = TABS.iter().position(|(t, _)| *t == main.tab).unwrap_or(0);
         let this = cx.entity().downgrade();
 
         TitleBar::new()
@@ -151,32 +222,37 @@ impl AppView {
                     .small()
                     .children(TABS.map(|(_, label)| label))
                     .selected_index(selected)
-                    .on_click(cx.listener(|this, index: &usize, _, cx| {
-                        if let Screen::Main(main) = &mut this.screen {
-                            main.tab = TABS[*index].0;
-                            if main.tab == Tab::Movies {
-                                main.movies.update(cx, |movies, cx| movies.refresh(cx));
-                            }
-                            cx.notify();
-                        }
+                    .on_click(cx.listener(|this, index: &usize, window, cx| {
+                        this.select_tab(*index, window, cx)
                     })),
             )
             .child(
-                h_flex().pr_2().child(
-                    Button::new("user-menu")
-                        .ghost()
-                        .small()
-                        .label(session.user_name.clone())
-                        .dropdown_caret(true)
-                        .dropdown_menu(move |menu, _, _| {
-                            let this = this.clone();
-                            menu.item(PopupMenuItem::new("Log out").on_click(
-                                move |_, window, cx| {
-                                    this.update(cx, |this, cx| this.log_out(window, cx)).ok();
-                                },
-                            ))
-                        }),
-                ),
+                h_flex()
+                    .pr_2()
+                    .gap_2()
+                    .child(
+                        div().w(px(220.)).child(
+                            Input::new(&main.search_input)
+                                .small()
+                                .cleanable(true)
+                                .prefix(Icon::new(IconName::Search).small()),
+                        ),
+                    )
+                    .child(
+                        Button::new("user-menu")
+                            .ghost()
+                            .small()
+                            .label(main.session.user_name.clone())
+                            .dropdown_caret(true)
+                            .dropdown_menu(move |menu, _, _| {
+                                let this = this.clone();
+                                menu.item(PopupMenuItem::new("Log out").on_click(
+                                    move |_, window, cx| {
+                                        this.update(cx, |this, cx| this.log_out(window, cx)).ok();
+                                    },
+                                ))
+                            }),
+                    ),
             )
     }
 }
@@ -208,6 +284,7 @@ impl Render for AppView {
 
         let content = match &self.screen {
             Screen::Login { view, .. } => view.clone().into_any_element(),
+            Screen::Main(main) if main.searching(cx) => main.search.clone().into_any_element(),
             Screen::Main(Main {
                 tab: Tab::Movies,
                 movies,
@@ -229,6 +306,8 @@ impl Render for AppView {
 
         v_flex()
             .size_full()
+            .track_focus(&self.focus)
+            .on_action(cx.listener(Self::focus_search))
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .child(self.render_title_bar(cx))

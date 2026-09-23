@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — Player tracer bullet. Series results stay non-clickable until 05 — Series page and Series detail lands.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] ⌘F focuses the title-bar search field from any tab
 - [ ] Results cover Movies, Series, and Episodes, grouped by type

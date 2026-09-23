@@ -2,20 +2,18 @@ use std::ops::Range;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
-use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::card::{Play, poster_card};
 use crate::jellyfin::{Api, Item, Sort};
 
 pub struct SortChanged(pub Sort);
-pub struct Play(pub Item);
 
 const PAD: f32 = 24.;
 const GAP: f32 = 16.;
 const MIN_CARD_WIDTH: f32 = 150.;
-const TITLE_HEIGHT: f32 = 20.;
-const META_HEIGHT: f32 = 16.;
 
 pub struct MoviesView {
     api: Api,
@@ -108,80 +106,7 @@ impl MoviesView {
             let item = item.clone();
             cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Play(item.clone())))
         };
-        let theme = cx.theme();
-        let (muted, muted_fg) = (theme.muted, theme.muted_foreground);
-        let name: SharedString = item.name.clone().into();
-        let placeholder = move |name: SharedString| {
-            div()
-                .size_full()
-                .bg(muted)
-                .flex()
-                .items_center()
-                .justify_center()
-                .p_2()
-                .text_sm()
-                .text_center()
-                .text_color(muted_fg)
-                .child(name)
-                .into_any_element()
-        };
-        let poster = match self.api.poster_url(item) {
-            Some(url) => {
-                let name = name.clone();
-                img(url)
-                    .size_full()
-                    .object_fit(ObjectFit::Cover)
-                    .with_fallback(move || placeholder(name.clone()))
-                    .into_any_element()
-            }
-            None => placeholder(name.clone()),
-        };
-
-        v_flex()
-            .id(SharedString::from(item.id.clone()))
-            .w(self.card_width)
-            .gap_1()
-            .cursor_pointer()
-            .on_click(play)
-            .child(
-                div()
-                    .relative()
-                    .w(self.card_width)
-                    .h(self.card_width * 1.5)
-                    .rounded_md()
-                    .overflow_hidden()
-                    .bg(muted)
-                    .child(poster)
-                    .when(item.user_data.played, |this| {
-                        this.child(
-                            div()
-                                .absolute()
-                                .top_2()
-                                .right_2()
-                                .size_6()
-                                .rounded_full()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .bg(theme.primary)
-                                .text_color(theme.primary_foreground)
-                                .child(Icon::new(IconName::Check).small()),
-                        )
-                    }),
-            )
-            .child(div().h(px(TITLE_HEIGHT)).text_sm().truncate().child(name))
-            .child(
-                div()
-                    .h(px(META_HEIGHT))
-                    .text_xs()
-                    .text_color(muted_fg)
-                    .child(
-                        item.production_year
-                            .map(|y| y.to_string())
-                            .unwrap_or_default(),
-                    ),
-            )
-            .into_any_element()
+        poster_card(&self.api, item, self.card_width, Some(Box::new(play)), cx)
     }
 
     fn render_sort_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
