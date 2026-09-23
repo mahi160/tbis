@@ -6,7 +6,7 @@ This is the risk ticket. If the mpv layer cannot be composited under gpui's view
 
 **Blocked by:** 02 — Movies page
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Video renders inside the main window with the gpui controls visible on top
 - [ ] No second window or spawned process is used

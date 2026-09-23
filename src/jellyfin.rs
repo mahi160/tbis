@@ -91,6 +91,51 @@ pub struct Item {
 pub struct UserData {
     #[serde(default)]
     pub played: bool,
+    #[serde(default)]
+    pub playback_position_ticks: i64,
+}
+
+/// Fresh per-play details: which file to stream and where to resume.
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct PlaybackItem {
+    pub id: String,
+    #[serde(default)]
+    media_sources: Vec<MediaSource>,
+    #[serde(default)]
+    pub user_data: UserData,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct MediaSource {
+    id: String,
+}
+
+impl PlaybackItem {
+    pub fn media_source_id(&self) -> &str {
+        self.media_sources.first().map_or(&self.id, |m| &m.id)
+    }
+
+    pub fn resume_seconds(&self) -> f64 {
+        ticks_to_seconds(self.user_data.playback_position_ticks)
+    }
+}
+
+pub enum Report {
+    Start,
+    Progress,
+    Stopped,
+}
+
+const TICKS_PER_SECOND: f64 = 10_000_000.0;
+
+fn ticks_to_seconds(ticks: i64) -> f64 {
+    ticks as f64 / TICKS_PER_SECOND
+}
+
+fn seconds_to_ticks(seconds: f64) -> i64 {
+    (seconds * TICKS_PER_SECOND) as i64
 }
 
 #[derive(Deserialize)]
@@ -119,10 +164,7 @@ impl Api {
     async fn get<T: DeserializeOwned>(&self, path_and_query: &str) -> Result<T> {
         let request = Request::builder()
             .uri(format!("{}{path_and_query}", self.session.server))
-            .header(
-                "Authorization",
-                auth_header(&self.device_id, Some(&self.session.token)),
-            )
+            .header("Authorization", self.auth_header())
             .body(AsyncBody::empty())?;
         let response = self.http.send(request).await?;
         ensure!(
@@ -131,6 +173,71 @@ impl Api {
             response.status().as_u16()
         );
         read_json(response).await
+    }
+
+    async fn post(&self, path: &str, body: serde_json::Value) -> Result<()> {
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri(format!("{}{path}", self.session.server))
+            .header("Content-Type", "application/json")
+            .header("Authorization", self.auth_header())
+            .body(AsyncBody::from(body.to_string()))?;
+        let response = self.http.send(request).await?;
+        ensure!(
+            response.status().is_success(),
+            "HTTP {}",
+            response.status().as_u16()
+        );
+        Ok(())
+    }
+
+    pub fn auth_header(&self) -> String {
+        auth_header(&self.device_id, Some(&self.session.token))
+    }
+
+    pub async fn playback_item(&self, item_id: &str) -> Result<PlaybackItem> {
+        self.get(&format!("/Items/{item_id}?userId={}", self.session.user_id))
+            .await
+    }
+
+    /// Original file, never transcoded.
+    pub fn stream_url(&self, item: &PlaybackItem) -> String {
+        format!(
+            "{}/Videos/{}/stream?static=true&mediaSourceId={}",
+            self.session.server,
+            item.id,
+            item.media_source_id()
+        )
+    }
+
+    pub async fn report(
+        &self,
+        report: Report,
+        item: &PlaybackItem,
+        play_session_id: &str,
+        seconds: f64,
+        paused: bool,
+    ) -> Result<()> {
+        let path = match report {
+            Report::Start => "/Sessions/Playing",
+            Report::Progress => "/Sessions/Playing/Progress",
+            Report::Stopped => "/Sessions/Playing/Stopped",
+        };
+        let body = serde_json::json!({
+            "ItemId": item.id,
+            "MediaSourceId": item.media_source_id(),
+            "PlaySessionId": play_session_id,
+            "PositionTicks": seconds_to_ticks(seconds),
+            "IsPaused": paused,
+            "PlayMethod": "DirectPlay",
+            "CanSeek": true,
+        });
+        self.post(path, body).await
+    }
+
+    pub async fn mark_played(&self, item_id: &str) -> Result<()> {
+        let path = format!("/Users/{}/PlayedItems/{item_id}", self.session.user_id);
+        self.post(&path, serde_json::Value::Null).await
     }
 
     /// Every Movie from all Libraries.

@@ -1,13 +1,14 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::tab::TabBar;
-use gpui_kit::component::{ActiveTheme as _, Sizable as _, TitleBar, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Root, Sizable as _, TitleBar, h_flex, v_flex};
 use gpui_kit::*;
 
 use crate::config::{self, Config};
-use crate::jellyfin::{Api, Session};
+use crate::jellyfin::{Api, Item, Session};
 use crate::login::{LoggedIn, LoginView};
-use crate::movies::{MoviesView, SortChanged};
+use crate::movies::{MoviesView, Play, SortChanged};
+use crate::player::{Closed, PlayerView};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -22,17 +23,22 @@ const TABS: [(Tab, &str); 3] = [
     (Tab::Series, "Series"),
 ];
 
+struct Main {
+    session: Session,
+    api: Api,
+    tab: Tab,
+    movies: Entity<MoviesView>,
+    player: Option<(Entity<PlayerView>, Subscription)>,
+    _subscriptions: [Subscription; 2],
+}
+
+#[allow(clippy::large_enum_variant)] // one instance
 enum Screen {
     Login {
         view: Entity<LoginView>,
         _subscription: Subscription,
     },
-    Main {
-        session: Session,
-        tab: Tab,
-        movies: Entity<MoviesView>,
-        _subscription: Subscription,
-    },
+    Main(Main),
 }
 
 pub struct AppView {
@@ -44,7 +50,7 @@ impl AppView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let config = config::load();
         let screen = match config.session.clone() {
-            Some(session) => Self::main_screen(session, &config, cx),
+            Some(session) => Self::main_screen(session, &config, window, cx),
             None => Self::login_screen(&config, window, cx),
         };
         Self { config, screen }
@@ -52,35 +58,74 @@ impl AppView {
 
     fn login_screen(config: &Config, window: &mut Window, cx: &mut Context<Self>) -> Screen {
         let login = cx.new(|cx| LoginView::new(config.device_id.clone(), window, cx));
-        let subscription = cx.subscribe(&login, |this, _, LoggedIn(session), cx| {
-            this.config.session = Some(session.clone());
-            if let Err(err) = config::save(&this.config) {
-                eprintln!("failed to save session: {err}");
-            }
-            this.screen = Self::main_screen(session.clone(), &this.config, cx);
-            cx.notify();
-        });
+        let subscription =
+            cx.subscribe_in(&login, window, |this, _, LoggedIn(session), window, cx| {
+                this.config.session = Some(session.clone());
+                if let Err(err) = config::save(&this.config) {
+                    eprintln!("failed to save session: {err}");
+                }
+                this.screen = Self::main_screen(session.clone(), &this.config, window, cx);
+                cx.notify();
+            });
         Screen::Login {
             view: login,
             _subscription: subscription,
         }
     }
 
-    fn main_screen(session: Session, config: &Config, cx: &mut Context<Self>) -> Screen {
+    fn main_screen(
+        session: Session,
+        config: &Config,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Screen {
         let api = Api::new(cx.http_client(), session.clone(), config.device_id.clone());
-        let movies = cx.new(|_| MoviesView::new(api, config.movies_sort));
-        let subscription = cx.subscribe(&movies, |this, _, SortChanged(sort), _| {
-            this.config.movies_sort = *sort;
-            if let Err(err) = config::save(&this.config) {
-                eprintln!("failed to save sort: {err}");
-            }
-        });
-        Screen::Main {
+        let movies = cx.new(|_| MoviesView::new(api.clone(), config.movies_sort));
+        let _subscriptions = [
+            cx.subscribe(&movies, |this, _, SortChanged(sort), _| {
+                this.config.movies_sort = *sort;
+                if let Err(err) = config::save(&this.config) {
+                    eprintln!("failed to save sort: {err}");
+                }
+            }),
+            cx.subscribe_in(&movies, window, |this, _, Play(item), window, cx| {
+                this.open_player(item, window, cx)
+            }),
+        ];
+        Screen::Main(Main {
             session,
+            api,
             tab: Tab::Home,
             movies,
-            _subscription: subscription,
+            player: None,
+            _subscriptions,
+        })
+    }
+
+    fn open_player(&mut self, item: &Item, window: &mut Window, cx: &mut Context<Self>) {
+        let Screen::Main(main) = &mut self.screen else {
+            return;
+        };
+        let api = main.api.clone();
+        let player = cx.new(|cx| PlayerView::new(api, item, window, cx));
+        let subscription = cx.subscribe_in(&player, window, |this, _, Closed, window, cx| {
+            this.close_player(window, cx)
+        });
+        main.player = Some((player, subscription));
+        set_video_background(true, window, cx);
+        cx.notify();
+    }
+
+    fn close_player(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Screen::Main(main) = &mut self.screen else {
+            return;
+        };
+        main.player = None; // drops mpv
+        set_video_background(false, window, cx);
+        if main.tab == Tab::Movies {
+            main.movies.update(cx, |movies, cx| movies.refresh(cx));
         }
+        cx.notify();
     }
 
     fn log_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -93,7 +138,7 @@ impl AppView {
     }
 
     fn render_title_bar(&self, cx: &mut Context<Self>) -> TitleBar {
-        let Screen::Main { session, tab, .. } = &self.screen else {
+        let Screen::Main(Main { session, tab, .. }) = &self.screen else {
             return TitleBar::new();
         };
         let selected = TABS.iter().position(|(t, _)| t == tab).unwrap_or(0);
@@ -107,10 +152,10 @@ impl AppView {
                     .children(TABS.map(|(_, label)| label))
                     .selected_index(selected)
                     .on_click(cx.listener(|this, index: &usize, _, cx| {
-                        if let Screen::Main { tab, movies, .. } = &mut this.screen {
-                            *tab = TABS[*index].0;
-                            if *tab == Tab::Movies {
-                                movies.update(cx, |movies, cx| movies.refresh(cx));
+                        if let Screen::Main(main) = &mut this.screen {
+                            main.tab = TABS[*index].0;
+                            if main.tab == Tab::Movies {
+                                main.movies.update(cx, |movies, cx| movies.refresh(cx));
                             }
                             cx.notify();
                         }
@@ -136,16 +181,39 @@ impl AppView {
     }
 }
 
+/// Player needs the window see-through so mpv's layer below gpui shows (ADR-0001).
+fn set_video_background(video: bool, window: &mut Window, cx: &mut App) {
+    window.set_background_appearance(if video {
+        WindowBackgroundAppearance::Transparent
+    } else {
+        WindowBackgroundAppearance::Opaque
+    });
+    if let Some(Some(root)) = window.root::<Root>() {
+        root.update(cx, |root, cx| {
+            root.style().background = video.then(|| hsla(0., 0., 0., 0.).into());
+            cx.notify();
+        });
+    }
+}
+
 impl Render for AppView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Screen::Main(Main {
+            player: Some((player, _)),
+            ..
+        }) = &self.screen
+        {
+            return div().size_full().child(player.clone()).into_any_element();
+        }
+
         let content = match &self.screen {
             Screen::Login { view, .. } => view.clone().into_any_element(),
-            Screen::Main {
+            Screen::Main(Main {
                 tab: Tab::Movies,
                 movies,
                 ..
-            } => movies.clone().into_any_element(),
-            Screen::Main { tab, .. } => {
+            }) => movies.clone().into_any_element(),
+            Screen::Main(Main { tab, .. }) => {
                 let title = TABS
                     .iter()
                     .find(|(t, _)| t == tab)
@@ -165,5 +233,6 @@ impl Render for AppView {
             .text_color(cx.theme().foreground)
             .child(self.render_title_bar(cx))
             .child(div().flex_1().min_h_0().child(content))
+            .into_any_element()
     }
 }

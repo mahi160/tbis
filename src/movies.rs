@@ -9,6 +9,7 @@ use gpui_kit::*;
 use crate::jellyfin::{Api, Item, Sort};
 
 pub struct SortChanged(pub Sort);
+pub struct Play(pub Item);
 
 const PAD: f32 = 24.;
 const GAP: f32 = 16.;
@@ -29,6 +30,7 @@ pub struct MoviesView {
 }
 
 impl EventEmitter<SortChanged> for MoviesView {}
+impl EventEmitter<Play> for MoviesView {}
 
 impl MoviesView {
     pub fn new(api: Api, sort: Sort) -> Self {
@@ -79,26 +81,33 @@ impl MoviesView {
         self.refresh(cx);
     }
 
-    fn render_rows(&self, rows: Range<usize>, cx: &App) -> Vec<AnyElement> {
-        rows.map(|row| {
+    fn render_rows(&self, rows: Range<usize>, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let mut out = Vec::with_capacity(rows.len());
+        for row in rows {
             let start = row * self.columns;
             let end = (start + self.columns).min(self.items.len());
-            h_flex()
-                .px(px(PAD))
-                .pb(px(GAP))
-                .gap(px(GAP))
-                .items_start()
-                .children(
-                    self.items[start..end]
-                        .iter()
-                        .map(|item| self.render_card(item, cx)),
-                )
-                .into_any_element()
-        })
-        .collect()
+            let mut cards = Vec::with_capacity(end - start);
+            for item in &self.items[start..end] {
+                cards.push(self.render_card(item, cx));
+            }
+            out.push(
+                h_flex()
+                    .px(px(PAD))
+                    .pb(px(GAP))
+                    .gap(px(GAP))
+                    .items_start()
+                    .children(cards)
+                    .into_any_element(),
+            );
+        }
+        out
     }
 
-    fn render_card(&self, item: &Item, cx: &App) -> impl IntoElement {
+    fn render_card(&self, item: &Item, cx: &mut Context<Self>) -> AnyElement {
+        let play = {
+            let item = item.clone();
+            cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Play(item.clone())))
+        };
         let theme = cx.theme();
         let (muted, muted_fg) = (theme.muted, theme.muted_foreground);
         let name: SharedString = item.name.clone().into();
@@ -129,8 +138,11 @@ impl MoviesView {
         };
 
         v_flex()
+            .id(SharedString::from(item.id.clone()))
             .w(self.card_width)
             .gap_1()
+            .cursor_pointer()
+            .on_click(play)
             .child(
                 div()
                     .relative()
@@ -169,6 +181,7 @@ impl MoviesView {
                             .unwrap_or_default(),
                     ),
             )
+            .into_any_element()
     }
 
     fn render_sort_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {

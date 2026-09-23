@@ -3,6 +3,8 @@ mod config;
 mod jellyfin;
 mod login;
 mod movies;
+mod mpv;
+mod player;
 
 use std::sync::Arc;
 
@@ -11,7 +13,31 @@ use gpui_kit::*;
 
 actions!(tbis, [Quit]);
 
+/// Poster grids open hundreds of sockets at once; macOS apps default to 256 files.
+#[cfg(unix)]
+fn raise_open_file_limit() {
+    const WANTED: libc::rlim_t = 10240; // macOS OPEN_MAX
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    unsafe {
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) == 0 && limit.rlim_cur < WANTED {
+            limit.rlim_cur = WANTED.min(limit.rlim_max);
+            if libc::setrlimit(libc::RLIMIT_NOFILE, &limit) != 0 {
+                eprintln!(
+                    "could not raise open file limit: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
+        }
+    }
+}
+
 fn main() {
+    #[cfg(unix)]
+    raise_open_file_limit();
+
     let http =
         reqwest_client::ReqwestClient::user_agent(concat!("tbis/", env!("CARGO_PKG_VERSION")))
             .expect("failed to build HTTP client");
