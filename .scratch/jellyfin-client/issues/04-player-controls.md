@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — Player tracer bullet
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Switching the audio track changes the audio without restarting playback
 - [ ] Switching subtitles, including image-based subtitles, works, and "off" hides them

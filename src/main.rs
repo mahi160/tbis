@@ -1,4 +1,5 @@
 mod app;
+mod assets;
 mod card;
 mod config;
 mod jellyfin;
@@ -46,7 +47,7 @@ fn main() {
 
     gpui_kit::application()
         .with_http_client(Arc::new(http))
-        .with_assets(gpui_kit::assets::Assets)
+        .with_assets(assets::Assets)
         .run(|cx| {
             gpui_kit::init(cx);
             Theme::change(ThemeMode::Dark, None, cx);
@@ -56,6 +57,7 @@ fn main() {
                 KeyBinding::new("cmd-f", app::FocusSearch, None),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
+            player::bind_keys(cx);
             // single-window app: closing window quits
             cx.on_window_closed(|cx, _| cx.quit()).detach();
 

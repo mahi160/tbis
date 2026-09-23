@@ -14,6 +14,14 @@ pub struct Config {
     pub session: Option<Session>,
     #[serde(default)]
     pub movies_sort: Sort,
+    #[serde(default = "full_volume")]
+    pub volume: f64,
+    #[serde(default)]
+    pub muted: bool,
+}
+
+fn full_volume() -> f64 {
+    100.
 }
 
 fn path() -> PathBuf {
@@ -30,6 +38,8 @@ pub fn load() -> Config {
             device_id: uuid::Uuid::new_v4().to_string(),
             session: None,
             movies_sort: Sort::default(),
+            volume: full_volume(),
+            muted: false,
         })
 }
 

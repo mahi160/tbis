@@ -177,10 +177,17 @@ impl AppView {
             return;
         };
         let api = main.api.clone();
-        let player = cx.new(|cx| PlayerView::new(api, item, window, cx));
-        let subscription = cx.subscribe_in(&player, window, |this, _, Closed, window, cx| {
-            this.close_player(window, cx)
-        });
+        let volume = (self.config.volume, self.config.muted);
+        let player = cx.new(|cx| PlayerView::new(api, item, volume, window, cx));
+        let subscription =
+            cx.subscribe_in(&player, window, |this, _, closed: &Closed, window, cx| {
+                this.config.volume = closed.volume;
+                this.config.muted = closed.muted;
+                if let Err(err) = config::save(&this.config) {
+                    eprintln!("failed to save volume: {err}");
+                }
+                this.close_player(window, cx)
+            });
         main.player = Some((player, subscription));
         set_video_background(true, window, cx);
         cx.notify();

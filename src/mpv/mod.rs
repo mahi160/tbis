@@ -25,6 +25,35 @@ pub enum MpvEvent {
     FileLoaded,
     /// `Ok(true)` reached end of file, `Ok(false)` stopped otherwise.
     EndFile(Result<bool, String>),
+    /// 0–100.
+    Volume(f64),
+    Mute(bool),
+    /// Audio and subtitle tracks of the current file.
+    Tracks(Vec<Track>),
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum TrackKind {
+    Audio,
+    Subtitle,
+}
+
+impl TrackKind {
+    fn property(self) -> &'static str {
+        match self {
+            TrackKind::Audio => "aid",
+            TrackKind::Subtitle => "sid",
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Track {
+    /// mpv's own track id for `aid`/`sid`.
+    pub id: i64,
+    pub kind: TrackKind,
+    pub label: String,
+    pub selected: bool,
 }
 
 pub struct Mpv {
@@ -110,6 +139,27 @@ impl Mpv {
         self.command(&["seek", &format!("{seconds}"), "absolute"])
     }
 
+    pub fn seek_by(&self, seconds: f64) -> Result<(), String> {
+        self.command(&["seek", &format!("{seconds}"), "relative"])
+    }
+
+    /// 0–100.
+    pub fn set_volume(&self, volume: f64) -> Result<(), String> {
+        self.handle
+            .set_property("volume", &format!("{}", volume.clamp(0., 100.)))
+    }
+
+    pub fn set_mute(&self, mute: bool) -> Result<(), String> {
+        self.handle
+            .set_property("mute", if mute { "yes" } else { "no" })
+    }
+
+    /// `None` turns the track type off.
+    pub fn select_track(&self, kind: TrackKind, id: Option<i64>) -> Result<(), String> {
+        let value = id.map_or("no".to_string(), |id| id.to_string());
+        self.handle.set_property(kind.property(), &value)
+    }
+
     /// Video size in device pixels.
     pub fn set_size(&self, width: i32, height: i32) {
         *self.size.lock().unwrap() = (width, height);
@@ -179,6 +229,15 @@ impl Handle {
                 mpv_format_MPV_FORMAT_DOUBLE,
             );
             mpv_observe_property(self.0, 0, c"pause".as_ptr(), mpv_format_MPV_FORMAT_FLAG);
+            mpv_observe_property(self.0, 0, c"volume".as_ptr(), mpv_format_MPV_FORMAT_DOUBLE);
+            mpv_observe_property(self.0, 0, c"mute".as_ptr(), mpv_format_MPV_FORMAT_FLAG);
+            // no payload: tracks are re-read from sub-properties on change
+            mpv_observe_property(
+                self.0,
+                0,
+                c"track-list".as_ptr(),
+                mpv_format_MPV_FORMAT_NONE,
+            );
             // known only once decoder is up; first thing any stutter report needs
             mpv_observe_property(
                 self.0,
@@ -237,10 +296,17 @@ fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent
             mpv_event_id_MPV_EVENT_SHUTDOWN => return,
             mpv_event_id_MPV_EVENT_PROPERTY_CHANGE => {
                 let prop = unsafe { &*(event.data as *const mpv_event_property) };
+                let name = unsafe { CStr::from_ptr(prop.name) }.to_bytes();
+                if name == b"track-list" {
+                    send(MpvEvent::Tracks(read_tracks(mpv)));
+                    continue;
+                }
                 if prop.data.is_null() {
                     continue;
                 }
-                match unsafe { CStr::from_ptr(prop.name) }.to_bytes() {
+                match name {
+                    b"volume" => send(MpvEvent::Volume(unsafe { *(prop.data as *const f64) })),
+                    b"mute" => send(MpvEvent::Mute(unsafe { *(prop.data as *const c_int) } != 0)),
                     b"time-pos" => send(MpvEvent::TimePos(unsafe { *(prop.data as *const f64) })),
                     b"duration" => send(MpvEvent::Duration(unsafe { *(prop.data as *const f64) })),
                     b"pause" => send(MpvEvent::Pause(
@@ -275,6 +341,58 @@ fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent
             _ => {}
         }
     }
+}
+
+fn get_string(mpv: Handle, name: &str) -> Option<String> {
+    let name = CString::new(name).ok()?;
+    let value = unsafe { mpv_get_property_string(mpv.0, name.as_ptr()) };
+    if value.is_null() {
+        return None;
+    }
+    let text = unsafe { CStr::from_ptr(value) }
+        .to_string_lossy()
+        .into_owned();
+    unsafe { mpv_free(value as *mut c_void) };
+    Some(text)
+}
+
+/// Reads `track-list/N/*` sub-properties; video tracks are skipped.
+fn read_tracks(mpv: Handle) -> Vec<Track> {
+    let count: usize = get_string(mpv, "track-list/count")
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0);
+    (0..count)
+        .filter_map(|i| {
+            let field =
+                |f: &str| get_string(mpv, &format!("track-list/{i}/{f}")).filter(|v| !v.is_empty());
+            let kind = match field("type")?.as_str() {
+                "audio" => TrackKind::Audio,
+                "sub" => TrackKind::Subtitle,
+                _ => return None,
+            };
+            let id = field("id")?.parse().ok()?;
+            let mut parts: Vec<String> = [field("title"), field("lang"), field("codec")]
+                .into_iter()
+                .flatten()
+                .collect();
+            if kind == TrackKind::Audio
+                && let Some(channels) = field("demux-channel-count")
+            {
+                parts.push(format!("{channels}ch"));
+            }
+            let label = if parts.is_empty() {
+                format!("Track {id}")
+            } else {
+                parts.join(" \u{b7} ")
+            };
+            Some(Track {
+                id,
+                kind,
+                label,
+                selected: field("selected").as_deref() == Some("yes"),
+            })
+        })
+        .collect()
 }
 
 /// Wakes render thread when mpv has a new frame or the size changed.

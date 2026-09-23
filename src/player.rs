@@ -4,15 +4,46 @@ use std::time::Duration;
 use futures::StreamExt as _;
 use futures::channel::mpsc::{self, UnboundedSender};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
-use gpui_kit::component::{ActiveTheme as _, IconName, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Icon, IconName, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::jellyfin::{Api, Item, PlaybackItem, Report};
-use crate::mpv::{Mpv, MpvEvent};
+use crate::mpv::{Mpv, MpvEvent, Track, TrackKind};
 
-pub struct Closed;
+actions!(
+    player,
+    [
+        TogglePause,
+        SeekBack,
+        SeekForward,
+        ToggleFullscreen,
+        ExitFullscreen,
+        ToggleMute
+    ]
+);
+
+const CONTEXT: &str = "Player";
+const SEEK_STEP: f64 = 10.;
+
+pub fn bind_keys(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("space", TogglePause, Some(CONTEXT)),
+        KeyBinding::new("left", SeekBack, Some(CONTEXT)),
+        KeyBinding::new("right", SeekForward, Some(CONTEXT)),
+        KeyBinding::new("f", ToggleFullscreen, Some(CONTEXT)),
+        KeyBinding::new("escape", ExitFullscreen, Some(CONTEXT)),
+        KeyBinding::new("m", ToggleMute, Some(CONTEXT)),
+    ]);
+}
+
+/// Player left; carries volume so the app can remember it.
+pub struct Closed {
+    pub volume: f64,
+    pub muted: bool,
+}
 
 const HIDE_CONTROLS_AFTER: Duration = Duration::from_secs(3);
 const PROGRESS_EVERY: Duration = Duration::from_secs(10);
@@ -32,30 +63,62 @@ pub struct PlayerView {
     time: f64,
     duration: f64,
     paused: bool,
+    volume: f64,
+    muted: bool,
+    tracks: Vec<Track>,
     started: bool,
     finished: bool,
     scrubbing: Option<f64>,
     seek: Entity<SliderState>,
+    volume_slider: Entity<SliderState>,
+    focus: FocusHandle,
     controls_visible: bool,
+    menu_open: bool,
     _hide: Task<()>,
     _tasks: Vec<Task<()>>,
-    _subscription: Subscription,
+    _subscriptions: [Subscription; 2],
 }
 
 impl EventEmitter<Closed> for PlayerView {}
 
 impl PlayerView {
-    pub fn new(api: Api, item: &Item, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        api: Api,
+        item: &Item,
+        (volume, muted): (f64, bool),
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let seek = cx.new(|_| SliderState::new().min(0.).max(1.).step(0.0001));
-        let _subscription = cx.subscribe_in(&seek, window, |this, _, event, _, cx| {
-            this.on_seek(event, cx)
+        let volume_slider = cx.new(|_| {
+            SliderState::new()
+                .min(0.)
+                .max(100.)
+                .step(1.)
+                .default_value(volume as f32)
         });
+        let _subscriptions = [
+            cx.subscribe_in(&seek, window, |this, _, event, window, cx| {
+                this.on_seek(event, window, cx)
+            }),
+            cx.subscribe_in(&volume_slider, window, |this, _, event, window, cx| {
+                let (SliderEvent::Change(value) | SliderEvent::Release(value)) = event;
+                if let Some(mpv) = &this.mpv {
+                    let _ = mpv.set_volume(value.end() as f64);
+                }
+                this.show_controls(window, cx);
+            }),
+        ];
 
         let reports = spawn_reporter(api.clone(), uuid::Uuid::new_v4().simple().to_string(), cx);
 
         let (events_tx, mut events_rx) = mpsc::unbounded();
         let (mpv, error) = match Mpv::new(window, &api.auth_header(), events_tx) {
-            Ok(mpv) => (Some(mpv), None),
+            Ok(mpv) => {
+                let _ = mpv.set_volume(volume);
+                let _ = mpv.set_mute(muted);
+                (Some(mpv), None)
+            }
             Err(err) => (None, Some(format!("Cannot start player: {err}").into())),
         };
 
@@ -91,6 +154,8 @@ impl PlayerView {
             }));
         }
 
+        let focus = cx.focus_handle();
+        focus.focus(window, cx);
         let mut this = Self {
             title: item.name.clone().into(),
             mpv,
@@ -100,16 +165,22 @@ impl PlayerView {
             time: 0.,
             duration: 0.,
             paused: false,
+            volume,
+            muted,
+            tracks: Vec::new(),
             started: false,
             finished: false,
             scrubbing: None,
             seek,
+            volume_slider,
+            focus,
             controls_visible: true,
+            menu_open: false,
             _hide: Task::ready(()),
             _tasks: tasks,
-            _subscription,
+            _subscriptions,
         };
-        this.show_controls(cx);
+        this.show_controls(window, cx);
         this
     }
 
@@ -159,8 +230,18 @@ impl PlayerView {
                 if self.started {
                     self.report(Report::Progress);
                 }
-                self.show_controls(cx);
+                self.show_controls(window, cx);
             }
+            MpvEvent::Volume(volume) => {
+                self.volume = volume;
+                let shown = self.volume_slider.read(cx).value().end() as f64;
+                if (shown - volume).abs() >= 0.5 {
+                    self.volume_slider
+                        .update(cx, |s, cx| s.set_value(volume as f32, window, cx));
+                }
+            }
+            MpvEvent::Mute(muted) => self.muted = muted,
+            MpvEvent::Tracks(tracks) => self.tracks = tracks,
             MpvEvent::FileLoaded => {
                 if !self.started {
                     self.started = true;
@@ -170,7 +251,7 @@ impl PlayerView {
             MpvEvent::EndFile(Ok(true)) => {
                 self.finished = true;
                 self.time = self.duration;
-                self.close(cx);
+                self.close(window, cx);
                 return;
             }
             MpvEvent::EndFile(Ok(false)) => {}
@@ -181,7 +262,7 @@ impl PlayerView {
         cx.notify();
     }
 
-    fn on_seek(&mut self, event: &SliderEvent, cx: &mut Context<Self>) {
+    fn on_seek(&mut self, event: &SliderEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
             SliderEvent::Change(value) => self.scrubbing = Some(value.end() as f64 * self.duration),
             SliderEvent::Release(value) => {
@@ -191,19 +272,71 @@ impl PlayerView {
                 }
             }
         }
-        self.show_controls(cx);
-        cx.notify();
+        self.show_controls(window, cx);
     }
 
-    fn toggle_pause(&mut self, cx: &mut Context<Self>) {
+    /// Controls keep focus on the Player so Space etc. never re-trigger a clicked button.
+    fn refocus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.focus.focus(window, cx);
+        self.show_controls(window, cx);
+    }
+
+    fn toggle_pause(&mut self, _: &TogglePause, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(mpv) = &self.mpv {
             let _ = mpv.set_pause(!self.paused);
         }
-        self.show_controls(cx);
+        self.refocus(window, cx);
+    }
+
+    fn seek_back(&mut self, _: &SeekBack, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(mpv) = &self.mpv {
+            let _ = mpv.seek_by(-SEEK_STEP);
+        }
+        self.show_controls(window, cx);
+    }
+
+    fn seek_forward(&mut self, _: &SeekForward, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(mpv) = &self.mpv {
+            let _ = mpv.seek_by(SEEK_STEP);
+        }
+        self.show_controls(window, cx);
+    }
+
+    fn toggle_mute(&mut self, _: &ToggleMute, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(mpv) = &self.mpv {
+            let _ = mpv.set_mute(!self.muted);
+        }
+        self.refocus(window, cx);
+    }
+
+    fn toggle_fullscreen(
+        &mut self,
+        _: &ToggleFullscreen,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.toggle_fullscreen();
+        self.refocus(window, cx);
+    }
+
+    fn exit_fullscreen(&mut self, _: &ExitFullscreen, window: &mut Window, cx: &mut Context<Self>) {
+        if window.is_fullscreen() {
+            window.toggle_fullscreen();
+        }
+        self.show_controls(window, cx);
+    }
+
+    fn select_track(&mut self, kind: TrackKind, id: Option<i64>) {
+        if let Some(mpv) = &self.mpv {
+            let _ = mpv.select_track(kind, id);
+        }
     }
 
     /// Reports stop and asks the app to leave the Player. Tears down mpv on drop.
-    fn close(&mut self, cx: &mut Context<Self>) {
+    fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if window.is_fullscreen() {
+            window.toggle_fullscreen();
+        }
         if self.started {
             self.report(Report::Stopped);
         }
@@ -211,15 +344,19 @@ impl PlayerView {
         if let (true, Some(item)) = (self.finished, &self.item) {
             let _ = self.reports.unbounded_send(Queued::Played(item.clone()));
         }
-        cx.emit(Closed);
+        cx.emit(Closed {
+            volume: self.volume,
+            muted: self.muted,
+        });
     }
 
-    fn show_controls(&mut self, cx: &mut Context<Self>) {
+    fn show_controls(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.controls_visible = true;
-        self._hide = cx.spawn(async move |this, cx| {
+        self._hide = cx.spawn_in(window, async move |this, cx| {
             cx.background_executor().timer(HIDE_CONTROLS_AFTER).await;
             this.update(cx, |this, cx| {
-                if !this.paused && this.scrubbing.is_none() && this.error.is_none() {
+                let busy = this.paused || this.menu_open || this.scrubbing.is_some();
+                if !busy && this.error.is_none() {
                     this.controls_visible = false;
                     hide_cursor();
                     cx.notify();
@@ -228,6 +365,63 @@ impl PlayerView {
             .ok();
         });
         cx.notify();
+    }
+
+    fn track_menu(&self, kind: TrackKind, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let tracks: Vec<Track> = self
+            .tracks
+            .iter()
+            .filter(|t| t.kind == kind)
+            .cloned()
+            .collect();
+        if tracks.is_empty() {
+            return None;
+        }
+        let (id, icon) = match kind {
+            TrackKind::Audio => ("player-audio", "icons/audio-lines.svg"),
+            TrackKind::Subtitle => ("player-subtitles", "icons/captions.svg"),
+        };
+        let this = cx.entity().downgrade();
+        let on_open = cx.listener(|this, open: &bool, window, cx| {
+            this.menu_open = *open;
+            if !*open {
+                this.refocus(window, cx);
+            }
+        });
+        Some(
+            Button::new(id)
+                .ghost()
+                .icon(Icon::empty().path(icon))
+                .dropdown_menu(move |mut menu, _, _| {
+                    if kind == TrackKind::Subtitle {
+                        let this = this.clone();
+                        menu = menu.item(
+                            PopupMenuItem::new("Off")
+                                .checked(!tracks.iter().any(|t| t.selected))
+                                .on_click(move |_, _, cx| {
+                                    this.update(cx, |this, _| this.select_track(kind, None))
+                                        .ok();
+                                }),
+                        );
+                    }
+                    for track in &tracks {
+                        let (this, track_id) = (this.clone(), track.id);
+                        menu = menu.item(
+                            PopupMenuItem::new(track.label.clone())
+                                .checked(track.selected)
+                                .on_click(move |_, _, cx| {
+                                    this.update(cx, |this, _| {
+                                        this.select_track(kind, Some(track_id))
+                                    })
+                                    .ok();
+                                }),
+                        );
+                    }
+                    menu
+                })
+                .on_open_change(on_open)
+                .into_any_element(),
+        )
     }
 }
 
@@ -307,7 +501,7 @@ impl Render for PlayerView {
                 Button::new("player-back")
                     .ghost()
                     .icon(IconName::ArrowLeft)
-                    .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
+                    .on_click(cx.listener(|this, _, window, cx| this.close(window, cx))),
             )
             .child(
                 div()
@@ -317,33 +511,64 @@ impl Render for PlayerView {
                     .child(self.title.clone()),
             );
 
-        let bottom = h_flex()
-            .px_4()
-            .pt_6()
-            .pb_4()
-            .gap_3()
-            .bg(linear_gradient(
-                0.,
-                linear_color_stop(shade, 0.),
-                linear_color_stop(clear, 1.),
-            ))
-            .child(
-                Button::new("player-play")
-                    .ghost()
-                    .icon(if self.paused {
-                        IconName::Play
-                    } else {
-                        IconName::Pause
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_pause(cx))),
-            )
-            .child(div().text_sm().child(format_time(time)))
-            .child(
-                div()
-                    .flex_1()
-                    .child(Slider::new(&self.seek).disabled(self.duration <= 0.)),
-            )
-            .child(div().text_sm().child(format_time(self.duration)));
+        let volume_icon = if self.muted || self.volume <= 0. {
+            "icons/volume-x.svg"
+        } else {
+            "icons/volume-2.svg"
+        };
+        let bottom =
+            h_flex()
+                .px_4()
+                .pt_6()
+                .pb_4()
+                .gap_3()
+                .bg(linear_gradient(
+                    0.,
+                    linear_color_stop(shade, 0.),
+                    linear_color_stop(clear, 1.),
+                ))
+                .child(
+                    Button::new("player-play")
+                        .ghost()
+                        .icon(if self.paused {
+                            IconName::Play
+                        } else {
+                            IconName::Pause
+                        })
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.toggle_pause(&TogglePause, window, cx)
+                        })),
+                )
+                .child(div().text_sm().child(format_time(time)))
+                .child(
+                    div()
+                        .flex_1()
+                        .child(Slider::new(&self.seek).disabled(self.duration <= 0.)),
+                )
+                .child(div().text_sm().child(format_time(self.duration)))
+                .child(
+                    Button::new("player-mute")
+                        .ghost()
+                        .icon(Icon::empty().path(volume_icon))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.toggle_mute(&ToggleMute, window, cx)
+                        })),
+                )
+                .child(div().w(px(96.)).child(Slider::new(&self.volume_slider)))
+                .children(self.track_menu(TrackKind::Audio, cx))
+                .children(self.track_menu(TrackKind::Subtitle, cx))
+                .child(
+                    Button::new("player-fullscreen")
+                        .ghost()
+                        .icon(if window.is_fullscreen() {
+                            IconName::Minimize
+                        } else {
+                            IconName::Maximize
+                        })
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.toggle_fullscreen(&ToggleFullscreen, window, cx)
+                        })),
+                );
 
         let error = self.error.clone().map(|error| {
             div()
@@ -364,13 +589,21 @@ impl Render for PlayerView {
 
         v_flex()
             .id("player")
+            .key_context(CONTEXT)
+            .track_focus(&self.focus)
+            .on_action(cx.listener(Self::toggle_pause))
+            .on_action(cx.listener(Self::seek_back))
+            .on_action(cx.listener(Self::seek_forward))
+            .on_action(cx.listener(Self::toggle_mute))
+            .on_action(cx.listener(Self::toggle_fullscreen))
+            .on_action(cx.listener(Self::exit_fullscreen))
             .size_full()
             .relative()
             .justify_between()
             .text_color(white())
-            .on_mouse_move(cx.listener(|this, _, _, cx| {
+            .on_mouse_move(cx.listener(|this, _, window, cx| {
                 if !this.controls_visible {
-                    this.show_controls(cx);
+                    this.show_controls(window, cx);
                 }
             }))
             .children(error)
