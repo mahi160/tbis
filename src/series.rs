@@ -1,16 +1,13 @@
-use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::tab::TabBar;
-use gpui_kit::component::{ActiveTheme as _, IconName, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::card::{self, Play};
+use crate::card;
+use crate::detail::{self, PAD};
 use crate::jellyfin::{Api, Item};
-
-const PAD: f32 = 24.;
-const TICKS_PER_MINUTE: i64 = 600_000_000;
-
-pub struct Back;
+use crate::nav::Nav;
+use crate::status::{Status, inline_status};
 
 /// Series detail: header, season tabs, and the Episodes of the selected season.
 pub struct SeriesView {
@@ -24,8 +21,7 @@ pub struct SeriesView {
     _load: Task<()>,
 }
 
-impl EventEmitter<Play> for SeriesView {}
-impl EventEmitter<Back> for SeriesView {}
+impl EventEmitter<Nav> for SeriesView {}
 
 impl SeriesView {
     pub fn new(api: Api, series: Item, cx: &mut Context<Self>) -> Self {
@@ -127,57 +123,42 @@ impl SeriesView {
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let muted_fg = cx.theme().muted_foreground;
-        h_flex()
-            .gap_5()
-            .items_start()
-            .child(
-                Button::new("series-back")
-                    .ghost()
-                    .icon(IconName::ArrowLeft)
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(Back))),
-            )
+        let back = Box::new(cx.listener(|_, _, _, cx| cx.emit(Nav::Back)));
+        let body = v_flex()
+            .min_w_0()
+            .gap_2()
             .child(
                 div()
-                    .w(px(120.))
-                    .h(px(180.))
-                    .flex_shrink_0()
-                    .rounded_md()
-                    .overflow_hidden()
-                    .child(card::image(
-                        self.api.poster_url(&self.series),
-                        self.series.name.clone().into(),
-                        cx,
-                    )),
+                    .text_2xl()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(self.series.name.clone()),
             )
-            .child(
-                v_flex()
-                    .min_w_0()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_2xl()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(self.series.name.clone()),
-                    )
-                    .children(
-                        self.series
-                            .production_year
-                            .map(|y| div().text_sm().text_color(muted_fg).child(y.to_string())),
-                    )
-                    .children(
-                        self.series
-                            .overview
-                            .clone()
-                            .map(|o| div().text_sm().line_clamp(4).child(o)),
-                    ),
+            .children(
+                self.series
+                    .production_year
+                    .map(|y| div().text_sm().text_color(muted_fg).child(y.to_string())),
             )
+            .children(
+                self.series
+                    .overview
+                    .clone()
+                    .map(|o| div().text_sm().line_clamp(4).child(o)),
+            );
+        detail::detail_header(
+            &self.api,
+            &self.series,
+            (px(120.), px(180.)),
+            back,
+            body,
+            cx,
+        )
     }
 
     fn render_episode(&self, episode: &Item, cx: &mut Context<Self>) -> AnyElement {
         let (muted, muted_fg) = (cx.theme().muted, cx.theme().muted_foreground);
         let play = {
             let episode = episode.clone();
-            cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Play(episode.clone())))
+            cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Play(episode.clone())))
         };
         let progress = episode.user_data.played_percentage.filter(|p| *p > 0.);
         let number = episode
@@ -186,7 +167,7 @@ impl SeriesView {
             .unwrap_or_default();
         let runtime = episode
             .run_time_ticks
-            .map(|t| format!("{} min", (t + TICKS_PER_MINUTE / 2) / TICKS_PER_MINUTE));
+            .map(|t| format!("{} min", detail::minutes(t)));
 
         h_flex()
             .id(SharedString::from(episode.id.clone()))
@@ -236,7 +217,6 @@ impl SeriesView {
 
 impl Render for SeriesView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let muted_fg = cx.theme().muted_foreground;
         let seasons = (!self.seasons.is_empty()).then(|| {
             div().id("season-tabs").overflow_x_scroll().child(
                 TabBar::new("seasons")
@@ -250,13 +230,13 @@ impl Render for SeriesView {
         });
 
         let status = if let Some(error) = self.error.clone() {
-            Some(div().text_color(cx.theme().danger).child(error))
+            Some(Status::Error(error))
         } else if self.episodes.is_empty() {
-            Some(div().text_color(muted_fg).child(if self.loading {
-                "Loading…"
+            Some(if self.loading {
+                Status::Loading
             } else {
-                "No episodes"
-            }))
+                Status::Empty("No episodes".into())
+            })
         } else {
             None
         };
@@ -274,7 +254,7 @@ impl Render for SeriesView {
             .gap_6()
             .child(self.render_header(cx))
             .children(seasons)
-            .children(status)
+            .children(inline_status(status, cx))
             .child(v_flex().gap_1().children(episodes))
     }
 }

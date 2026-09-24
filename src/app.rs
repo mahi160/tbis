@@ -7,16 +7,16 @@ use gpui_kit::component::{
 };
 use gpui_kit::*;
 
-use crate::card::{OpenMovie, OpenSeries, Play};
 use crate::config::{self, Config};
 use crate::home::HomeView;
 use crate::jellyfin::{Api, Item, Kind, Session};
 use crate::library::{LibraryView, SortChanged};
 use crate::login::{LoggedIn, LoginView};
-use crate::movie::{Back as MovieBack, MovieView};
+use crate::movie::MovieView;
+use crate::nav::Nav;
 use crate::player::{Closed, PlayerView};
 use crate::search::SearchView;
-use crate::series::{Back as SeriesBack, SeriesView};
+use crate::series::SeriesView;
 
 actions!(tbis, [FocusSearch]);
 
@@ -45,24 +45,20 @@ struct Main {
     /// Movie or Series detail shown over the current tab.
     detail: Option<Detail>,
     player: Option<(Entity<PlayerView>, Subscription)>,
-    _subscriptions: [Subscription; 11],
+    _subscriptions: [Subscription; 7],
 }
 
 /// Detail page shown over the current tab; opened from a Movie or Series poster.
-enum Detail {
-    // subscriptions kept alive by the variant, never read directly
-    #[allow(dead_code)]
-    Movie(Entity<MovieView>, [Subscription; 2]),
-    #[allow(dead_code)]
-    Series(Entity<SeriesView>, [Subscription; 2]),
+struct Detail {
+    view: AnyView,
+    refresh: Box<dyn Fn(&mut App)>,
+    // kept alive so Nav from the detail view keeps reaching `on_nav`
+    _nav: Subscription,
 }
 
 impl Detail {
     fn refresh(&self, cx: &mut App) {
-        match self {
-            Detail::Movie(view, _) => view.update(cx, |view, cx| view.refresh(cx)),
-            Detail::Series(view, _) => view.update(cx, |view, cx| view.refresh(cx)),
-        }
+        (self.refresh)(cx)
     }
 }
 
@@ -112,6 +108,26 @@ impl AppView {
         if matches!(screen, Screen::Main(_)) {
             focus.focus(window, cx);
         }
+        cx.on_app_quit(|this, cx| {
+            // cmd-Q/window close skip Player::close, so its report never fires and the
+            // volume never gets saved; do both here with the shutdown budget instead
+            let mut report = None;
+            if let Screen::Main(main) = &this.screen
+                && let Some((player, _)) = &main.player
+            {
+                let (volume, muted) = player.read(cx).volume_state();
+                this.config.volume = volume;
+                this.config.muted = muted;
+                save_config(&this.config, "volume");
+                report = player.read(cx).quit_report();
+            }
+            async move {
+                if let Some(report) = report {
+                    report.await;
+                }
+            }
+        })
+        .detach();
         Self {
             config,
             screen,
@@ -124,9 +140,7 @@ impl AppView {
         let subscription =
             cx.subscribe_in(&login, window, |this, _, LoggedIn(session), window, cx| {
                 this.config.session = Some(session.clone());
-                if let Err(err) = config::save(&this.config) {
-                    eprintln!("failed to save session: {err}");
-                }
+                save_config(&this.config, "session");
                 this.screen = Self::main_screen(session.clone(), &this.config, window, cx);
                 this.focus.focus(window, cx);
                 cx.notify();
@@ -160,39 +174,23 @@ impl AppView {
         let _subscriptions = [
             cx.subscribe(&movies, |this, _, SortChanged(sort), _| {
                 this.config.movies_sort = *sort;
-                if let Err(err) = config::save(&this.config) {
-                    eprintln!("failed to save sort: {err}");
-                }
+                save_config(&this.config, "sort");
             }),
             cx.subscribe(&series, |this, _, SortChanged(sort), _| {
                 this.config.series_sort = *sort;
-                if let Err(err) = config::save(&this.config) {
-                    eprintln!("failed to save sort: {err}");
-                }
+                save_config(&this.config, "sort");
             }),
-            cx.subscribe_in(&home, window, |this, _, Play(item), window, cx| {
-                this.open_player(item, window, cx)
+            cx.subscribe_in(&home, window, |this, _, nav, window, cx| {
+                this.on_nav(nav, window, cx)
             }),
-            cx.subscribe_in(&home, window, |this, _, OpenMovie(item), window, cx| {
-                this.open_movie(item, window, cx)
+            cx.subscribe_in(&movies, window, |this, _, nav, window, cx| {
+                this.on_nav(nav, window, cx)
             }),
-            cx.subscribe_in(&home, window, |this, _, OpenSeries(item), window, cx| {
-                this.open_series(item, window, cx)
+            cx.subscribe_in(&series, window, |this, _, nav, window, cx| {
+                this.on_nav(nav, window, cx)
             }),
-            cx.subscribe_in(&movies, window, |this, _, OpenMovie(item), window, cx| {
-                this.open_movie(item, window, cx)
-            }),
-            cx.subscribe_in(&series, window, |this, _, OpenSeries(item), window, cx| {
-                this.open_series(item, window, cx)
-            }),
-            cx.subscribe_in(&search, window, |this, _, Play(item), window, cx| {
-                this.open_player(item, window, cx)
-            }),
-            cx.subscribe_in(&search, window, |this, _, OpenMovie(item), window, cx| {
-                this.open_movie(item, window, cx)
-            }),
-            cx.subscribe_in(&search, window, |this, _, OpenSeries(item), window, cx| {
-                this.open_series(item, window, cx)
+            cx.subscribe_in(&search, window, |this, _, nav, window, cx| {
+                this.on_nav(nav, window, cx)
             }),
             cx.subscribe(&search_input, |this, input, event: &InputEvent, cx| {
                 if let (InputEvent::Change, Screen::Main(main)) = (event, &this.screen) {
@@ -236,50 +234,77 @@ impl AppView {
             .update(cx, |search, cx| search.set_query("", cx));
     }
 
-    fn open_series(&mut self, series: &Item, window: &mut Window, cx: &mut Context<Self>) {
+    /// Every Nav-emitting view (Home/Library/Search rows, Movie/Series detail) routes here.
+    fn on_nav(&mut self, nav: &Nav, window: &mut Window, cx: &mut Context<Self>) {
+        match nav {
+            Nav::Open(item) => match item.kind {
+                Kind::Series => self.open_series(item, window, cx),
+                // an Episode or Other reaching Nav::Open would be a server data bug
+                Kind::Movie | Kind::Episode | Kind::Other => self.open_movie(item, window, cx),
+            },
+            Nav::Play(item) => self.open_player(item, window, cx),
+            Nav::Back => {
+                let Screen::Main(main) = &mut self.screen else {
+                    return;
+                };
+                main.detail = None;
+                main.refresh_visible(cx);
+                cx.notify();
+            }
+        }
+    }
+
+    /// Opens `view` as the detail page: subscribes it to Nav, remembers how to refresh it.
+    fn set_detail<V: Render + EventEmitter<Nav>>(
+        &mut self,
+        view: Entity<V>,
+        refresh: impl Fn(&mut App) + 'static,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let _nav = cx.subscribe_in(&view, window, |this, _, nav, window, cx| {
+            this.on_nav(nav, window, cx)
+        });
         let Screen::Main(main) = &mut self.screen else {
             return;
         };
-        let (api, series) = (main.api.clone(), series.clone());
-        let detail = cx.new(|cx| SeriesView::new(api, series, cx));
-        let subscriptions = [
-            cx.subscribe_in(&detail, window, |this, _, Play(item), window, cx| {
-                this.open_player(item, window, cx)
-            }),
-            cx.subscribe(&detail, |this, _, SeriesBack, cx| {
-                if let Screen::Main(main) = &mut this.screen {
-                    main.detail = None;
-                    main.refresh_visible(cx);
-                    cx.notify();
-                }
-            }),
-        ];
-        main.detail = Some(Detail::Series(detail, subscriptions));
+        main.detail = Some(Detail {
+            view: view.into(),
+            refresh: Box::new(refresh),
+            _nav,
+        });
         Self::clear_search(main, window, cx);
         cx.notify();
     }
 
+    fn open_series(&mut self, series: &Item, window: &mut Window, cx: &mut Context<Self>) {
+        let Screen::Main(main) = &self.screen else {
+            return;
+        };
+        let (api, series) = (main.api.clone(), series.clone());
+        let detail = cx.new(|cx| SeriesView::new(api, series, cx));
+        let refresh_view = detail.clone();
+        self.set_detail(
+            detail,
+            move |cx| refresh_view.update(cx, |view, cx| view.refresh(cx)),
+            window,
+            cx,
+        );
+    }
+
     fn open_movie(&mut self, movie: &Item, window: &mut Window, cx: &mut Context<Self>) {
-        let Screen::Main(main) = &mut self.screen else {
+        let Screen::Main(main) = &self.screen else {
             return;
         };
         let (api, movie) = (main.api.clone(), movie.clone());
         let detail = cx.new(|cx| MovieView::new(api, movie, cx));
-        let subscriptions = [
-            cx.subscribe_in(&detail, window, |this, _, Play(item), window, cx| {
-                this.open_player(item, window, cx)
-            }),
-            cx.subscribe(&detail, |this, _, MovieBack, cx| {
-                if let Screen::Main(main) = &mut this.screen {
-                    main.detail = None;
-                    main.refresh_visible(cx);
-                    cx.notify();
-                }
-            }),
-        ];
-        main.detail = Some(Detail::Movie(detail, subscriptions));
-        Self::clear_search(main, window, cx);
-        cx.notify();
+        let refresh_view = detail.clone();
+        self.set_detail(
+            detail,
+            move |cx| refresh_view.update(cx, |view, cx| view.refresh(cx)),
+            window,
+            cx,
+        );
     }
 
     fn focus_search(&mut self, _: &FocusSearch, window: &mut Window, cx: &mut Context<Self>) {
@@ -302,9 +327,7 @@ impl AppView {
             cx.subscribe_in(&player, window, |this, _, closed: &Closed, window, cx| {
                 this.config.volume = closed.volume;
                 this.config.muted = closed.muted;
-                if let Err(err) = config::save(&this.config) {
-                    eprintln!("failed to save volume: {err}");
-                }
+                save_config(&this.config, "volume");
                 this.close_player(window, cx)
             });
         main.player = Some((player, subscription));
@@ -325,9 +348,7 @@ impl AppView {
 
     fn log_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.config.session = None;
-        if let Err(err) = config::save(&self.config) {
-            eprintln!("failed to clear session: {err}");
-        }
+        save_config(&self.config, "session");
         self.screen = Self::login_screen(&self.config, window, cx);
         cx.notify();
     }
@@ -382,6 +403,13 @@ impl AppView {
 }
 
 /// Player needs the window see-through so mpv's layer below gpui shows (ADR-0001).
+/// Saves `config`, logging (not surfacing) a failure; `what` names the field for the log line.
+fn save_config(config: &Config, what: &str) {
+    if let Err(err) = config::save(config) {
+        eprintln!("failed to save {what}: {err}");
+    }
+}
+
 fn set_video_background(video: bool, window: &mut Window, cx: &mut App) {
     window.set_background_appearance(if video {
         WindowBackgroundAppearance::Transparent
@@ -410,13 +438,9 @@ impl Render for AppView {
             Screen::Login { view, .. } => view.clone().into_any_element(),
             Screen::Main(main) if main.searching(cx) => main.search.clone().into_any_element(),
             Screen::Main(Main {
-                detail: Some(Detail::Movie(detail, _)),
+                detail: Some(detail),
                 ..
-            }) => detail.clone().into_any_element(),
-            Screen::Main(Main {
-                detail: Some(Detail::Series(detail, _)),
-                ..
-            }) => detail.clone().into_any_element(),
+            }) => detail.view.clone().into_any_element(),
             Screen::Main(Main {
                 tab: Tab::Movies,
                 movies,

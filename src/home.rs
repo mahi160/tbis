@@ -1,9 +1,10 @@
-use gpui_kit::component::button::Button;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::*;
 
-use crate::card::{self, OnClick, OpenMovie, OpenSeries, Play};
+use crate::card::{self, OnClick};
 use crate::jellyfin::{Api, Item, Kind};
+use crate::nav::Nav;
+use crate::status::{Status, full_status, inline_status};
 
 const PER_ROW: usize = 24;
 // Photon's row card widths (11rem / 18rem).
@@ -40,9 +41,7 @@ pub struct HomeView {
     _load: Task<()>,
 }
 
-impl EventEmitter<Play> for HomeView {}
-impl EventEmitter<OpenMovie> for HomeView {}
-impl EventEmitter<OpenSeries> for HomeView {}
+impl EventEmitter<Nav> for HomeView {}
 
 impl HomeView {
     pub fn new(api: Api) -> Self {
@@ -105,7 +104,12 @@ impl HomeView {
 
     fn play_on_click(item: &Item, cx: &mut Context<Self>) -> OnClick {
         let item = item.clone();
-        Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Play(item.clone()))))
+        Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Play(item.clone()))))
+    }
+
+    fn open_on_click(item: &Item, cx: &mut Context<Self>) -> OnClick {
+        let item = item.clone();
+        Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Open(item.clone()))))
     }
 
     /// Row heading: small mono uppercase label, Photon's `.heading`.
@@ -153,32 +157,12 @@ impl Render for HomeView {
         let mono_font = cx.theme().mono_font_family.clone();
         if self.rows.is_empty() {
             let status = match self.error.clone() {
-                Some(error) => v_flex()
-                    .gap_3()
-                    .items_center()
-                    .child(div().text_color(cx.theme().danger).child(error))
-                    .child(
-                        Button::new("home-retry")
-                            .label("Retry")
-                            .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
-                    )
-                    .into_any_element(),
-                None => div()
-                    .text_color(muted_fg)
-                    .child(if self.loading {
-                        "Loading…"
-                    } else {
-                        "Nothing here yet"
-                    })
-                    .into_any_element(),
+                Some(error) => Status::Error(error),
+                None if self.loading => Status::Loading,
+                None => Status::Empty("Nothing here yet".into()),
             };
-            return div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(status)
-                .into_any_element();
+            let retry: OnClick = Box::new(cx.listener(|this, _, _, cx| this.refresh(cx)));
+            return full_status(status, retry, self.loading, cx);
         }
 
         let api = self.api.clone();
@@ -191,35 +175,28 @@ impl Render for HomeView {
                 })
                 .collect()
         };
+        let posters = |items: &[Item], cx: &mut Context<Self>| -> Vec<AnyElement> {
+            items
+                .iter()
+                .map(|item| {
+                    let on_click = Self::open_on_click(item, cx);
+                    card::poster_card(&api, item, px(POSTER_WIDTH), on_click, cx)
+                })
+                .collect()
+        };
         let continue_watching = wide(&self.rows.continue_watching, cx);
         let next_up = wide(&self.rows.next_up, cx);
-        let movies = self
-            .rows
-            .movies
-            .iter()
-            .map(|item| {
-                let item_ = item.clone();
-                let on_click: OnClick =
-                    Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                        cx.emit(OpenMovie(item_.clone()))
-                    }));
-                card::poster_card(&self.api, item, px(POSTER_WIDTH), Some(on_click), cx)
-            })
-            .collect();
-        let series = self
-            .rows
-            .series
-            .iter()
-            .map(|item| {
-                let item_ = item.clone();
-                let on_click: OnClick =
-                    Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                        cx.emit(OpenSeries(item_.clone()))
-                    }));
-                card::poster_card(&self.api, item, px(POSTER_WIDTH), Some(on_click), cx)
-            })
-            .collect();
+        let movies = posters(&self.rows.movies, cx);
+        let series = posters(&self.rows.series, cx);
 
+        let row =
+            |title, id, cards| Self::row(title, id, cards, gutter, mono_font.clone(), muted_fg);
+        // shown while a background refresh fails but the rows still have the old data
+        let banner = self.error.clone().map(|error| {
+            div()
+                .px(gutter)
+                .children(inline_status(Some(Status::Error(error)), cx))
+        });
         // Photon's `.page { padding-block: 1.5rem 3rem }` + `.section` gap (2.75rem).
         v_flex()
             .id("home")
@@ -228,38 +205,11 @@ impl Render for HomeView {
             .pt(px(24.))
             .pb(px(48.))
             .gap(px(44.))
-            .children(Self::row(
-                "Continue Watching",
-                "row-continue",
-                continue_watching,
-                gutter,
-                mono_font.clone(),
-                muted_fg,
-            ))
-            .children(Self::row(
-                "Next Up",
-                "row-next-up",
-                next_up,
-                gutter,
-                mono_font.clone(),
-                muted_fg,
-            ))
-            .children(Self::row(
-                "Movies",
-                "row-movies",
-                movies,
-                gutter,
-                mono_font.clone(),
-                muted_fg,
-            ))
-            .children(Self::row(
-                "Series",
-                "row-series",
-                series,
-                gutter,
-                mono_font,
-                muted_fg,
-            ))
+            .children(banner)
+            .children(row("Continue Watching", "row-continue", continue_watching))
+            .children(row("Next Up", "row-next-up", next_up))
+            .children(row("Movies", "row-movies", movies))
+            .children(row("Series", "row-series", series))
             .into_any_element()
     }
 }

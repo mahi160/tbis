@@ -21,6 +21,7 @@ pub struct PipStart<'a> {
     pub url: &'a str,
     pub auth_header: &'a str,
     pub start_seconds: f64,
+    pub speed: f64,
     pub volume: f64,
     pub muted: bool,
     pub audio_track: Option<i64>,
@@ -34,7 +35,13 @@ pub struct Pip {
 
 impl Pip {
     pub fn start(args: PipStart, events: UnboundedSender<PipEvent>) -> Result<Self, String> {
-        let socket = std::env::temp_dir().join(format!("tbis-pip-{}.sock", std::process::id()));
+        // unique per start, not just per process: an old poll thread tearing down a
+        // just-replaced PiP must not delete the new one's socket
+        let socket = std::env::temp_dir().join(format!(
+            "tbis-pip-{}-{}.sock",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
         let _ = std::fs::remove_file(&socket); // stale from crash
         let track = |id: Option<i64>| id.map_or("no".to_string(), |id| id.to_string());
         // no URL or token in argv: world-readable via ps; sent over IPC instead
@@ -54,8 +61,9 @@ impl Pip {
         }
         let child = child
             .arg(format!("--start={}", args.start_seconds))
+            .arg(format!("--speed={}", args.speed))
             .arg(format!("--volume={}", args.volume.round()))
-            .arg(format!("--mute={}", if args.muted { "yes" } else { "no" }))
+            .arg(format!("--mute={}", crate::mpv::yes_no(args.muted)))
             .arg(format!("--aid={}", track(args.audio_track)))
             .arg(format!("--sid={}", track(args.subtitle_track)))
             .stdin(Stdio::null())

@@ -3,8 +3,10 @@ use std::time::Duration;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::*;
 
-use crate::card::{self, OpenMovie, OpenSeries, Play};
+use crate::card;
 use crate::jellyfin::{Api, Item, Kind};
+use crate::nav::Nav;
+use crate::status::{Status, inline_status};
 
 const PAD: f32 = 24.;
 const CARD_WIDTH: f32 = 150.;
@@ -34,9 +36,7 @@ pub struct SearchView {
     _search: Task<()>,
 }
 
-impl EventEmitter<Play> for SearchView {}
-impl EventEmitter<OpenMovie> for SearchView {}
-impl EventEmitter<OpenSeries> for SearchView {}
+impl EventEmitter<Nav> for SearchView {}
 
 impl SearchView {
     pub fn new(api: Api) -> Self {
@@ -99,26 +99,19 @@ impl SearchView {
         &self,
         title: &'static str,
         items: &[Item],
-        series: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let mut cards = Vec::with_capacity(items.len());
         for item in items {
             let item_ = item.clone();
-            let on_click: card::OnClick = if series {
-                Box::new(
-                    cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(OpenSeries(item_.clone()))),
-                )
-            } else {
-                Box::new(
-                    cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(OpenMovie(item_.clone()))),
-                )
-            };
+            let on_click: card::OnClick = Box::new(
+                cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Open(item_.clone()))),
+            );
             cards.push(card::poster_card(
                 &self.api,
                 item,
                 px(CARD_WIDTH),
-                Some(on_click),
+                on_click,
                 cx,
             ));
         }
@@ -133,7 +126,7 @@ impl SearchView {
         for item in &self.results.episodes {
             let play = {
                 let item = item.clone();
-                cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Play(item.clone())))
+                cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Play(item.clone())))
             };
             let muted_fg = cx.theme().muted_foreground;
             rows.push(
@@ -188,31 +181,29 @@ fn section(title: &'static str, body: impl IntoElement) -> AnyElement {
 
 impl Render for SearchView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let muted_fg = cx.theme().muted_foreground;
         let status = if let Some(error) = self.error.clone() {
-            Some(div().text_color(cx.theme().danger).child(error))
+            Some(Status::Error(error))
         } else if self.query.chars().count() < MIN_CHARS {
-            Some(
-                div()
-                    .text_color(muted_fg)
-                    .child("Type at least 2 characters"),
-            )
+            Some(Status::Empty("Type at least 2 characters".into()))
         } else if self.results.is_empty() {
-            Some(div().text_color(muted_fg).child(if self.loading {
-                "Searching…"
-            } else {
-                "No results"
-            }))
+            Some(Status::Empty(
+                if self.loading {
+                    "Searching…"
+                } else {
+                    "No results"
+                }
+                .into(),
+            ))
         } else {
             None
         };
 
         let mut sections = Vec::new();
         if !self.results.movies.is_empty() {
-            sections.push(self.poster_section("Movies", &self.results.movies, false, cx));
+            sections.push(self.poster_section("Movies", &self.results.movies, cx));
         }
         if !self.results.series.is_empty() {
-            sections.push(self.poster_section("Series", &self.results.series, true, cx));
+            sections.push(self.poster_section("Series", &self.results.series, cx));
         }
         if !self.results.episodes.is_empty() {
             sections.push(self.episode_section(cx));
@@ -224,7 +215,7 @@ impl Render for SearchView {
             .overflow_y_scroll()
             .p(px(PAD))
             .gap_8()
-            .children(status)
+            .children(inline_status(status, cx))
             .children(sections)
     }
 }

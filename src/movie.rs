@@ -3,13 +3,10 @@ use gpui_kit::component::{ActiveTheme as _, IconName, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::card::{self, Play};
+use crate::detail::{self, PAD};
 use crate::jellyfin::{Api, Item};
-
-const PAD: f32 = 24.;
-const TICKS_PER_MINUTE: i64 = 600_000_000;
-
-pub struct Back;
+use crate::nav::Nav;
+use crate::status::{Status, inline_status};
 
 /// Movie detail: poster, title, meta, overview, and a Play/Resume button.
 pub struct MovieView {
@@ -20,8 +17,7 @@ pub struct MovieView {
     _load: Task<()>,
 }
 
-impl EventEmitter<Play> for MovieView {}
-impl EventEmitter<Back> for MovieView {}
+impl EventEmitter<Nav> for MovieView {}
 
 impl MovieView {
     pub fn new(api: Api, movie: Item, cx: &mut Context<Self>) -> Self {
@@ -60,9 +56,7 @@ impl MovieView {
     }
 
     fn runtime_label(&self) -> Option<String> {
-        let ticks = self.movie.run_time_ticks?;
-        let minutes = (ticks + TICKS_PER_MINUTE / 2) / TICKS_PER_MINUTE;
-        Some(format!("{}h {:02}m", minutes / 60, minutes % 60))
+        Some(detail::runtime_label(self.movie.run_time_ticks?))
     }
 }
 
@@ -73,72 +67,54 @@ impl Render for MovieView {
         let runtime = self.runtime_label();
         let movie = self.movie.clone();
 
-        let header = h_flex()
-            .gap_5()
-            .items_start()
-            .child(
-                Button::new("movie-back")
-                    .ghost()
-                    .icon(IconName::ArrowLeft)
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(Back))),
-            )
+        let back = Box::new(cx.listener(|_, _, _, cx| cx.emit(Nav::Back)));
+        let body = v_flex()
+            .min_w_0()
+            .gap_3()
             .child(
                 div()
-                    .w(px(160.))
-                    .h(px(240.))
-                    .flex_shrink_0()
-                    .rounded_md()
-                    .overflow_hidden()
-                    .child(card::image(
-                        self.api.poster_url(&self.movie),
-                        self.movie.name.clone().into(),
-                        cx,
-                    )),
+                    .text_2xl()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(self.movie.name.clone()),
+            )
+            .when(
+                self.movie.production_year.is_some() || runtime.is_some(),
+                |this| {
+                    this.child(
+                        h_flex()
+                            .gap_3()
+                            .text_sm()
+                            .text_color(muted_fg)
+                            .children(self.movie.production_year.map(|y| y.to_string()))
+                            .children(runtime),
+                    )
+                },
+            )
+            .children(
+                self.movie
+                    .overview
+                    .clone()
+                    .map(|o| div().text_sm().max_w(px(560.)).line_clamp(6).child(o)),
             )
             .child(
-                v_flex()
-                    .min_w_0()
-                    .gap_3()
-                    .child(
-                        div()
-                            .text_2xl()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(self.movie.name.clone()),
-                    )
-                    .when(
-                        self.movie.production_year.is_some() || runtime.is_some(),
-                        |this| {
-                            this.child(
-                                h_flex()
-                                    .gap_3()
-                                    .text_sm()
-                                    .text_color(muted_fg)
-                                    .children(self.movie.production_year.map(|y| y.to_string()))
-                                    .children(runtime),
-                            )
-                        },
-                    )
-                    .children(
-                        self.movie
-                            .overview
-                            .clone()
-                            .map(|o| div().text_sm().max_w(px(560.)).line_clamp(6).child(o)),
-                    )
-                    .child(
-                        Button::new("movie-play")
-                            .primary()
-                            .icon(IconName::Play)
-                            .label(if resumed { "Resume" } else { "Play" })
-                            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                                cx.emit(Play(movie.clone()))
-                            })),
-                    ),
+                Button::new("movie-play")
+                    .primary()
+                    .icon(IconName::Play)
+                    .label(if resumed { "Resume" } else { "Play" })
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        cx.emit(Nav::Play(movie.clone()))
+                    })),
             );
+        let header =
+            detail::detail_header(&self.api, &self.movie, (px(160.), px(240.)), back, body, cx);
 
-        let status = self
-            .error
-            .clone()
-            .map(|error| div().text_sm().text_color(cx.theme().danger).child(error));
+        let status = if let Some(error) = self.error.clone() {
+            Some(Status::Error(error))
+        } else if self.loading {
+            Some(Status::Loading)
+        } else {
+            None
+        };
 
         v_flex()
             .id("movie-detail")
@@ -147,6 +123,6 @@ impl Render for MovieView {
             .p(px(PAD))
             .gap_6()
             .child(header)
-            .children(status)
+            .children(inline_status(status, cx))
     }
 }

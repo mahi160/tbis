@@ -2,17 +2,7 @@ use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, v_flex
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::jellyfin::{Api, Item};
-
-/// Emitted by any screen when the user picks an Episode to play, or a
-/// detail page's Play/Resume button is used.
-pub struct Play(pub Item);
-
-/// Emitted when the user picks a Movie poster; opens Movie detail.
-pub struct OpenMovie(pub Item);
-
-/// Emitted when the user picks a Series; opens Series detail.
-pub struct OpenSeries(pub Item);
+use crate::jellyfin::{Api, Item, Kind};
 
 const TITLE_HEIGHT: f32 = 20.;
 const META_HEIGHT: f32 = 16.;
@@ -83,7 +73,7 @@ pub fn poster_card(
     api: &Api,
     item: &Item,
     width: Pixels,
-    on_click: Option<OnClick>,
+    on_click: OnClick,
     cx: &App,
 ) -> AnyElement {
     let theme = cx.theme();
@@ -92,13 +82,11 @@ pub fn poster_card(
         .id(SharedString::from(item.id.clone()))
         .w(width)
         .gap_2()
-        .when_some(on_click, |this, on_click| {
-            this.cursor_pointer().on_click(on_click)
-        })
+        .cursor_pointer()
+        .on_click(on_click)
         .child(
             art_tile(width, width * 1.5, theme.muted)
                 .child(image(api.poster_url(item), name.clone(), cx))
-                .child(play_scrim(cx))
                 .when(item.user_data.played, |this| this.child(check_badge(cx))),
         )
         .child(
@@ -127,9 +115,12 @@ pub fn poster_card(
 /// 16:9 art, title, `S2E3 · Name` or year, progress bar. For Continue Watching and Next Up.
 pub fn wide_card(api: &Api, item: &Item, width: Pixels, on_click: OnClick, cx: &App) -> AnyElement {
     let theme = cx.theme();
-    let (title, subtitle) = match &item.series_name {
-        Some(series) => (series.clone(), item.episode_label()),
-        None => (
+    let (title, subtitle) = match item.kind {
+        Kind::Episode => (
+            item.series_name.clone().unwrap_or_default(),
+            item.episode_label(),
+        ),
+        _ => (
             item.name.clone(),
             item.production_year
                 .map(|y| y.to_string())

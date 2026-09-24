@@ -6,8 +6,10 @@ use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::card::{OnClick, OpenMovie, OpenSeries, poster_card};
+use crate::card::{OnClick, poster_card};
 use crate::jellyfin::{Api, Item, Kind, Sort};
+use crate::nav::Nav;
+use crate::status::{Status, full_status, inline_status};
 
 pub struct SortChanged(pub Sort);
 
@@ -30,8 +32,7 @@ pub struct LibraryView {
 }
 
 impl EventEmitter<SortChanged> for LibraryView {}
-impl EventEmitter<OpenMovie> for LibraryView {}
-impl EventEmitter<OpenSeries> for LibraryView {}
+impl EventEmitter<Nav> for LibraryView {}
 
 impl LibraryView {
     pub fn new(kind: Kind, api: Api, sort: Sort) -> Self {
@@ -109,21 +110,17 @@ impl LibraryView {
     fn title(&self) -> &'static str {
         match self.kind {
             Kind::Series => "Series",
-            _ => "Movies",
+            // this view only ever holds Movie or Series; Episode/Other can't reach here
+            Kind::Movie | Kind::Episode | Kind::Other => "Movies",
         }
     }
 
     fn render_card(&self, item: &Item, cx: &mut Context<Self>) -> AnyElement {
         let item_ = item.clone();
-        let open: OnClick = match self.kind {
-            Kind::Series => Box::new(
-                cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(OpenSeries(item_.clone()))),
-            ),
-            _ => Box::new(
-                cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(OpenMovie(item_.clone()))),
-            ),
-        };
-        poster_card(&self.api, item, self.card_width, Some(open), cx)
+        let open: OnClick = Box::new(
+            cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Open(item_.clone()))),
+        );
+        poster_card(&self.api, item, self.card_width, open, cx)
     }
 
     fn render_sort_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -182,33 +179,18 @@ impl Render for LibraryView {
             )
             .child(self.render_sort_menu(cx));
 
-        let body = if let Some(error) = self.error.clone().filter(|_| self.items.is_empty()) {
-            v_flex()
-                .flex_1()
-                .items_center()
-                .justify_center()
-                .gap_3()
-                .child(div().text_color(cx.theme().danger).child(error))
-                .child(
-                    Button::new("library-retry")
-                        .label("Retry")
-                        .loading(self.loading)
-                        .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
-                )
-                .into_any_element()
-        } else if self.items.is_empty() {
-            let message = if self.loading {
-                "Loading…".to_string()
+        let body = if self.items.is_empty() {
+            let status = if let Some(error) = self.error.clone() {
+                Status::Error(error)
+            } else if self.loading {
+                Status::Loading
             } else {
-                format!("No {}", self.title().to_lowercase())
+                Status::Empty(format!("No {}", self.title().to_lowercase()).into())
             };
+            let retry: OnClick = Box::new(cx.listener(|this, _, _, cx| this.refresh(cx)));
             div()
                 .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(muted_fg)
-                .child(message)
+                .child(full_status(status, retry, self.loading, cx))
                 .into_any_element()
         } else {
             let rows = self.items.len().div_ceil(self.columns);
@@ -232,22 +214,21 @@ impl Render for LibraryView {
             .into_any_element()
         };
 
+        let banner = self
+            .error
+            .clone()
+            .filter(|_| !self.items.is_empty())
+            .map(|error| {
+                div()
+                    .px(px(PAD))
+                    .pb_2()
+                    .children(inline_status(Some(Status::Error(error)), cx))
+            });
+
         v_flex()
             .size_full()
             .child(header)
-            .children(
-                self.error
-                    .clone()
-                    .filter(|_| !self.items.is_empty())
-                    .map(|error| {
-                        div()
-                            .px(px(PAD))
-                            .pb_2()
-                            .text_sm()
-                            .text_color(cx.theme().danger)
-                            .child(error)
-                    }),
-            )
+            .children(banner)
             .child(body)
     }
 }
