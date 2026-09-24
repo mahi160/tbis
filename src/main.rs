@@ -2,6 +2,7 @@ mod app;
 mod assets;
 mod card;
 mod config;
+mod fonts;
 mod home;
 mod jellyfin;
 mod library;
@@ -54,6 +55,7 @@ fn main() {
         .with_assets(assets::Assets)
         .run(|cx| {
             gpui_kit::init(cx);
+            fonts::embed(cx).expect("failed to embed Inter");
             theme::init(cx);
 
             cx.bind_keys([

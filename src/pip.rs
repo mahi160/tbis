@@ -38,7 +38,8 @@ impl Pip {
         let _ = std::fs::remove_file(&socket); // stale from crash
         let track = |id: Option<i64>| id.map_or("no".to_string(), |id| id.to_string());
         // no URL or token in argv: world-readable via ps; sent over IPC instead
-        let child = Command::new(mpv_binary())
+        let mut child = Command::new(mpv_binary());
+        child
             .arg("--idle=once") // exits after the file ends
             .arg("--no-border")
             .arg("--ontop")
@@ -46,7 +47,12 @@ impl Pip {
             .arg("--autofit=640x360")
             .arg("--geometry=-24-24") // bottom-right corner
             .arg("--ytdl=no")
-            .arg(format!("--input-ipc-server={}", socket.display()))
+            .arg(format!("--sub-font={}", crate::fonts::FAMILY))
+            .arg(format!("--input-ipc-server={}", socket.display()));
+        if let Some(dir) = crate::fonts::extract_dir() {
+            child.arg(format!("--sub-fonts-dir={}", dir.display()));
+        }
+        let child = child
             .arg(format!("--start={}", args.start_seconds))
             .arg(format!("--volume={}", args.volume.round()))
             .arg(format!("--mute={}", if args.muted { "yes" } else { "no" }))

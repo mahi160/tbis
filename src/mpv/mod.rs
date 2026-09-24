@@ -154,6 +154,11 @@ impl Mpv {
             .set_property("volume", &format!("{}", volume.clamp(0., 100.)))
     }
 
+    /// Playback rate; 1 is normal.
+    pub fn set_speed(&self, speed: f64) -> Result<(), String> {
+        self.handle.set_property("speed", &format!("{speed}"))
+    }
+
     pub fn set_mute(&self, mute: bool) -> Result<(), String> {
         self.handle
             .set_property("mute", if mute { "yes" } else { "no" })
@@ -209,9 +214,19 @@ impl Handle {
             ("input-vo-keyboard", "no"),
             ("osc", "no"),
             ("ytdl", "no"), // plain Jellyfin URLs; skip youtube-dl hook
+            ("sub-font", crate::fonts::FAMILY),
         ] {
             let (n, v) = cstrings(name, value)?;
             unsafe { check(mpv_set_option_string(self.0, n.as_ptr(), v.as_ptr()), name)? };
+        }
+        if let Some(dir) = crate::fonts::extract_dir() {
+            let (n, v) = cstrings("sub-fonts-dir", &dir.to_string_lossy())?;
+            unsafe {
+                check(
+                    mpv_set_option_string(self.0, n.as_ptr(), v.as_ptr()),
+                    "sub-fonts-dir",
+                )?
+            };
         }
         unsafe {
             mpv_request_log_messages(self.0, c"warn".as_ptr());

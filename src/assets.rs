@@ -2,27 +2,43 @@ use std::borrow::Cow;
 
 use gpui_kit::{AssetSource, Result, SharedString};
 
-/// Lucide icons missing from gpui-kit's default bundle (assets/icons/LICENSE-LUCIDE).
+/// Reicon icons used by the Player (assets/icons/LICENSE-REICON).
 const EXTRA: &[(&str, &[u8])] = &[
     (
-        "icons/audio-lines.svg",
-        include_bytes!("../assets/icons/audio-lines.svg"),
+        "icons/caret-left.svg",
+        include_bytes!("../assets/icons/caret-left.svg"),
+    ),
+    ("icons/cc.svg", include_bytes!("../assets/icons/cc.svg")),
+    (
+        "icons/cc-filled.svg",
+        include_bytes!("../assets/icons/cc-filled.svg"),
     ),
     (
-        "icons/captions.svg",
-        include_bytes!("../assets/icons/captions.svg"),
+        "icons/forward-step.svg",
+        include_bytes!("../assets/icons/forward-step.svg"),
     ),
     (
-        "icons/picture-in-picture-2.svg",
-        include_bytes!("../assets/icons/picture-in-picture-2.svg"),
+        "icons/headphones.svg",
+        include_bytes!("../assets/icons/headphones.svg"),
     ),
     (
-        "icons/volume-2.svg",
-        include_bytes!("../assets/icons/volume-2.svg"),
+        "icons/maximize.svg",
+        include_bytes!("../assets/icons/maximize.svg"),
     ),
     (
-        "icons/volume-x.svg",
-        include_bytes!("../assets/icons/volume-x.svg"),
+        "icons/minimize.svg",
+        include_bytes!("../assets/icons/minimize.svg"),
+    ),
+    ("icons/mute.svg", include_bytes!("../assets/icons/mute.svg")),
+    (
+        "icons/pause.svg",
+        include_bytes!("../assets/icons/pause.svg"),
+    ),
+    ("icons/pip.svg", include_bytes!("../assets/icons/pip.svg")),
+    ("icons/play.svg", include_bytes!("../assets/icons/play.svg")),
+    (
+        "icons/volume.svg",
+        include_bytes!("../assets/icons/volume.svg"),
     ),
 ];
 

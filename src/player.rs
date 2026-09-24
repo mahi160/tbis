@@ -6,7 +6,7 @@ use futures::channel::mpsc::{self, UnboundedSender};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
-use gpui_kit::component::{ActiveTheme as _, Icon, IconName, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Icon, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -54,6 +54,8 @@ const HIDE_CONTROLS_AFTER: Duration = Duration::from_secs(3);
 const PROGRESS_EVERY: Duration = Duration::from_secs(10);
 /// Seconds left in an Episode when the next one is offered.
 const UP_NEXT_AT: f64 = 30.;
+const SPEEDS: [f64; 7] = [0.5, 0.75, 1., 1.25, 1.5, 1.75, 2.];
+const CLOCK_EVERY: Duration = Duration::from_secs(30);
 
 /// Server update queued by the Player; sent in order, even after it closes.
 enum Queued {
@@ -64,6 +66,8 @@ enum Queued {
 pub struct PlayerView {
     api: Api,
     title: SharedString,
+    /// `S01E01 · Name` under an Episode's series title.
+    subtitle: Option<SharedString>,
     mpv: Option<Mpv>,
     item: Option<Arc<PlaybackItem>>,
     /// Episode that Autoplay continues with.
@@ -78,6 +82,7 @@ pub struct PlayerView {
     shown_time: f64,
     duration: f64,
     paused: bool,
+    speed: f64,
     volume: f64,
     muted: bool,
     tracks: Vec<Track>,
@@ -165,11 +170,23 @@ impl PlayerView {
             }));
         }
 
+        // clock and "ends at" stay current while paused
+        tasks.push(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(CLOCK_EVERY).await;
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }
+        }));
+
         let focus = cx.focus_handle();
         focus.focus(window, cx);
+        let (title, subtitle) = titles(item);
         let mut this = Self {
             api,
-            title: item.display_name().to_string().into(),
+            title,
+            subtitle,
             mpv,
             item: None,
             next: None,
@@ -181,6 +198,7 @@ impl PlayerView {
             shown_time: 0.,
             duration: 0.,
             paused: false,
+            speed: 1.,
             volume,
             muted,
             tracks: Vec::new(),
@@ -489,7 +507,7 @@ impl PlayerView {
             uuid::Uuid::new_v4().simple().to_string(),
             cx,
         );
-        self.title = next.display_name().to_string().into();
+        (self.title, self.subtitle) = titles(&next);
         self.item = None;
         self.next = None;
         self.next_cancelled = false;
@@ -513,6 +531,14 @@ impl PlayerView {
         // explicit: Stopped near end alone depends on server's resume thresholds
         if let (true, Some(item)) = (self.finished, &self.item) {
             let _ = self.reports.unbounded_send(Queued::Played(item.clone()));
+        }
+    }
+
+    fn set_speed(&mut self, speed: f64) {
+        if let Some(mpv) = &self.mpv
+            && mpv.set_speed(speed).is_ok()
+        {
+            self.speed = speed;
         }
     }
 
@@ -562,20 +588,15 @@ impl PlayerView {
             return None;
         }
         let (id, icon) = match kind {
-            TrackKind::Audio => ("player-audio", "icons/audio-lines.svg"),
-            TrackKind::Subtitle => ("player-subtitles", "icons/captions.svg"),
+            TrackKind::Audio => ("player-audio", "icons/headphones.svg"),
+            TrackKind::Subtitle if tracks.iter().any(|t| t.selected) => {
+                ("player-subtitles", "icons/cc-filled.svg")
+            }
+            TrackKind::Subtitle => ("player-subtitles", "icons/cc.svg"),
         };
         let this = cx.entity().downgrade();
-        let on_open = cx.listener(|this, open: &bool, window, cx| {
-            this.menu_open = *open;
-            if !*open {
-                this.refocus(window, cx);
-            }
-        });
         Some(
-            Button::new(id)
-                .ghost()
-                .icon(Icon::empty().path(icon))
+            icon_button(id, icon, cx)
                 .dropdown_menu(move |mut menu, _, _| {
                     if kind == TrackKind::Subtitle {
                         let this = this.clone();
@@ -603,9 +624,75 @@ impl PlayerView {
                     }
                     menu
                 })
-                .on_open_change(on_open)
+                .on_open_change(self.on_menu_open(cx))
                 .into_any_element(),
         )
+    }
+
+    fn speed_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity().downgrade();
+        let speed = self.speed;
+        Button::new("player-speed")
+            .ghost()
+            .rounded(cx.theme().radius_full())
+            .label(format!("{speed}\u{d7}"))
+            .font_family(cx.theme().mono_font_family.clone())
+            .text_xs()
+            .dropdown_menu(move |mut menu, _, _| {
+                for s in SPEEDS {
+                    let this = this.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(format!("{s}\u{d7}"))
+                            .checked(s == speed)
+                            .on_click(move |_, _, cx| {
+                                this.update(cx, |this, cx| {
+                                    this.set_speed(s);
+                                    cx.notify();
+                                })
+                                .ok();
+                            }),
+                    );
+                }
+                menu
+            })
+            .on_open_change(self.on_menu_open(cx))
+    }
+
+    /// Keeps controls up while a menu is open; refocuses the Player on close.
+    fn on_menu_open(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> impl Fn(&bool, &mut Window, &mut App) + 'static {
+        cx.listener(|this, open: &bool, window, cx| {
+            this.menu_open = *open;
+            if !*open {
+                this.refocus(window, cx);
+            }
+        })
+    }
+}
+
+/// Round ghost icon button shared by the Player's bars.
+fn icon_button(id: &'static str, icon: &'static str, cx: &App) -> Button {
+    Button::new(id)
+        .ghost()
+        .rounded(cx.theme().radius_full())
+        .icon(Icon::empty().path(icon))
+}
+
+/// Series name over `S01E01 \u{b7} Name` for Episodes; else just the name.
+fn titles(item: &Item) -> (SharedString, Option<SharedString>) {
+    let name = item.display_name().to_string();
+    match (
+        &item.series_name,
+        item.parent_index_number,
+        item.index_number,
+    ) {
+        (Some(series), Some(season), Some(episode)) => (
+            series.clone().into(),
+            Some(format!("S{season:02}E{episode:02} \u{b7} {name}").into()),
+        ),
+        _ => (name.into(), None),
     }
 }
 
@@ -642,6 +729,34 @@ fn hide_cursor() {
 #[cfg(not(target_os = "macos"))]
 fn hide_cursor() {}
 
+/// Local wall-clock time `secs_ahead` from now, e.g. `8:07 PM`.
+#[cfg(unix)]
+fn clock(secs_ahead: f64) -> String {
+    let secs_ahead = if secs_ahead.is_finite() {
+        secs_ahead.max(0.)
+    } else {
+        0.
+    };
+    // SAFETY: time/localtime_r only write to the locals passed in
+    let tm = unsafe {
+        let t = libc::time(std::ptr::null_mut()) + secs_ahead as libc::time_t;
+        let mut tm = std::mem::zeroed::<libc::tm>();
+        libc::localtime_r(&t, &mut tm);
+        tm
+    };
+    format_clock(tm.tm_hour, tm.tm_min)
+}
+
+#[cfg(not(unix))]
+fn clock(_: f64) -> String {
+    String::new()
+}
+
+fn format_clock(hour: i32, minute: i32) -> String {
+    let half = if hour < 12 { "AM" } else { "PM" };
+    format!("{}:{minute:02} {half}", (hour + 11) % 12 + 1)
+}
+
 fn format_time(seconds: f64) -> String {
     let total = if seconds.is_finite() {
         seconds.max(0.) as u64
@@ -671,94 +786,175 @@ impl Render for PlayerView {
         let clear = hsla(0., 0., 0., 0.);
         let time = self.scrubbing.unwrap_or(self.time);
 
+        let mono = cx.theme().mono_font_family.clone();
+        let dim = |alpha: f32| hsla(0., 0., 1., alpha);
+
         let top = h_flex()
             .pt(px(36.)) // below traffic lights
-            .px_4()
-            .pb_6()
+            .px_6()
+            .pb_5()
             .gap_3()
             .bg(linear_gradient(
                 180.,
-                linear_color_stop(shade, 0.),
+                linear_color_stop(hsla(0., 0., 0., 0.65), 0.),
                 linear_color_stop(clear, 1.),
             ))
             .child(
-                Button::new("player-back")
-                    .ghost()
-                    .icon(IconName::ArrowLeft)
+                icon_button("player-back", "icons/caret-left.svg", cx)
                     .on_click(cx.listener(|this, _, window, cx| this.close(window, cx))),
             )
             .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .text_size(px(17.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .truncate()
+                            .child(self.title.clone()),
+                    )
+                    .children(self.subtitle.clone().map(|subtitle| {
+                        div()
+                            .font_family(mono.clone())
+                            .text_xs()
+                            .text_color(dim(0.55))
+                            .truncate()
+                            .child(subtitle)
+                    })),
+            )
+            .child(
                 div()
-                    .text_lg()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .truncate()
-                    .child(self.title.clone()),
+                    .flex_none()
+                    .font_family(mono.clone())
+                    .text_size(px(17.))
+                    .text_color(dim(0.75))
+                    .child(clock(0.)),
             );
 
+        let timeline = h_flex()
+            .gap_3()
+            .font_family(mono.clone())
+            .text_sm()
+            .text_color(dim(0.85))
+            .child(format_time(time))
+            .child(
+                div().flex_1().child(
+                    Slider::new(&self.seek)
+                        .bg(cx.theme().primary)
+                        .text_color(white())
+                        .disabled(self.duration <= 0. || self.pip.is_some()),
+                ),
+            )
+            .child(format_time(self.duration));
+
         let volume_icon = if self.muted || self.volume <= 0. {
-            "icons/volume-x.svg"
+            "icons/mute.svg"
         } else {
-            "icons/volume-2.svg"
+            "icons/volume.svg"
         };
-        let bottom =
-            h_flex()
-                .px_4()
-                .pt_6()
-                .pb_4()
-                .gap_3()
-                .bg(linear_gradient(
-                    0.,
-                    linear_color_stop(shade, 0.),
-                    linear_color_stop(clear, 1.),
+        let ends_at = (self.duration > 0.).then(|| {
+            div()
+                .ml_2p5()
+                .font_family(mono.clone())
+                .text_size(px(13.))
+                .text_color(dim(0.5))
+                .whitespace_nowrap()
+                .child(format!(
+                    "ends at {}",
+                    clock((self.duration - time) / self.speed)
                 ))
-                .child(
-                    Button::new("player-play")
-                        .ghost()
-                        .icon(if self.paused {
-                            IconName::Play
-                        } else {
-                            IconName::Pause
-                        })
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.toggle_pause(&TogglePause, window, cx)
-                        })),
+        });
+        let controls = h_flex()
+            .mt(px(14.))
+            .gap_0p5()
+            .child(
+                icon_button(
+                    "player-play",
+                    if self.paused {
+                        "icons/play.svg"
+                    } else {
+                        "icons/pause.svg"
+                    },
+                    cx,
                 )
-                .child(div().text_sm().child(format_time(time)))
-                .child(div().flex_1().child(
-                    Slider::new(&self.seek).disabled(self.duration <= 0. || self.pip.is_some()),
-                ))
-                .child(div().text_sm().child(format_time(self.duration)))
-                .child(
-                    Button::new("player-mute")
-                        .ghost()
-                        .icon(Icon::empty().path(volume_icon))
-                        .on_click(cx.listener(|this, _, window, cx| {
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.toggle_pause(&TogglePause, window, cx)),
+                ),
+            )
+            .when(self.next.is_some(), |this| {
+                this.child(
+                    icon_button("player-next", "icons/forward-step.svg", cx).on_click(cx.listener(
+                        |this, _, window, cx| {
+                            if let Some(next) = this.next.clone() {
+                                this.play_next(next, window, cx);
+                            }
+                        },
+                    )),
+                )
+            })
+            .child(
+                // slider unfolds from the mute button on hover
+                h_flex()
+                    .group("player-volume")
+                    .child(icon_button("player-mute", volume_icon, cx).on_click(
+                        cx.listener(|this, _, window, cx| {
                             this.toggle_mute(&ToggleMute, window, cx)
-                        })),
+                        }),
+                    ))
+                    .child(
+                        div()
+                            .w_0()
+                            .overflow_hidden()
+                            .group_hover("player-volume", |s| s.w(px(96.)))
+                            .child(
+                                div()
+                                    .w(px(96.))
+                                    .px_2()
+                                    .child(Slider::new(&self.volume_slider).text_color(white())),
+                            ),
+                    ),
+            )
+            .children(ends_at)
+            .child(div().flex_1())
+            .child(self.speed_menu(cx))
+            .children(self.track_menu(TrackKind::Audio, cx))
+            .children(self.track_menu(TrackKind::Subtitle, cx))
+            .child(icon_button("player-pip", "icons/pip.svg", cx).on_click(
+                cx.listener(|this, _, window, cx| this.toggle_pip(&TogglePip, window, cx)),
+            ))
+            .child(
+                icon_button(
+                    "player-fullscreen",
+                    if window.is_fullscreen() {
+                        "icons/minimize.svg"
+                    } else {
+                        "icons/maximize.svg"
+                    },
+                    cx,
                 )
-                .child(div().w(px(96.)).child(Slider::new(&self.volume_slider)))
-                .children(self.track_menu(TrackKind::Audio, cx))
-                .children(self.track_menu(TrackKind::Subtitle, cx))
-                .child(
-                    Button::new("player-pip")
-                        .ghost()
-                        .icon(Icon::empty().path("icons/picture-in-picture-2.svg"))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.toggle_pip(&TogglePip, window, cx)
-                        })),
-                )
-                .child(
-                    Button::new("player-fullscreen")
-                        .ghost()
-                        .icon(if window.is_fullscreen() {
-                            IconName::Minimize
-                        } else {
-                            IconName::Maximize
-                        })
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.toggle_fullscreen(&ToggleFullscreen, window, cx)
-                        })),
-                );
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.toggle_fullscreen(&ToggleFullscreen, window, cx)
+                })),
+            );
+
+        let bottom = div()
+            .pt(px(56.))
+            .px_6()
+            .pb_5()
+            .bg(linear_gradient(
+                0.,
+                linear_color_stop(hsla(0., 0., 0., 0.78), 0.),
+                linear_color_stop(clear, 1.),
+            ))
+            .child(
+                v_flex()
+                    .w_full()
+                    .max_w(px(1088.))
+                    .mx_auto()
+                    .child(timeline)
+                    .child(controls),
+            );
 
         let error = self.error.clone().map(|error| {
             div()
@@ -796,8 +992,8 @@ impl Render for PlayerView {
             let left = (self.duration - self.time).max(0.).ceil() as u64;
             v_flex()
                 .absolute()
-                .right_4()
-                .bottom(px(88.)) // above bottom bar
+                .right_6()
+                .bottom(px(112.)) // above timeline
                 .w(px(320.))
                 .p_4()
                 .gap_3()
@@ -870,7 +1066,15 @@ impl Render for PlayerView {
 
 #[cfg(test)]
 mod tests {
-    use super::format_time;
+    use super::{format_clock, format_time};
+
+    #[::core::prelude::v1::test]
+    fn formats_clock() {
+        assert_eq!(format_clock(0, 5), "12:05 AM");
+        assert_eq!(format_clock(11, 59), "11:59 AM");
+        assert_eq!(format_clock(12, 0), "12:00 PM");
+        assert_eq!(format_clock(20, 7), "8:07 PM");
+    }
 
     #[::core::prelude::v1::test]
     fn formats_time() {
