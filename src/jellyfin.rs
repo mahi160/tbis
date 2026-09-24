@@ -112,10 +112,44 @@ impl Item {
     /// `S2E3 · Name`, or just the name when numbers are missing.
     pub fn episode_label(&self) -> String {
         match (self.parent_index_number, self.index_number) {
-            (Some(season), Some(episode)) => format!("S{season}E{episode} · {}", self.name),
+            (Some(season), Some(episode)) => {
+                format!("S{season}E{episode} · {}", self.display_name())
+            }
             _ => self.name.clone(),
         }
     }
+
+    /// Name without a leading "Anything - S04E15 - " matching this Episode's own numbers.
+    pub fn display_name(&self) -> &str {
+        let (Some(season), Some(episode)) = (self.parent_index_number, self.index_number) else {
+            return &self.name;
+        };
+        for (at, sep) in self.name.match_indices(" - ") {
+            let rest = &self.name[at + sep.len()..];
+            if let Some((code, title)) = rest.split_once(" - ")
+                && !title.trim().is_empty()
+                && code_matches(code, season, episode)
+            {
+                return title;
+            }
+        }
+        &self.name
+    }
+}
+
+/// `S04E15` or `S04E18-19` (any case, any zero padding) naming this season and first episode.
+fn code_matches(code: &str, season: i32, episode: i32) -> bool {
+    let number = |s: &str| {
+        (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| s.parse::<i32>().ok())
+            .flatten()
+    };
+    let code = code.to_ascii_uppercase();
+    let Some((s, e)) = code.strip_prefix('S').and_then(|c| c.split_once('E')) else {
+        return false;
+    };
+    let (first, last) = e.split_once('-').unwrap_or((e, e));
+    number(s) == Some(season) && number(first) == Some(episode) && number(last).is_some()
 }
 
 /// Tags needed by `Api::wide_image_url`.
@@ -462,6 +496,29 @@ struct AuthUser {
     name: String,
 }
 
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct PublicUser {
+    pub name: String,
+    #[serde(default)]
+    pub has_password: bool,
+}
+
+/// Users the server lists on its sign-in screen; empty when it hides them.
+pub async fn public_users(
+    http: Arc<dyn HttpClient>,
+    server_input: &str,
+) -> Result<Vec<PublicUser>> {
+    let server = normalize_server(server_input);
+    Url::parse(&server)?;
+    let request = Request::builder()
+        .uri(format!("{server}/Users/Public"))
+        .body(AsyncBody::empty())?;
+    let response = http.send(request).await?;
+    anyhow::ensure!(response.status().is_success(), "HTTP {}", response.status());
+    read_json(response).await
+}
+
 /// Checks the server is Jellyfin, then signs in. Errors are user-facing messages.
 pub async fn login(
     http: Arc<dyn HttpClient>,
@@ -526,10 +583,45 @@ pub async fn login(
 
 #[cfg(test)]
 mod tests {
-    use super::{login, normalize_server};
+    use super::{Item, login, normalize_server};
     use std::io::{Read as _, Write as _};
     use std::net::TcpListener;
     use std::sync::Arc;
+
+    fn episode(name: &str, season: i32, number: i32) -> Item {
+        serde_json::from_value(serde_json::json!({
+            "Id": "x", "Name": name, "ParentIndexNumber": season, "IndexNumber": number
+        }))
+        .unwrap()
+    }
+
+    #[::core::prelude::v1::test]
+    fn strips_matching_episode_code() {
+        let label = |name, s, e| episode(name, s, e).episode_label();
+        assert_eq!(
+            label("The Office (US) - S04E15 - Night Out", 4, 15),
+            "S4E15 · Night Out"
+        );
+        assert_eq!(
+            label("The Office (US) - S04E18-19 - Goodbye, Toby", 4, 18),
+            "S4E18 · Goodbye, Toby"
+        );
+        assert_eq!(
+            label("A - B - s4e15 - Title - Part 2", 4, 15),
+            "S4E15 · Title - Part 2"
+        );
+        // code for another episode, or no code: untouched
+        assert_eq!(
+            label("Show - S04E16 - Night Out", 4, 15),
+            "S4E15 · Show - S04E16 - Night Out"
+        );
+        assert_eq!(
+            label("Before - After - End", 1, 1),
+            "S1E1 · Before - After - End"
+        );
+        assert_eq!(label("Show - S04E15 - ", 4, 15), "S4E15 · Show - S04E15 - ");
+        assert_eq!(label("Pilot", 1, 1), "S1E1 · Pilot");
+    }
 
     /// Minimal fake Jellyfin: accepts password "right", or empty for passwordless "guest".
     fn fake_server() -> String {

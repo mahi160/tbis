@@ -169,7 +169,7 @@ impl PlayerView {
         focus.focus(window, cx);
         let mut this = Self {
             api,
-            title: item.name.clone().into(),
+            title: item.display_name().to_string().into(),
             mpv,
             item: None,
             next: None,
@@ -489,7 +489,7 @@ impl PlayerView {
             uuid::Uuid::new_v4().simple().to_string(),
             cx,
         );
-        self.title = next.name.clone().into();
+        self.title = next.display_name().to_string().into();
         self.item = None;
         self.next = None;
         self.next_cancelled = false;

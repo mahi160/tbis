@@ -1,9 +1,15 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::{ActiveTheme as _, Disableable as _, v_flex};
+use std::time::Duration;
+
+use gpui_kit::component::{ActiveTheme as _, Disableable as _, Sizable as _, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::jellyfin::{self, Session};
+use crate::jellyfin::{self, PublicUser, Session};
+
+/// Wait after typing in Server before asking it for users.
+const USERS_DEBOUNCE: Duration = Duration::from_millis(400);
 
 pub struct LoggedIn(pub Session);
 
@@ -14,6 +20,8 @@ pub struct LoginView {
     device_id: String,
     error: Option<SharedString>,
     busy: bool,
+    users: Vec<PublicUser>,
+    _users: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -28,7 +36,7 @@ impl LoginView {
                 .placeholder("Password (optional)")
                 .masked(true)
         });
-        let _subscriptions = [&server, &username, &password]
+        let mut _subscriptions: Vec<Subscription> = [&server, &username, &password]
             .into_iter()
             .map(|input| {
                 cx.subscribe_in(input, window, |this, _, event, window, cx| {
@@ -38,6 +46,11 @@ impl LoginView {
                 })
             })
             .collect();
+        _subscriptions.push(cx.subscribe(&server, |this, _, event, cx| {
+            if let InputEvent::Change = event {
+                this.load_users(cx);
+            }
+        }));
         server.update(cx, |input, cx| input.focus(window, cx));
 
         Self {
@@ -47,7 +60,47 @@ impl LoginView {
             device_id,
             error: None,
             busy: false,
+            users: Vec::new(),
+            _users: Task::ready(()),
             _subscriptions,
+        }
+    }
+
+    /// Silent: failures just mean no picker; Sign in reports real errors.
+    fn load_users(&mut self, cx: &mut Context<Self>) {
+        let server = self.server.read(cx).value().trim().to_string();
+        self.users.clear();
+        cx.notify();
+        if server.is_empty() {
+            self._users = Task::ready(());
+            return;
+        }
+        let http = cx.http_client();
+        // replacing task cancels older lookup
+        self._users = cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(USERS_DEBOUNCE).await;
+            let users = jellyfin::public_users(http, &server)
+                .await
+                .unwrap_or_default();
+            this.update(cx, |this, cx| {
+                this.users = users;
+                cx.notify();
+            })
+            .ok();
+        });
+    }
+
+    fn pick_user(&mut self, user: &PublicUser, window: &mut Window, cx: &mut Context<Self>) {
+        self.username.update(cx, |input, cx| {
+            input.set_value(user.name.clone(), window, cx)
+        });
+        self.password
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        if user.has_password {
+            self.password
+                .update(cx, |input, cx| input.focus(window, cx));
+        } else {
+            self.submit(window, cx);
         }
     }
 
@@ -111,6 +164,21 @@ impl Render for LoginView {
                             .child("Sign in to Jellyfin"),
                     )
                     .child(field("Server", &self.server))
+                    .when(!self.users.is_empty(), |this| {
+                        this.child(h_flex().flex_wrap().gap_2().children(
+                            self.users.iter().enumerate().map(|(i, user)| {
+                                let picked = user.clone();
+                                Button::new(("user", i))
+                                    .outline()
+                                    .small()
+                                    .label(user.name.clone())
+                                    .disabled(self.busy)
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.pick_user(&picked, window, cx)
+                                    }))
+                            }),
+                        ))
+                    })
                     .child(field("Username", &self.username))
                     .child(field("Password", &self.password))
                     .children(

@@ -217,7 +217,11 @@ impl SeriesView {
                 v_flex()
                     .min_w_0()
                     .gap_1()
-                    .child(div().truncate().child(format!("{number}{}", episode.name)))
+                    .child(
+                        div()
+                            .truncate()
+                            .child(format!("{number}{}", episode.display_name())),
+                    )
                     .children(runtime.map(|r| div().text_sm().text_color(muted_fg).child(r)))
                     .children(
                         episode
