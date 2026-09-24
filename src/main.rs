@@ -7,6 +7,7 @@ mod jellyfin;
 mod library;
 mod login;
 mod mpv;
+mod pip;
 mod player;
 mod search;
 mod series;

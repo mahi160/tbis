@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — Player tracer bullet
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] P opens PiP at the current position, and the Player pauses
 - [ ] The PiP window stays on top across Spaces

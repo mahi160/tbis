@@ -12,6 +12,7 @@ use gpui_kit::*;
 
 use crate::jellyfin::{Api, Item, PlaybackItem, Report};
 use crate::mpv::{Mpv, MpvEvent, Track, TrackKind};
+use crate::pip::{Pip, PipEvent, PipStart};
 
 actions!(
     player,
@@ -22,7 +23,8 @@ actions!(
         ToggleFullscreen,
         Escape,
         ToggleMute,
-        PlayNext
+        PlayNext,
+        TogglePip
     ]
 );
 
@@ -38,6 +40,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", Escape, Some(CONTEXT)),
         KeyBinding::new("m", ToggleMute, Some(CONTEXT)),
         KeyBinding::new("enter", PlayNext, Some(CONTEXT)),
+        KeyBinding::new("p", TogglePip, Some(CONTEXT)),
     ]);
 }
 
@@ -66,6 +69,8 @@ pub struct PlayerView {
     /// Episode that Autoplay continues with.
     next: Option<Item>,
     next_cancelled: bool,
+    /// Standalone mpv window playing instead of this Player.
+    pip: Option<Pip>,
     reports: UnboundedSender<Queued>,
     error: Option<SharedString>,
     time: f64,
@@ -86,6 +91,7 @@ pub struct PlayerView {
     menu_open: bool,
     _hide: Task<()>,
     _load: Task<()>,
+    _pip: Task<()>,
     _tasks: Vec<Task<()>>,
     _subscriptions: [Subscription; 2],
 }
@@ -149,7 +155,7 @@ impl PlayerView {
                 loop {
                     cx.background_executor().timer(PROGRESS_EVERY).await;
                     let Ok(()) = this.update(cx, |this, _| {
-                        if !this.paused {
+                        if !this.paused || this.pip.is_some() {
                             this.report(Report::Progress);
                         }
                     }) else {
@@ -168,6 +174,7 @@ impl PlayerView {
             item: None,
             next: None,
             next_cancelled: false,
+            pip: None,
             reports,
             error,
             time: 0.,
@@ -187,6 +194,7 @@ impl PlayerView {
             menu_open: false,
             _hide: Task::ready(()),
             _load: Task::ready(()),
+            _pip: Task::ready(()),
             _tasks: tasks,
             _subscriptions,
         };
@@ -245,7 +253,7 @@ impl PlayerView {
                 report,
                 item.clone(),
                 self.time,
-                self.paused,
+                self.paused && self.pip.is_none(), // Player pauses while PiP plays
             ));
         }
     }
@@ -333,21 +341,21 @@ impl PlayerView {
     }
 
     fn toggle_pause(&mut self, _: &TogglePause, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(mpv) = &self.mpv {
+        if let Some(mpv) = self.mpv.as_ref().filter(|_| self.pip.is_none()) {
             let _ = mpv.set_pause(!self.paused);
         }
         self.refocus(window, cx);
     }
 
     fn seek_back(&mut self, _: &SeekBack, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(mpv) = &self.mpv {
+        if let Some(mpv) = self.mpv.as_ref().filter(|_| self.pip.is_none()) {
             let _ = mpv.seek_by(-SEEK_STEP);
         }
         self.show_controls(window, cx);
     }
 
     fn seek_forward(&mut self, _: &SeekForward, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(mpv) = &self.mpv {
+        if let Some(mpv) = self.mpv.as_ref().filter(|_| self.pip.is_none()) {
             let _ = mpv.seek_by(SEEK_STEP);
         }
         self.show_controls(window, cx);
@@ -386,10 +394,79 @@ impl PlayerView {
         }
     }
 
-    /// Next Episode while its card should show: last 30s, not cancelled.
+    /// Opens PiP at the current position and pauses; again closes it (resume follows `Ended`).
+    fn toggle_pip(&mut self, _: &TogglePip, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(pip) = &mut self.pip {
+            pip.stop();
+            self.refocus(window, cx);
+            return;
+        }
+        let (Some(mpv), Some(item)) = (&self.mpv, &self.item) else {
+            return;
+        };
+        let selected = |kind: TrackKind| {
+            self.tracks
+                .iter()
+                .find(|t| t.kind == kind && t.selected)
+                .map(|t| t.id)
+        };
+        let (events_tx, mut events_rx) = mpsc::unbounded();
+        let start = PipStart {
+            url: &self.api.stream_url(item),
+            auth_header: &self.api.auth_header(),
+            start_seconds: self.time,
+            volume: self.volume,
+            muted: self.muted,
+            audio_track: selected(TrackKind::Audio),
+            subtitle_track: selected(TrackKind::Subtitle),
+        };
+        match Pip::start(start, events_tx) {
+            Ok(pip) => {
+                let _ = mpv.set_pause(true);
+                self.pip = Some(pip);
+                self._pip = cx.spawn_in(window, async move |this, cx| {
+                    while let Some(event) = events_rx.next().await {
+                        if this
+                            .update_in(cx, |this, window, cx| this.on_pip(event, window, cx))
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                });
+            }
+            Err(err) => self.error = Some(err.into()),
+        }
+        self.refocus(window, cx);
+    }
+
+    fn on_pip(&mut self, event: PipEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match event {
+            PipEvent::Position(time) => {
+                self.time = time;
+                if (time - self.shown_time).abs() >= 0.25 {
+                    self.shown_time = time;
+                    self.sync_seek_bar(window, cx);
+                    cx.notify();
+                }
+            }
+            PipEvent::Ended(time) => {
+                self.pip = None;
+                if let Some(mpv) = &self.mpv {
+                    let _ = mpv.seek(time);
+                    let _ = mpv.set_pause(false);
+                }
+                self.time = time;
+                self.sync_seek_bar(window, cx);
+                self.show_controls(window, cx);
+            }
+        }
+    }
+
+    /// Next Episode while its card should show: last 30s, not cancelled, not in PiP.
     fn up_next(&self) -> Option<&Item> {
         let near_end = self.duration > 0. && self.duration - self.time <= UP_NEXT_AT;
-        if near_end && !self.next_cancelled && self.error.is_none() {
+        if near_end && !self.next_cancelled && self.error.is_none() && self.pip.is_none() {
             self.next.as_ref()
         } else {
             None
@@ -400,6 +477,8 @@ impl PlayerView {
     fn play_next(&mut self, next: Item, window: &mut Window, cx: &mut Context<Self>) {
         self.finished = true;
         self.end_current();
+        self.pip = None;
+        self._pip = Task::ready(()); // drop stale PiP events
         if let Some(mpv) = &self.mpv {
             // stop old file during fetch; pause would carry over
             let _ = mpv.stop();
@@ -645,11 +724,9 @@ impl Render for PlayerView {
                         })),
                 )
                 .child(div().text_sm().child(format_time(time)))
-                .child(
-                    div()
-                        .flex_1()
-                        .child(Slider::new(&self.seek).disabled(self.duration <= 0.)),
-                )
+                .child(div().flex_1().child(
+                    Slider::new(&self.seek).disabled(self.duration <= 0. || self.pip.is_some()),
+                ))
                 .child(div().text_sm().child(format_time(self.duration)))
                 .child(
                     Button::new("player-mute")
@@ -662,6 +739,14 @@ impl Render for PlayerView {
                 .child(div().w(px(96.)).child(Slider::new(&self.volume_slider)))
                 .children(self.track_menu(TrackKind::Audio, cx))
                 .children(self.track_menu(TrackKind::Subtitle, cx))
+                .child(
+                    Button::new("player-pip")
+                        .ghost()
+                        .icon(Icon::empty().path("icons/picture-in-picture-2.svg"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.toggle_pip(&TogglePip, window, cx)
+                        })),
+                )
                 .child(
                     Button::new("player-fullscreen")
                         .ghost()
@@ -692,6 +777,21 @@ impl Render for PlayerView {
                 )
         });
 
+        let pip_notice = self.pip.is_some().then(|| {
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    div()
+                        .p_4()
+                        .rounded_md()
+                        .bg(shade)
+                        .child("Playing in Picture-in-Picture · press P to return"),
+                )
+        });
         let up_next = self.up_next().map(|next| {
             let left = (self.duration - self.time).max(0.).ceil() as u64;
             v_flex()
@@ -749,6 +849,7 @@ impl Render for PlayerView {
             .on_action(cx.listener(Self::toggle_fullscreen))
             .on_action(cx.listener(Self::escape))
             .on_action(cx.listener(Self::play_next_now))
+            .on_action(cx.listener(Self::toggle_pip))
             .size_full()
             .relative()
             .justify_between()
@@ -759,6 +860,7 @@ impl Render for PlayerView {
                 }
             }))
             .children(error)
+            .children(pip_notice)
             .children(up_next)
             .when(self.controls_visible || self.error.is_some(), |this| {
                 this.child(top).child(bottom)

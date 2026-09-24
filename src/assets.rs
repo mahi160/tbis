@@ -13,6 +13,10 @@ const EXTRA: &[(&str, &[u8])] = &[
         include_bytes!("../assets/icons/captions.svg"),
     ),
     (
+        "icons/picture-in-picture-2.svg",
+        include_bytes!("../assets/icons/picture-in-picture-2.svg"),
+    ),
+    (
         "icons/volume-2.svg",
         include_bytes!("../assets/icons/volume-2.svg"),
     ),
