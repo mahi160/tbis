@@ -11,10 +11,11 @@ mod pip;
 mod player;
 mod search;
 mod series;
+mod theme;
 
 use std::sync::Arc;
 
-use gpui_kit::component::{Root, Theme, ThemeMode, TitleBar};
+use gpui_kit::component::{Root, TitleBar};
 use gpui_kit::*;
 
 actions!(tbis, [Quit]);
@@ -53,7 +54,7 @@ fn main() {
         .with_assets(assets::Assets)
         .run(|cx| {
             gpui_kit::init(cx);
-            Theme::change(ThemeMode::Dark, None, cx);
+            theme::init(cx);
 
             cx.bind_keys([
                 KeyBinding::new("cmd-q", Quit, None),
