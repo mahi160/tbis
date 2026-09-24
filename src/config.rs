@@ -1,7 +1,7 @@
 use std::fs::{self, OpenOptions, Permissions};
 use std::io::{self, Write as _};
 use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -27,8 +27,7 @@ fn full_volume() -> f64 {
 }
 
 fn path() -> PathBuf {
-    let home = std::env::var_os("HOME").expect("HOME is not set");
-    Path::new(&home).join("Library/Application Support/tbis/config.json")
+    crate::support_dir::app_support_dir().join("config.json")
 }
 
 pub fn load() -> Config {

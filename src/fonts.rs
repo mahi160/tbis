@@ -1,54 +1,70 @@
-//! App-wide font: Inter (assets/fonts/inter/LICENSE-OFL), embedded so it renders
-//! regardless of what's installed on the machine.
+//! App-wide fonts: Inter (assets/fonts/inter/LICENSE-OFL) for UI text, JetBrains Mono
+//! (assets/fonts/jetbrains-mono/LICENSE-OFL) for the app's `mono_font.family`.
+//! Both embedded so they render regardless of what's installed on the machine.
 //!
-//! Used two ways: [`embed`] registers it with GPUI's text system for the UI;
-//! [`extract_dir`] writes the same files to disk so libmpv/libass (mpv.rs, pip.rs)
+//! Used two ways: [`embed`] registers them with GPUI's text system for the UI;
+//! [`extract_dir`] writes the Inter files to disk so libmpv/libass (mpv.rs, pip.rs)
 //! can pick it up as `sub-font` via `sub-fonts-dir` -- libass reads font files, not
 //! in-memory bytes.
 
 use std::path::PathBuf;
+use std::sync::OnceLock;
+
+use crate::embed::embedded_by_name;
 
 /// (file name, bytes) pairs; the name is also the on-disk name [`extract_dir`] writes.
-const FILES: &[(&str, &[u8])] = &[
-    (
+const INTER_FILES: &[(&str, &[u8])] = &embedded_by_name!(
+    "fonts/inter",
+    [
         "Inter-Regular.ttf",
-        include_bytes!("../assets/fonts/inter/Inter-Regular.ttf"),
-    ),
-    (
         "Inter-Medium.ttf",
-        include_bytes!("../assets/fonts/inter/Inter-Medium.ttf"),
-    ),
-    (
         "Inter-SemiBold.ttf",
-        include_bytes!("../assets/fonts/inter/Inter-SemiBold.ttf"),
-    ),
-    (
         "Inter-Bold.ttf",
-        include_bytes!("../assets/fonts/inter/Inter-Bold.ttf"),
-    ),
-];
+    ]
+);
 
-/// The family name every embedded file above resolves to.
+/// (file name, bytes) pairs for the monospace family; UI-only, not written to disk.
+const MONO_FILES: &[(&str, &[u8])] = &embedded_by_name!(
+    "fonts/jetbrains-mono",
+    [
+        "JetBrainsMono-Regular.ttf",
+        "JetBrainsMono-Medium.ttf",
+        "JetBrainsMono-SemiBold.ttf",
+        "JetBrainsMono-Bold.ttf",
+    ]
+);
+
+/// The family name every embedded Inter file above resolves to.
 pub const FAMILY: &str = "Inter";
 
-/// Registers [`FILES`] with GPUI's text system so `theme.font.family = "Inter"` renders.
+/// The family name every embedded JetBrains Mono file above resolves to.
+pub const MONO_FAMILY: &str = "JetBrains Mono";
+
+/// Registers Inter and JetBrains Mono with GPUI's text system so `theme.font.family`
+/// and `theme.mono_font.family` render.
 pub fn embed(cx: &gpui_kit::App) -> gpui_kit::Result<()> {
     cx.text_system().add_fonts(
-        FILES
+        INTER_FILES
             .iter()
+            .chain(MONO_FILES)
             .map(|(_, bytes)| std::borrow::Cow::Borrowed(*bytes))
             .collect(),
     )
 }
 
-/// Writes [`FILES`] under Application Support and returns that directory, for mpv's
-/// `sub-fonts-dir`. Best-effort: on write failure, subtitles just fall back to
-/// mpv's own default font.
+/// Writes [`INTER_FILES`] under Application Support and returns that directory, for
+/// mpv's `sub-fonts-dir`. Best-effort: on write failure, subtitles just fall back to
+/// mpv's own default font. Written once per process and cached; every Player open
+/// and PiP start used to rewrite the ~1.67MB on the UI thread.
 pub fn extract_dir() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    let dir = PathBuf::from(home).join("Library/Application Support/tbis/fonts");
+    static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+    DIR.get_or_init(write_dir).clone()
+}
+
+fn write_dir() -> Option<PathBuf> {
+    let dir = crate::support_dir::app_support_dir().join("fonts");
     std::fs::create_dir_all(&dir).ok()?;
-    for (name, bytes) in FILES {
+    for (name, bytes) in INTER_FILES {
         std::fs::write(dir.join(name), bytes).ok()?;
     }
     Some(dir)
