@@ -1,10 +1,12 @@
-//! In-process libmpv (ADR-0001). This file holds the platform-independent part: mpv handle,
-//! options, commands, event thread, and the render loop driving mpv's OpenGL render API.
-//! Each platform module supplies the on-screen surface and the GL/present side of a frame.
+//! In-process libmpv (ADR-0001, macOS only). This file holds the part shared with a
+//! future platform module: mpv handle, options, commands, event thread, and the render
+//! loop driving mpv's OpenGL render API. `platform` (`mac.rs`) supplies the on-screen
+//! surface and the GL/present side of a frame.
 
-#[cfg_attr(target_os = "macos", path = "mac.rs")]
-#[cfg_attr(target_os = "linux", path = "linux.rs")]
-#[cfg_attr(target_os = "windows", path = "windows.rs")]
+#[cfg(not(target_os = "macos"))]
+compile_error!("tbis only supports macOS today (ADR-0001); config.rs/fonts.rs also assume it");
+
+#[path = "mac.rs"]
 mod platform;
 
 use std::ffi::{CStr, CString, c_void};
@@ -127,25 +129,26 @@ impl Mpv {
             "none".into()
         };
         self.handle.set_property("start", &start)?;
-        self.command(&["loadfile", url, "replace"])
+        self.handle.command(&["loadfile", url, "replace"])
     }
 
     /// Ends current file; mpv goes idle until next load.
     pub fn stop(&self) -> Result<(), String> {
-        self.command(&["stop"])
+        self.handle.command(&["stop"])
     }
 
     pub fn set_pause(&self, pause: bool) -> Result<(), String> {
-        self.handle
-            .set_property("pause", if pause { "yes" } else { "no" })
+        self.handle.set_property("pause", yes_no(pause))
     }
 
     pub fn seek(&self, seconds: f64) -> Result<(), String> {
-        self.command(&["seek", &format!("{seconds}"), "absolute"])
+        self.handle
+            .command(&["seek", &format!("{seconds}"), "absolute"])
     }
 
     pub fn seek_by(&self, seconds: f64) -> Result<(), String> {
-        self.command(&["seek", &format!("{seconds}"), "relative"])
+        self.handle
+            .command(&["seek", &format!("{seconds}"), "relative"])
     }
 
     /// 0–100.
@@ -160,8 +163,7 @@ impl Mpv {
     }
 
     pub fn set_mute(&self, mute: bool) -> Result<(), String> {
-        self.handle
-            .set_property("mute", if mute { "yes" } else { "no" })
+        self.handle.set_property("mute", yes_no(mute))
     }
 
     /// `None` turns the track type off.
@@ -175,10 +177,12 @@ impl Mpv {
         *self.size.lock().unwrap() = (width, height);
         self.waker.notify();
     }
+}
 
-    fn command(&self, args: &[&str]) -> Result<(), String> {
-        self.handle.command(args)
-    }
+/// mpv's yes/no spelling for a bool property or CLI flag; shared with `pip.rs`,
+/// which passes the same spelling to the standalone mpv it spawns.
+pub fn yes_no(b: bool) -> &'static str {
+    if b { "yes" } else { "no" }
 }
 
 impl Drop for Mpv {
@@ -206,27 +210,22 @@ unsafe impl Send for Handle {}
 
 impl Handle {
     fn init(self, auth_header: &str) -> Result<(), String> {
-        for (name, value) in [
-            ("vo", "libmpv"),
-            ("hwdec", "auto-safe"),
-            ("terminal", "no"),
-            ("input-default-bindings", "no"),
-            ("input-vo-keyboard", "no"),
-            ("osc", "no"),
-            ("ytdl", "no"), // plain Jellyfin URLs; skip youtube-dl hook
-            ("sub-font", crate::fonts::FAMILY),
-        ] {
+        let mut options = vec![
+            ("vo", "libmpv".to_string()),
+            ("hwdec", "auto-safe".to_string()),
+            ("terminal", "no".to_string()),
+            ("input-default-bindings", "no".to_string()),
+            ("input-vo-keyboard", "no".to_string()),
+            ("osc", "no".to_string()),
+            ("ytdl", "no".to_string()), // plain Jellyfin URLs; skip youtube-dl hook
+            ("sub-font", crate::fonts::FAMILY.to_string()),
+        ];
+        if let Some(dir) = crate::fonts::extract_dir() {
+            options.push(("sub-fonts-dir", dir.to_string_lossy().into_owned()));
+        }
+        for (name, value) in &options {
             let (n, v) = cstrings(name, value)?;
             unsafe { check(mpv_set_option_string(self.0, n.as_ptr(), v.as_ptr()), name)? };
-        }
-        if let Some(dir) = crate::fonts::extract_dir() {
-            let (n, v) = cstrings("sub-fonts-dir", &dir.to_string_lossy())?;
-            unsafe {
-                check(
-                    mpv_set_option_string(self.0, n.as_ptr(), v.as_ptr()),
-                    "sub-fonts-dir",
-                )?
-            };
         }
         unsafe {
             mpv_request_log_messages(self.0, c"warn".as_ptr());
@@ -235,36 +234,20 @@ impl Handle {
         // change-list: one verbatim item; plain option would split header on its commas
         let header = format!("Authorization: {auth_header}");
         self.command(&["change-list", "http-header-fields", "append", &header])?;
-        unsafe {
-            mpv_observe_property(
-                self.0,
-                0,
-                c"time-pos".as_ptr(),
-                mpv_format_MPV_FORMAT_DOUBLE,
-            );
-            mpv_observe_property(
-                self.0,
-                0,
-                c"duration".as_ptr(),
-                mpv_format_MPV_FORMAT_DOUBLE,
-            );
-            mpv_observe_property(self.0, 0, c"pause".as_ptr(), mpv_format_MPV_FORMAT_FLAG);
-            mpv_observe_property(self.0, 0, c"volume".as_ptr(), mpv_format_MPV_FORMAT_DOUBLE);
-            mpv_observe_property(self.0, 0, c"mute".as_ptr(), mpv_format_MPV_FORMAT_FLAG);
-            // no payload: tracks are re-read from sub-properties on change
-            mpv_observe_property(
-                self.0,
-                0,
-                c"track-list".as_ptr(),
-                mpv_format_MPV_FORMAT_NONE,
-            );
-            // known only once decoder is up; first thing any stutter report needs
-            mpv_observe_property(
-                self.0,
-                0,
-                c"hwdec-current".as_ptr(),
-                mpv_format_MPV_FORMAT_STRING,
-            );
+        // no payload for track-list: tracks are re-read from sub-properties on change.
+        // hwdec-current is known only once the decoder is up; first thing any stutter
+        // report needs.
+        for (name, format) in [
+            ("time-pos", mpv_format_MPV_FORMAT_DOUBLE),
+            ("duration", mpv_format_MPV_FORMAT_DOUBLE),
+            ("pause", mpv_format_MPV_FORMAT_FLAG),
+            ("volume", mpv_format_MPV_FORMAT_DOUBLE),
+            ("mute", mpv_format_MPV_FORMAT_FLAG),
+            ("track-list", mpv_format_MPV_FORMAT_NONE),
+            ("hwdec-current", mpv_format_MPV_FORMAT_STRING),
+        ] {
+            let name = CString::new(name).map_err(|e| e.to_string())?;
+            unsafe { mpv_observe_property(self.0, 0, name.as_ptr(), format) };
         }
         Ok(())
     }
