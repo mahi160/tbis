@@ -40,6 +40,9 @@ A Home row of Series that are not fully played, from all Libraries, ordered by w
 The screen of server-side results for the title-bar query. It covers Movies, Series, and Episodes from all Libraries.
 _Avoid_: Filter, find
 
+**Movie detail**:
+The screen for one Movie, showing its poster, meta, and overview, with a Play or Resume button.
+
 **Series detail**:
 The screen for one Series, where the user picks a season and plays an Episode.
 
