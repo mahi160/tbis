@@ -1,6 +1,6 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::tab::TabBar;
-use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, IconName, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -144,8 +144,7 @@ impl SeriesView {
                     .rounded_md()
                     .overflow_hidden()
                     .child(card::image(
-                        &self.api,
-                        &self.series,
+                        self.api.poster_url(&self.series),
                         self.series.name.clone().into(),
                         cx,
                     )),
@@ -175,8 +174,7 @@ impl SeriesView {
     }
 
     fn render_episode(&self, episode: &Item, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme();
-        let (muted, muted_fg, primary) = (theme.muted, theme.muted_foreground, theme.primary);
+        let (muted, muted_fg) = (cx.theme().muted, cx.theme().muted_foreground);
         let play = {
             let episode = episode.clone();
             cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Play(episode.clone())))
@@ -207,39 +205,12 @@ impl SeriesView {
                     .rounded_md()
                     .overflow_hidden()
                     .bg(muted)
-                    .child(card::image(&self.api, episode, "".into(), cx))
+                    .child(card::image(self.api.poster_url(episode), "".into(), cx))
                     .when_some(progress, |this, percent| {
-                        this.child(
-                            div()
-                                .absolute()
-                                .bottom_0()
-                                .left_0()
-                                .right_0()
-                                .h_1()
-                                .bg(hsla(0., 0., 0., 0.5))
-                                .child(
-                                    div()
-                                        .h_full()
-                                        .w(relative((percent / 100.) as f32))
-                                        .bg(primary),
-                                ),
-                        )
+                        this.child(card::progress_bar(percent, cx))
                     })
                     .when(episode.user_data.played, |this| {
-                        this.child(
-                            div()
-                                .absolute()
-                                .top_2()
-                                .right_2()
-                                .size_6()
-                                .rounded_full()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .bg(primary)
-                                .text_color(theme.primary_foreground)
-                                .child(Icon::new(IconName::Check).small()),
-                        )
+                        this.child(card::check_badge(cx))
                     }),
             )
             .child(

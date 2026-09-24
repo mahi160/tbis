@@ -10,7 +10,7 @@ Continue Watching and Next Up cards use a 16:9 thumbnail, the title, `S2E3 · Ep
 
 **Blocked by:** 03 — Player tracer bullet, and 05 — Series page and Series detail
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Each row shows the right items in the right order
 - [ ] A partly watched Episode appears in Continue Watching but not in Next Up

@@ -9,6 +9,7 @@ use gpui_kit::*;
 
 use crate::card::{OpenSeries, Play};
 use crate::config::{self, Config};
+use crate::home::HomeView;
 use crate::jellyfin::{Api, Item, Kind, Session};
 use crate::library::{LibraryView, SortChanged};
 use crate::login::{LoggedIn, LoginView};
@@ -35,6 +36,7 @@ struct Main {
     session: Session,
     api: Api,
     tab: Tab,
+    home: Entity<HomeView>,
     movies: Entity<LibraryView>,
     series: Entity<LibraryView>,
     search_input: Entity<InputState>,
@@ -42,7 +44,7 @@ struct Main {
     /// Series detail shown over the current tab.
     detail: Option<(Entity<SeriesView>, [Subscription; 2])>,
     player: Option<(Entity<PlayerView>, Subscription)>,
-    _subscriptions: [Subscription; 7],
+    _subscriptions: [Subscription; 9],
 }
 
 impl Main {
@@ -58,7 +60,7 @@ impl Main {
             match self.tab {
                 Tab::Movies => self.movies.update(cx, |view, cx| view.refresh(cx)),
                 Tab::Series => self.series.update(cx, |view, cx| view.refresh(cx)),
-                Tab::Home => {}
+                Tab::Home => self.home.update(cx, |view, cx| view.refresh(cx)),
             }
         }
     }
@@ -123,6 +125,11 @@ impl AppView {
         cx: &mut Context<Self>,
     ) -> Screen {
         let api = Api::new(cx.http_client(), session.clone(), config.device_id.clone());
+        let home = cx.new(|cx| {
+            let mut home = HomeView::new(api.clone());
+            home.refresh(cx);
+            home
+        });
         let movies = cx.new(|_| LibraryView::new(Kind::Movie, api.clone(), config.movies_sort));
         let series = cx.new(|_| LibraryView::new(Kind::Series, api.clone(), config.series_sort));
         let search = cx.new(|_| SearchView::new(api.clone()));
@@ -143,6 +150,12 @@ impl AppView {
                 if let Err(err) = config::save(&this.config) {
                     eprintln!("failed to save sort: {err}");
                 }
+            }),
+            cx.subscribe_in(&home, window, |this, _, Play(item), window, cx| {
+                this.open_player(item, window, cx)
+            }),
+            cx.subscribe_in(&home, window, |this, _, OpenSeries(item), window, cx| {
+                this.open_series(item, window, cx)
             }),
             cx.subscribe_in(&movies, window, |this, _, Play(item), window, cx| {
                 this.open_player(item, window, cx)
@@ -169,6 +182,7 @@ impl AppView {
             session,
             api,
             tab: Tab::Home,
+            home,
             movies,
             series,
             search_input,
@@ -361,18 +375,7 @@ impl Render for AppView {
                 series,
                 ..
             }) => series.clone().into_any_element(),
-            Screen::Main(Main { tab, .. }) => {
-                let title = TABS
-                    .iter()
-                    .find(|(t, _)| t == tab)
-                    .map_or("", |(_, label)| label);
-                div()
-                    .p_6()
-                    .text_2xl()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(title)
-                    .into_any_element()
-            }
+            Screen::Main(Main { home, .. }) => home.clone().into_any_element(),
         };
 
         v_flex()

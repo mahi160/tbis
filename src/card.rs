@@ -40,23 +40,8 @@ pub fn poster_card(
                 .rounded_md()
                 .overflow_hidden()
                 .bg(theme.muted)
-                .child(image(api, item, name.clone(), cx))
-                .when(item.user_data.played, |this| {
-                    this.child(
-                        div()
-                            .absolute()
-                            .top_2()
-                            .right_2()
-                            .size_6()
-                            .rounded_full()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .bg(theme.primary)
-                            .text_color(theme.primary_foreground)
-                            .child(Icon::new(IconName::Check).small()),
-                    )
-                }),
+                .child(image(api.poster_url(item), name.clone(), cx))
+                .when(item.user_data.played, |this| this.child(check_badge(cx))),
         )
         .child(div().h(px(TITLE_HEIGHT)).text_sm().truncate().child(name))
         .child(
@@ -73,8 +58,85 @@ pub fn poster_card(
         .into_any_element()
 }
 
-/// Item's primary image filling its parent; `fallback_text` on a muted tile when missing.
-pub fn image(api: &Api, item: &Item, fallback_text: SharedString, cx: &App) -> AnyElement {
+/// 16:9 art, title, `S2E3 · Name` or year, progress bar. For Continue Watching and Next Up.
+pub fn wide_card(api: &Api, item: &Item, width: Pixels, on_click: OnClick, cx: &App) -> AnyElement {
+    let theme = cx.theme();
+    let (title, subtitle) = match &item.series_name {
+        Some(series) => (series.clone(), item.episode_label()),
+        None => (
+            item.name.clone(),
+            item.production_year
+                .map(|y| y.to_string())
+                .unwrap_or_default(),
+        ),
+    };
+    v_flex()
+        .id(SharedString::from(item.id.clone()))
+        .w(width)
+        .flex_shrink_0()
+        .gap_1()
+        .cursor_pointer()
+        .on_click(on_click)
+        .child(
+            div()
+                .relative()
+                .w(width)
+                .h(width * (9. / 16.))
+                .rounded_md()
+                .overflow_hidden()
+                .bg(theme.muted)
+                .child(image(api.wide_image_url(item), title.clone().into(), cx))
+                .when_some(
+                    item.user_data.played_percentage.filter(|p| *p > 0.),
+                    |this, p| this.child(progress_bar(p, cx)),
+                ),
+        )
+        .child(div().text_sm().truncate().child(title))
+        .child(
+            div()
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .truncate()
+                .child(subtitle),
+        )
+        .into_any_element()
+}
+
+/// Round check in the top-right corner of a relative image box.
+pub fn check_badge(cx: &App) -> Div {
+    div()
+        .absolute()
+        .top_2()
+        .right_2()
+        .size_6()
+        .rounded_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(cx.theme().primary)
+        .text_color(cx.theme().primary_foreground)
+        .child(Icon::new(IconName::Check).small())
+}
+
+/// Thin bar along the bottom of a relative image box; `percent` is 0..100.
+pub fn progress_bar(percent: f64, cx: &App) -> Div {
+    div()
+        .absolute()
+        .bottom_0()
+        .left_0()
+        .right_0()
+        .h_1()
+        .bg(hsla(0., 0., 0., 0.5))
+        .child(
+            div()
+                .h_full()
+                .w(relative((percent / 100.) as f32))
+                .bg(cx.theme().primary),
+        )
+}
+
+/// Image filling its parent; `fallback_text` on a muted tile when missing.
+pub fn image(url: Option<String>, fallback_text: SharedString, cx: &App) -> AnyElement {
     let (muted, muted_fg) = (cx.theme().muted, cx.theme().muted_foreground);
     let placeholder = move |text: SharedString| {
         div()
@@ -90,7 +152,7 @@ pub fn image(api: &Api, item: &Item, fallback_text: SharedString, cx: &App) -> A
             .child(text)
             .into_any_element()
     };
-    match api.poster_url(item) {
+    match url {
         Some(url) => img(url)
             .size_full()
             .object_fit(ObjectFit::Cover)

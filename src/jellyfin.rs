@@ -89,6 +89,14 @@ pub struct Item {
     #[serde(default)]
     image_tags: HashMap<String, String>,
     #[serde(default)]
+    backdrop_image_tags: Vec<String>,
+    /// Series art for Episodes.
+    parent_thumb_item_id: Option<String>,
+    parent_thumb_image_tag: Option<String>,
+    parent_backdrop_item_id: Option<String>,
+    #[serde(default)]
+    parent_backdrop_image_tags: Vec<String>,
+    #[serde(default)]
     pub user_data: UserData,
     /// Episodes only.
     pub series_name: Option<String>,
@@ -109,6 +117,9 @@ impl Item {
         }
     }
 }
+
+/// Tags needed by `Api::wide_image_url`.
+const WIDE_IMAGES: &str = "EnableImageTypes=Primary,Thumb,Backdrop&ImageTypeLimit=1";
 
 /// Item type searched on its own, so one type can't crowd out the others.
 #[derive(Clone, Copy, PartialEq)]
@@ -335,6 +346,35 @@ impl Api {
     }
 
     /// Server-side search across all Libraries, one type at a time.
+    /// Started, unfinished Movies and Episodes, most recent first.
+    pub async fn resume(&self, limit: usize) -> Result<Vec<Item>> {
+        let path = format!(
+            "/UserItems/Resume?userId={}&IncludeItemTypes=Movie,Episode&Limit={limit}&{WIDE_IMAGES}",
+            self.session.user_id
+        );
+        Ok(self.get::<ItemsResult>(&path).await?.items)
+    }
+
+    /// Next Episode of every followed Series.
+    pub async fn next_up_all(&self, limit: usize) -> Result<Vec<Item>> {
+        let path = format!(
+            "/Shows/NextUp?userId={}&Limit={limit}&{WIDE_IMAGES}",
+            self.session.user_id
+        );
+        Ok(self.get::<ItemsResult>(&path).await?.items)
+    }
+
+    /// Unplayed items of one kind, newest first (Series by newest Episode).
+    pub async fn latest_unplayed(&self, kind: Kind, limit: usize) -> Result<Vec<Item>> {
+        let query = format!(
+            "/Items?userId={}&IncludeItemTypes={}&Recursive=true&isPlayed=false&Limit={limit}&{}&Fields=ProductionYear&EnableImageTypes=Primary&ImageTypeLimit=1",
+            self.session.user_id,
+            kind.as_str(),
+            Sort::DateAdded.query(kind)
+        );
+        Ok(self.get::<ItemsResult>(&query).await?.items)
+    }
+
     pub async fn search(&self, term: &str, kind: Kind, limit: usize) -> Result<Vec<Item>> {
         let term: String = url::form_urlencoded::byte_serialize(term.as_bytes()).collect();
         let query = format!(
@@ -343,6 +383,42 @@ impl Api {
             kind.as_str()
         );
         Ok(self.get::<ItemsResult>(&query).await?.items)
+    }
+
+    /// 16:9 art. Episode: still, Series thumb, Series backdrop. Movie: thumb, backdrop, poster.
+    pub fn wide_image_url(&self, item: &Item) -> Option<String> {
+        let own = |kind: &'static str, tag: Option<&String>| {
+            tag.map(|t| (item.id.clone(), kind, t.clone()))
+        };
+        let parent = |kind: &'static str, id: &Option<String>, tag: Option<&String>| {
+            id.clone().zip(tag.cloned()).map(|(id, t)| (id, kind, t))
+        };
+        let pick = if item.series_name.is_some() {
+            own("Primary", item.image_tags.get("Primary"))
+                .or_else(|| {
+                    parent(
+                        "Thumb",
+                        &item.parent_thumb_item_id,
+                        item.parent_thumb_image_tag.as_ref(),
+                    )
+                })
+                .or_else(|| {
+                    parent(
+                        "Backdrop/0",
+                        &item.parent_backdrop_item_id,
+                        item.parent_backdrop_image_tags.first(),
+                    )
+                })
+        } else {
+            own("Thumb", item.image_tags.get("Thumb"))
+                .or_else(|| own("Backdrop/0", item.backdrop_image_tags.first()))
+                .or_else(|| own("Primary", item.image_tags.get("Primary")))
+        };
+        let (id, kind, tag) = pick?;
+        Some(format!(
+            "{}/Items/{id}/Images/{kind}?fillWidth=480&quality=90&tag={tag}",
+            self.session.server
+        ))
     }
 
     pub fn poster_url(&self, item: &Item) -> Option<String> {

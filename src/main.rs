@@ -2,6 +2,7 @@ mod app;
 mod assets;
 mod card;
 mod config;
+mod home;
 mod jellyfin;
 mod library;
 mod login;

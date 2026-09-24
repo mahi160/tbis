@@ -149,7 +149,7 @@ impl SearchView {
                             .flex_shrink_0()
                             .rounded_md()
                             .overflow_hidden()
-                            .child(card::image(&self.api, item, "".into(), cx)),
+                            .child(card::image(self.api.poster_url(item), "".into(), cx)),
                     )
                     .child(
                         v_flex()
