@@ -7,15 +7,16 @@ use gpui_kit::component::{
 };
 use gpui_kit::*;
 
-use crate::card::{OpenSeries, Play};
+use crate::card::{OpenMovie, OpenSeries, Play};
 use crate::config::{self, Config};
 use crate::home::HomeView;
 use crate::jellyfin::{Api, Item, Kind, Session};
 use crate::library::{LibraryView, SortChanged};
 use crate::login::{LoggedIn, LoginView};
+use crate::movie::{Back as MovieBack, MovieView};
 use crate::player::{Closed, PlayerView};
 use crate::search::SearchView;
-use crate::series::{Back, SeriesView};
+use crate::series::{Back as SeriesBack, SeriesView};
 
 actions!(tbis, [FocusSearch]);
 
@@ -41,10 +42,28 @@ struct Main {
     series: Entity<LibraryView>,
     search_input: Entity<InputState>,
     search: Entity<SearchView>,
-    /// Series detail shown over the current tab.
-    detail: Option<(Entity<SeriesView>, [Subscription; 2])>,
+    /// Movie or Series detail shown over the current tab.
+    detail: Option<Detail>,
     player: Option<(Entity<PlayerView>, Subscription)>,
-    _subscriptions: [Subscription; 9],
+    _subscriptions: [Subscription; 11],
+}
+
+/// Detail page shown over the current tab; opened from a Movie or Series poster.
+enum Detail {
+    // subscriptions kept alive by the variant, never read directly
+    #[allow(dead_code)]
+    Movie(Entity<MovieView>, [Subscription; 2]),
+    #[allow(dead_code)]
+    Series(Entity<SeriesView>, [Subscription; 2]),
+}
+
+impl Detail {
+    fn refresh(&self, cx: &mut App) {
+        match self {
+            Detail::Movie(view, _) => view.update(cx, |view, cx| view.refresh(cx)),
+            Detail::Series(view, _) => view.update(cx, |view, cx| view.refresh(cx)),
+        }
+    }
 }
 
 impl Main {
@@ -54,8 +73,8 @@ impl Main {
 
     /// Reloads whatever is on screen so played state and progress are fresh.
     fn refresh_visible(&self, cx: &mut App) {
-        if let Some((detail, _)) = &self.detail {
-            detail.update(cx, |detail, cx| detail.refresh(cx));
+        if let Some(detail) = &self.detail {
+            detail.refresh(cx);
         } else {
             match self.tab {
                 Tab::Movies => self.movies.update(cx, |view, cx| view.refresh(cx)),
@@ -154,17 +173,23 @@ impl AppView {
             cx.subscribe_in(&home, window, |this, _, Play(item), window, cx| {
                 this.open_player(item, window, cx)
             }),
+            cx.subscribe_in(&home, window, |this, _, OpenMovie(item), window, cx| {
+                this.open_movie(item, window, cx)
+            }),
             cx.subscribe_in(&home, window, |this, _, OpenSeries(item), window, cx| {
                 this.open_series(item, window, cx)
             }),
-            cx.subscribe_in(&movies, window, |this, _, Play(item), window, cx| {
-                this.open_player(item, window, cx)
+            cx.subscribe_in(&movies, window, |this, _, OpenMovie(item), window, cx| {
+                this.open_movie(item, window, cx)
             }),
             cx.subscribe_in(&series, window, |this, _, OpenSeries(item), window, cx| {
                 this.open_series(item, window, cx)
             }),
             cx.subscribe_in(&search, window, |this, _, Play(item), window, cx| {
                 this.open_player(item, window, cx)
+            }),
+            cx.subscribe_in(&search, window, |this, _, OpenMovie(item), window, cx| {
+                this.open_movie(item, window, cx)
             }),
             cx.subscribe_in(&search, window, |this, _, OpenSeries(item), window, cx| {
                 this.open_series(item, window, cx)
@@ -221,7 +246,7 @@ impl AppView {
             cx.subscribe_in(&detail, window, |this, _, Play(item), window, cx| {
                 this.open_player(item, window, cx)
             }),
-            cx.subscribe(&detail, |this, _, Back, cx| {
+            cx.subscribe(&detail, |this, _, SeriesBack, cx| {
                 if let Screen::Main(main) = &mut this.screen {
                     main.detail = None;
                     main.refresh_visible(cx);
@@ -229,7 +254,30 @@ impl AppView {
                 }
             }),
         ];
-        main.detail = Some((detail, subscriptions));
+        main.detail = Some(Detail::Series(detail, subscriptions));
+        Self::clear_search(main, window, cx);
+        cx.notify();
+    }
+
+    fn open_movie(&mut self, movie: &Item, window: &mut Window, cx: &mut Context<Self>) {
+        let Screen::Main(main) = &mut self.screen else {
+            return;
+        };
+        let (api, movie) = (main.api.clone(), movie.clone());
+        let detail = cx.new(|cx| MovieView::new(api, movie, cx));
+        let subscriptions = [
+            cx.subscribe_in(&detail, window, |this, _, Play(item), window, cx| {
+                this.open_player(item, window, cx)
+            }),
+            cx.subscribe(&detail, |this, _, MovieBack, cx| {
+                if let Screen::Main(main) = &mut this.screen {
+                    main.detail = None;
+                    main.refresh_visible(cx);
+                    cx.notify();
+                }
+            }),
+        ];
+        main.detail = Some(Detail::Movie(detail, subscriptions));
         Self::clear_search(main, window, cx);
         cx.notify();
     }
@@ -362,7 +410,11 @@ impl Render for AppView {
             Screen::Login { view, .. } => view.clone().into_any_element(),
             Screen::Main(main) if main.searching(cx) => main.search.clone().into_any_element(),
             Screen::Main(Main {
-                detail: Some((detail, _)),
+                detail: Some(Detail::Movie(detail, _)),
+                ..
+            }) => detail.clone().into_any_element(),
+            Screen::Main(Main {
+                detail: Some(Detail::Series(detail, _)),
                 ..
             }) => detail.clone().into_any_element(),
             Screen::Main(Main {

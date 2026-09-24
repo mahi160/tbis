@@ -6,7 +6,7 @@ use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::card::{OnClick, OpenSeries, Play, poster_card};
+use crate::card::{OnClick, OpenMovie, OpenSeries, poster_card};
 use crate::jellyfin::{Api, Item, Kind, Sort};
 
 pub struct SortChanged(pub Sort);
@@ -30,7 +30,7 @@ pub struct LibraryView {
 }
 
 impl EventEmitter<SortChanged> for LibraryView {}
-impl EventEmitter<Play> for LibraryView {}
+impl EventEmitter<OpenMovie> for LibraryView {}
 impl EventEmitter<OpenSeries> for LibraryView {}
 
 impl LibraryView {
@@ -119,9 +119,9 @@ impl LibraryView {
             Kind::Series => Box::new(
                 cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(OpenSeries(item_.clone()))),
             ),
-            _ => {
-                Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Play(item_.clone()))))
-            }
+            _ => Box::new(
+                cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(OpenMovie(item_.clone()))),
+            ),
         };
         poster_card(&self.api, item, self.card_width, Some(open), cx)
     }

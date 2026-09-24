@@ -2,7 +2,7 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::*;
 
-use crate::card::{self, OnClick, OpenSeries, Play};
+use crate::card::{self, OnClick, OpenMovie, OpenSeries, Play};
 use crate::jellyfin::{Api, Item, Kind};
 
 const PER_ROW: usize = 24;
@@ -41,6 +41,7 @@ pub struct HomeView {
 }
 
 impl EventEmitter<Play> for HomeView {}
+impl EventEmitter<OpenMovie> for HomeView {}
 impl EventEmitter<OpenSeries> for HomeView {}
 
 impl HomeView {
@@ -197,7 +198,11 @@ impl Render for HomeView {
             .movies
             .iter()
             .map(|item| {
-                let on_click = Self::play_on_click(item, cx);
+                let item_ = item.clone();
+                let on_click: OnClick =
+                    Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        cx.emit(OpenMovie(item_.clone()))
+                    }));
                 card::poster_card(&self.api, item, px(POSTER_WIDTH), Some(on_click), cx)
             })
             .collect();

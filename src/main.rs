@@ -7,6 +7,7 @@ mod home;
 mod jellyfin;
 mod library;
 mod login;
+mod movie;
 mod mpv;
 mod pip;
 mod player;

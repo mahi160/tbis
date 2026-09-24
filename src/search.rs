@@ -3,7 +3,7 @@ use std::time::Duration;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::*;
 
-use crate::card::{self, OpenSeries, Play};
+use crate::card::{self, OpenMovie, OpenSeries, Play};
 use crate::jellyfin::{Api, Item, Kind};
 
 const PAD: f32 = 24.;
@@ -35,6 +35,7 @@ pub struct SearchView {
 }
 
 impl EventEmitter<Play> for SearchView {}
+impl EventEmitter<OpenMovie> for SearchView {}
 impl EventEmitter<OpenSeries> for SearchView {}
 
 impl SearchView {
@@ -109,7 +110,9 @@ impl SearchView {
                     cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(OpenSeries(item_.clone()))),
                 )
             } else {
-                Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Play(item_.clone()))))
+                Box::new(
+                    cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(OpenMovie(item_.clone()))),
+                )
             };
             cards.push(card::poster_card(
                 &self.api,

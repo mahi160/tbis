@@ -4,8 +4,12 @@ use gpui_kit::*;
 
 use crate::jellyfin::{Api, Item};
 
-/// Emitted by any screen when the user picks a Movie or Episode to play.
+/// Emitted by any screen when the user picks an Episode to play, or a
+/// detail page's Play/Resume button is used.
 pub struct Play(pub Item);
+
+/// Emitted when the user picks a Movie poster; opens Movie detail.
+pub struct OpenMovie(pub Item);
 
 /// Emitted when the user picks a Series; opens Series detail.
 pub struct OpenSeries(pub Item);
