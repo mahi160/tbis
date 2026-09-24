@@ -61,6 +61,8 @@ pub struct PlayerView {
     reports: UnboundedSender<Queued>,
     error: Option<SharedString>,
     time: f64,
+    /// Time last drawn; throttles redraws to 0.25s steps.
+    shown_time: f64,
     duration: f64,
     paused: bool,
     volume: f64,
@@ -163,6 +165,7 @@ impl PlayerView {
             reports,
             error,
             time: 0.,
+            shown_time: 0.,
             duration: 0.,
             paused: false,
             volume,
@@ -213,18 +216,18 @@ impl PlayerView {
     fn on_mpv(&mut self, event: MpvEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
             MpvEvent::TimePos(time) => {
-                let redraw = (time - self.time).abs() >= 0.25;
                 self.time = time;
-                if !redraw {
+                if (time - self.shown_time).abs() < 0.25 {
                     return;
                 }
-                if self.scrubbing.is_none() && self.duration > 0. {
-                    let fraction = (time / self.duration) as f32;
-                    self.seek
-                        .update(cx, |s, cx| s.set_value(fraction, window, cx));
-                }
+                self.shown_time = time;
+                self.sync_seek_bar(window, cx);
             }
-            MpvEvent::Duration(duration) => self.duration = duration,
+            // resume jump arrives before duration is known
+            MpvEvent::Duration(duration) => {
+                self.duration = duration;
+                self.sync_seek_bar(window, cx);
+            }
             MpvEvent::Pause(paused) => {
                 self.paused = paused;
                 if self.started {
@@ -260,6 +263,14 @@ impl PlayerView {
             }
         }
         cx.notify();
+    }
+
+    fn sync_seek_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.scrubbing.is_none() && self.duration > 0. {
+            let fraction = (self.time / self.duration) as f32;
+            self.seek
+                .update(cx, |s, cx| s.set_value(fraction, window, cx));
+        }
     }
 
     fn on_seek(&mut self, event: &SliderEvent, window: &mut Window, cx: &mut Context<Self>) {
