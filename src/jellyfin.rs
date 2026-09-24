@@ -42,6 +42,21 @@ async fn read_json<T: DeserializeOwned>(response: Response<AsyncBody>) -> Result
     Ok(serde_json::from_slice(&bytes)?)
 }
 
+/// Sends a request and checks for a success status, shared by every request path
+/// that reports errors as `anyhow::Error` (login's is user-facing text instead).
+async fn send(
+    http: &Arc<dyn HttpClient>,
+    request: Request<AsyncBody>,
+) -> Result<Response<AsyncBody>> {
+    let response = http.send(request).await?;
+    ensure!(
+        response.status().is_success(),
+        "HTTP {}",
+        response.status().as_u16()
+    );
+    Ok(response)
+}
+
 /// Order of the Movies and Series pages. Ties fall back to name.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum Sort {
@@ -106,14 +121,22 @@ pub struct Item {
     pub index_number: Option<i32>,
     pub run_time_ticks: Option<i64>,
     pub overview: Option<String>,
+    /// unverified: assumes the server always sends `Type`; falls back to `Kind::Other`
+    /// when it's missing or not one of the kinds this app knows about (e.g. Season).
+    #[serde(rename = "Type", default)]
+    pub kind: Kind,
 }
 
 impl Item {
-    /// `S2E3 · Name`, or just the name when numbers are missing.
+    /// `S02E03 · Name`, or just the name when numbers are missing.
     pub fn episode_label(&self) -> String {
         match (self.parent_index_number, self.index_number) {
             (Some(season), Some(episode)) => {
-                format!("S{season}E{episode} · {}", self.display_name())
+                format!(
+                    "{} · {}",
+                    episode_code(season, episode),
+                    self.display_name()
+                )
             }
             _ => self.name.clone(),
         }
@@ -137,6 +160,11 @@ impl Item {
     }
 }
 
+/// `S04E15`, zero-padded; the one format used everywhere an Episode's numbers show.
+pub fn episode_code(season: i32, episode: i32) -> String {
+    format!("S{season:02}E{episode:02}")
+}
+
 /// `S04E15` or `S04E18-19` (any case, any zero padding) naming this season and first episode.
 fn code_matches(code: &str, season: i32, episode: i32) -> bool {
     let number = |s: &str| {
@@ -155,12 +183,21 @@ fn code_matches(code: &str, season: i32, episode: i32) -> bool {
 /// Tags needed by `Api::wide_image_url`.
 const WIDE_IMAGES: &str = "EnableImageTypes=Primary,Thumb,Backdrop&ImageTypeLimit=1";
 
-/// Item type searched on its own, so one type can't crowd out the others.
-#[derive(Clone, Copy, PartialEq)]
+/// Tags needed by `Api::poster_url`, shared by every plain item listing.
+const POSTER_IMAGES: &str = "EnableImageTypes=Primary&ImageTypeLimit=1";
+
+/// Item type searched on its own, so one type can't crowd out the others; also
+/// `Item::kind`, read off the server's own `Type` field.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum Kind {
     Movie,
     Series,
     Episode,
+    /// Season and anything else this app doesn't render its own way.
+    #[serde(other)]
+    #[default]
+    Other,
 }
 
 impl Kind {
@@ -169,6 +206,7 @@ impl Kind {
             Kind::Movie => "Movie",
             Kind::Series => "Series",
             Kind::Episode => "Episode",
+            Kind::Other => "Item",
         }
     }
 }
@@ -257,13 +295,7 @@ impl Api {
             .uri(format!("{}{path_and_query}", self.session.server))
             .header("Authorization", self.auth_header())
             .body(AsyncBody::empty())?;
-        let response = self.http.send(request).await?;
-        ensure!(
-            response.status().is_success(),
-            "HTTP {}",
-            response.status().as_u16()
-        );
-        read_json(response).await
+        read_json(send(&self.http, request).await?).await
     }
 
     async fn post(&self, path: &str, body: serde_json::Value) -> Result<()> {
@@ -273,13 +305,18 @@ impl Api {
             .header("Content-Type", "application/json")
             .header("Authorization", self.auth_header())
             .body(AsyncBody::from(body.to_string()))?;
-        let response = self.http.send(request).await?;
-        ensure!(
-            response.status().is_success(),
-            "HTTP {}",
-            response.status().as_u16()
-        );
+        send(&self.http, request).await?;
         Ok(())
+    }
+
+    /// `Items?...&{extra}`, with the `Fields`/image params every item listing shares.
+    async fn items(&self, kind: Kind, extra: &str) -> Result<Vec<Item>> {
+        let query = format!(
+            "/Items?userId={}&IncludeItemTypes={}&Recursive=true&Fields=ProductionYear&{POSTER_IMAGES}&{extra}",
+            self.session.user_id,
+            kind.as_str(),
+        );
+        Ok(self.get::<ItemsResult>(&query).await?.items)
     }
 
     pub fn auth_header(&self) -> String {
@@ -331,15 +368,9 @@ impl Api {
         self.post(&path, serde_json::Value::Null).await
     }
 
-    /// Every Movie from all Libraries.
+    /// Every item of one kind (Movie or Series) from all Libraries.
     pub async fn library(&self, kind: Kind, sort: Sort) -> Result<Vec<Item>> {
-        let query = format!(
-            "/Items?userId={}&IncludeItemTypes={}&Recursive=true&{}&Fields=ProductionYear&EnableImageTypes=Primary&ImageTypeLimit=1",
-            self.session.user_id,
-            kind.as_str(),
-            sort.query(kind)
-        );
-        Ok(self.get::<ItemsResult>(&query).await?.items)
+        self.items(kind, sort.query(kind)).await
     }
 
     /// Any item with its overview.
@@ -367,7 +398,6 @@ impl Api {
         Ok(self.get::<ItemsResult>(&path).await?.items)
     }
 
-    /// Next unwatched Episode of one Series, if any.
     /// Episode after `episode_id` in the server's order, crossing seasons.
     pub async fn next_episode(&self, series_id: &str, episode_id: &str) -> Result<Option<Item>> {
         let path = format!(
@@ -378,6 +408,7 @@ impl Api {
         Ok(episodes.into_iter().find(|e| e.id != episode_id))
     }
 
+    /// Next unwatched Episode of one Series, if any.
     pub async fn next_up(&self, series_id: &str) -> Result<Option<Item>> {
         let path = format!(
             "/Shows/NextUp?seriesId={series_id}&userId={}&Limit=1",
@@ -391,7 +422,6 @@ impl Api {
             .next())
     }
 
-    /// Server-side search across all Libraries, one type at a time.
     /// Started, unfinished Movies and Episodes, most recent first.
     pub async fn resume(&self, limit: usize) -> Result<Vec<Item>> {
         let path = format!(
@@ -412,23 +442,21 @@ impl Api {
 
     /// Unplayed items of one kind, newest first (Series by newest Episode).
     pub async fn latest_unplayed(&self, kind: Kind, limit: usize) -> Result<Vec<Item>> {
-        let query = format!(
-            "/Items?userId={}&IncludeItemTypes={}&Recursive=true&isPlayed=false&Limit={limit}&{}&Fields=ProductionYear&EnableImageTypes=Primary&ImageTypeLimit=1",
-            self.session.user_id,
-            kind.as_str(),
-            Sort::DateAdded.query(kind)
-        );
-        Ok(self.get::<ItemsResult>(&query).await?.items)
+        self.items(
+            kind,
+            &format!(
+                "isPlayed=false&Limit={limit}&{}",
+                Sort::DateAdded.query(kind)
+            ),
+        )
+        .await
     }
 
+    /// Server-side search across all Libraries, one type at a time.
     pub async fn search(&self, term: &str, kind: Kind, limit: usize) -> Result<Vec<Item>> {
         let term: String = url::form_urlencoded::byte_serialize(term.as_bytes()).collect();
-        let query = format!(
-            "/Items?userId={}&searchTerm={term}&IncludeItemTypes={}&Recursive=true&Limit={limit}&Fields=ProductionYear&EnableImageTypes=Primary&ImageTypeLimit=1",
-            self.session.user_id,
-            kind.as_str()
-        );
-        Ok(self.get::<ItemsResult>(&query).await?.items)
+        self.items(kind, &format!("searchTerm={term}&Limit={limit}"))
+            .await
     }
 
     /// 16:9 art. Episode: still, Series thumb, Series backdrop. Movie: thumb, backdrop, poster.
@@ -439,7 +467,7 @@ impl Api {
         let parent = |kind: &'static str, id: &Option<String>, tag: Option<&String>| {
             id.clone().zip(tag.cloned()).map(|(id, t)| (id, kind, t))
         };
-        let pick = if item.series_name.is_some() {
+        let pick = if item.kind == Kind::Episode {
             own("Primary", item.image_tags.get("Primary"))
                 .or_else(|| {
                     parent(
@@ -514,9 +542,7 @@ pub async fn public_users(
     let request = Request::builder()
         .uri(format!("{server}/Users/Public"))
         .body(AsyncBody::empty())?;
-    let response = http.send(request).await?;
-    anyhow::ensure!(response.status().is_success(), "HTTP {}", response.status());
-    read_json(response).await
+    read_json(send(&http, request).await?).await
 }
 
 /// Checks the server is Jellyfin, then signs in. Errors are user-facing messages.
@@ -600,27 +626,30 @@ mod tests {
         let label = |name, s, e| episode(name, s, e).episode_label();
         assert_eq!(
             label("The Office (US) - S04E15 - Night Out", 4, 15),
-            "S4E15 · Night Out"
+            "S04E15 · Night Out"
         );
         assert_eq!(
             label("The Office (US) - S04E18-19 - Goodbye, Toby", 4, 18),
-            "S4E18 · Goodbye, Toby"
+            "S04E18 · Goodbye, Toby"
         );
         assert_eq!(
             label("A - B - s4e15 - Title - Part 2", 4, 15),
-            "S4E15 · Title - Part 2"
+            "S04E15 · Title - Part 2"
         );
         // code for another episode, or no code: untouched
         assert_eq!(
             label("Show - S04E16 - Night Out", 4, 15),
-            "S4E15 · Show - S04E16 - Night Out"
+            "S04E15 · Show - S04E16 - Night Out"
         );
         assert_eq!(
             label("Before - After - End", 1, 1),
-            "S1E1 · Before - After - End"
+            "S01E01 · Before - After - End"
         );
-        assert_eq!(label("Show - S04E15 - ", 4, 15), "S4E15 · Show - S04E15 - ");
-        assert_eq!(label("Pilot", 1, 1), "S1E1 · Pilot");
+        assert_eq!(
+            label("Show - S04E15 - ", 4, 15),
+            "S04E15 · Show - S04E15 - "
+        );
+        assert_eq!(label("Pilot", 1, 1), "S01E01 · Pilot");
     }
 
     /// Minimal fake Jellyfin: accepts password "right", or empty for passwordless "guest".
