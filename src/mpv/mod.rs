@@ -130,6 +130,11 @@ impl Mpv {
         self.command(&["loadfile", url, "replace"])
     }
 
+    /// Ends current file; mpv goes idle until next load.
+    pub fn stop(&self) -> Result<(), String> {
+        self.command(&["stop"])
+    }
+
     pub fn set_pause(&self, pause: bool) -> Result<(), String> {
         self.handle
             .set_property("pause", if pause { "yes" } else { "no" })

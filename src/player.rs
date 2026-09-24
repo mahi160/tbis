@@ -20,8 +20,9 @@ actions!(
         SeekBack,
         SeekForward,
         ToggleFullscreen,
-        ExitFullscreen,
-        ToggleMute
+        Escape,
+        ToggleMute,
+        PlayNext
     ]
 );
 
@@ -34,8 +35,9 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("left", SeekBack, Some(CONTEXT)),
         KeyBinding::new("right", SeekForward, Some(CONTEXT)),
         KeyBinding::new("f", ToggleFullscreen, Some(CONTEXT)),
-        KeyBinding::new("escape", ExitFullscreen, Some(CONTEXT)),
+        KeyBinding::new("escape", Escape, Some(CONTEXT)),
         KeyBinding::new("m", ToggleMute, Some(CONTEXT)),
+        KeyBinding::new("enter", PlayNext, Some(CONTEXT)),
     ]);
 }
 
@@ -47,6 +49,8 @@ pub struct Closed {
 
 const HIDE_CONTROLS_AFTER: Duration = Duration::from_secs(3);
 const PROGRESS_EVERY: Duration = Duration::from_secs(10);
+/// Seconds left in an Episode when the next one is offered.
+const UP_NEXT_AT: f64 = 30.;
 
 /// Server update queued by the Player; sent in order, even after it closes.
 enum Queued {
@@ -55,9 +59,13 @@ enum Queued {
 }
 
 pub struct PlayerView {
+    api: Api,
     title: SharedString,
     mpv: Option<Mpv>,
     item: Option<Arc<PlaybackItem>>,
+    /// Episode that Autoplay continues with.
+    next: Option<Item>,
+    next_cancelled: bool,
     reports: UnboundedSender<Queued>,
     error: Option<SharedString>,
     time: f64,
@@ -77,6 +85,7 @@ pub struct PlayerView {
     controls_visible: bool,
     menu_open: bool,
     _hide: Task<()>,
+    _load: Task<()>,
     _tasks: Vec<Task<()>>,
     _subscriptions: [Subscription; 2],
 }
@@ -136,12 +145,6 @@ impl PlayerView {
             }
         }));
         if mpv.is_some() {
-            let item_id = item.id.clone();
-            tasks.push(cx.spawn(async move |this, cx| {
-                let result = api.playback_item(&item_id).await;
-                this.update(cx, |this, cx| this.start(result, &api, cx))
-                    .ok();
-            }));
             tasks.push(cx.spawn(async move |this, cx| {
                 loop {
                     cx.background_executor().timer(PROGRESS_EVERY).await;
@@ -159,9 +162,12 @@ impl PlayerView {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let mut this = Self {
+            api,
             title: item.name.clone().into(),
             mpv,
             item: None,
+            next: None,
+            next_cancelled: false,
             reports,
             error,
             time: 0.,
@@ -180,14 +186,45 @@ impl PlayerView {
             controls_visible: true,
             menu_open: false,
             _hide: Task::ready(()),
+            _load: Task::ready(()),
             _tasks: tasks,
             _subscriptions,
         };
+        this.load(item.id.clone(), cx);
         this.show_controls(window, cx);
         this
     }
 
-    fn start(&mut self, result: anyhow::Result<PlaybackItem>, api: &Api, cx: &mut Context<Self>) {
+    /// Fetches fresh play details, starts playback, then looks up the next Episode.
+    fn load(&mut self, item_id: String, cx: &mut Context<Self>) {
+        if self.mpv.is_none() {
+            return;
+        }
+        let api = self.api.clone();
+        self._load = cx.spawn(async move |this, cx| {
+            let result = api.playback_item(&item_id).await;
+            let series_id = result.as_ref().ok().and_then(|i| i.series_id.clone());
+            if this.update(cx, |this, cx| this.start(result, cx)).is_err() {
+                return;
+            }
+            let Some(series_id) = series_id else {
+                return;
+            };
+            match api.next_episode(&series_id, &item_id).await {
+                Ok(next) => {
+                    this.update(cx, |this, cx| {
+                        this.next = next;
+                        cx.notify();
+                    })
+                    .ok();
+                }
+                // no Autoplay; playback unaffected
+                Err(err) => eprintln!("next episode lookup failed: {err}"),
+            }
+        });
+    }
+
+    fn start(&mut self, result: anyhow::Result<PlaybackItem>, cx: &mut Context<Self>) {
         let (Some(mpv), Ok(item)) = (&self.mpv, result.as_ref()) else {
             if let Err(err) = result {
                 self.error = Some(format!("Cannot load item: {err}").into());
@@ -195,7 +232,7 @@ impl PlayerView {
             cx.notify();
             return;
         };
-        if let Err(err) = mpv.load(&api.stream_url(item), item.resume_seconds()) {
+        if let Err(err) = mpv.load(&self.api.stream_url(item), item.resume_seconds()) {
             self.error = Some(err.into());
         }
         self.item = result.ok().map(Arc::new);
@@ -254,7 +291,10 @@ impl PlayerView {
             MpvEvent::EndFile(Ok(true)) => {
                 self.finished = true;
                 self.time = self.duration;
-                self.close(window, cx);
+                match self.next.clone().filter(|_| !self.next_cancelled) {
+                    Some(next) => self.play_next(next, window, cx),
+                    None => self.close(window, cx),
+                }
                 return;
             }
             MpvEvent::EndFile(Ok(false)) => {}
@@ -330,11 +370,71 @@ impl PlayerView {
         self.refocus(window, cx);
     }
 
-    fn exit_fullscreen(&mut self, _: &ExitFullscreen, window: &mut Window, cx: &mut Context<Self>) {
-        if window.is_fullscreen() {
+    /// Cancels Autoplay while its card shows, else leaves fullscreen.
+    fn escape(&mut self, _: &Escape, window: &mut Window, cx: &mut Context<Self>) {
+        if self.up_next().is_some() {
+            self.next_cancelled = true;
+        } else if window.is_fullscreen() {
             window.toggle_fullscreen();
         }
         self.show_controls(window, cx);
+    }
+
+    fn play_next_now(&mut self, _: &PlayNext, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(next) = self.up_next().cloned() {
+            self.play_next(next, window, cx);
+        }
+    }
+
+    /// Next Episode while its card should show: last 30s, not cancelled.
+    fn up_next(&self) -> Option<&Item> {
+        let near_end = self.duration > 0. && self.duration - self.time <= UP_NEXT_AT;
+        if near_end && !self.next_cancelled && self.error.is_none() {
+            self.next.as_ref()
+        } else {
+            None
+        }
+    }
+
+    /// Autoplay: current Episode counts as watched; next loads in this Player.
+    fn play_next(&mut self, next: Item, window: &mut Window, cx: &mut Context<Self>) {
+        self.finished = true;
+        self.end_current();
+        if let Some(mpv) = &self.mpv {
+            // stop old file during fetch; pause would carry over
+            let _ = mpv.stop();
+            let _ = mpv.set_pause(false);
+        }
+        self.reports = spawn_reporter(
+            self.api.clone(),
+            uuid::Uuid::new_v4().simple().to_string(),
+            cx,
+        );
+        self.title = next.name.clone().into();
+        self.item = None;
+        self.next = None;
+        self.next_cancelled = false;
+        self.started = false;
+        self.finished = false;
+        self.time = 0.;
+        self.shown_time = 0.;
+        self.duration = 0.;
+        self.scrubbing = None;
+        self.tracks.clear();
+        self.seek.update(cx, |s, cx| s.set_value(0., window, cx));
+        self.load(next.id, cx);
+        self.refocus(window, cx);
+    }
+
+    /// Reports stop, and played when finished, for the current item.
+    fn end_current(&mut self) {
+        if self.started {
+            self.report(Report::Stopped);
+        }
+        // explicit: Stopped near end alone depends on server's resume thresholds
+        if let (true, Some(item)) = (self.finished, &self.item) {
+            let _ = self.reports.unbounded_send(Queued::Played(item.clone()));
+        }
     }
 
     fn select_track(&mut self, kind: TrackKind, id: Option<i64>) {
@@ -348,13 +448,7 @@ impl PlayerView {
         if window.is_fullscreen() {
             window.toggle_fullscreen();
         }
-        if self.started {
-            self.report(Report::Stopped);
-        }
-        // explicit: Stopped near end alone depends on server's resume thresholds
-        if let (true, Some(item)) = (self.finished, &self.item) {
-            let _ = self.reports.unbounded_send(Queued::Played(item.clone()));
-        }
+        self.end_current();
         cx.emit(Closed {
             volume: self.volume,
             muted: self.muted,
@@ -598,6 +692,52 @@ impl Render for PlayerView {
                 )
         });
 
+        let up_next = self.up_next().map(|next| {
+            let left = (self.duration - self.time).max(0.).ceil() as u64;
+            v_flex()
+                .absolute()
+                .right_4()
+                .bottom(px(88.)) // above bottom bar
+                .w(px(320.))
+                .p_4()
+                .gap_3()
+                .rounded_lg()
+                .bg(hsla(0., 0., 0., 0.8))
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .truncate()
+                        .child(format!("Next: {}", next.episode_label())),
+                )
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(format!("Playing in {left}s")),
+                )
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .child(
+                            Button::new("up-next-play")
+                                .primary()
+                                .label("Play now")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.play_next_now(&PlayNext, window, cx)
+                                })),
+                        )
+                        .child(
+                            Button::new("up-next-cancel")
+                                .ghost()
+                                .label("Cancel")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.next_cancelled = true;
+                                    this.refocus(window, cx);
+                                })),
+                        ),
+                )
+        });
+
         v_flex()
             .id("player")
             .key_context(CONTEXT)
@@ -607,7 +747,8 @@ impl Render for PlayerView {
             .on_action(cx.listener(Self::seek_forward))
             .on_action(cx.listener(Self::toggle_mute))
             .on_action(cx.listener(Self::toggle_fullscreen))
-            .on_action(cx.listener(Self::exit_fullscreen))
+            .on_action(cx.listener(Self::escape))
+            .on_action(cx.listener(Self::play_next_now))
             .size_full()
             .relative()
             .justify_between()
@@ -618,6 +759,7 @@ impl Render for PlayerView {
                 }
             }))
             .children(error)
+            .children(up_next)
             .when(self.controls_visible || self.error.is_some(), |this| {
                 this.child(top).child(bottom)
             })

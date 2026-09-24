@@ -155,6 +155,8 @@ pub struct UserData {
 #[serde(rename_all = "PascalCase")]
 pub struct PlaybackItem {
     pub id: String,
+    /// Episodes only; used to find the next Episode.
+    pub series_id: Option<String>,
     #[serde(default)]
     media_sources: Vec<MediaSource>,
     #[serde(default)]
@@ -332,6 +334,16 @@ impl Api {
     }
 
     /// Next unwatched Episode of one Series, if any.
+    /// Episode after `episode_id` in the server's order, crossing seasons.
+    pub async fn next_episode(&self, series_id: &str, episode_id: &str) -> Result<Option<Item>> {
+        let path = format!(
+            "/Shows/{series_id}/Episodes?userId={}&startItemId={episode_id}&Limit=2",
+            self.session.user_id
+        );
+        let episodes = self.get::<ItemsResult>(&path).await?.items;
+        Ok(episodes.into_iter().find(|e| e.id != episode_id))
+    }
+
     pub async fn next_up(&self, series_id: &str) -> Result<Option<Item>> {
         let path = format!(
             "/Shows/NextUp?seriesId={series_id}&userId={}&Limit=1",

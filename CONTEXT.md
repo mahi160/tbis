@@ -47,7 +47,7 @@ The screen for one Series, where the user picks a season and plays an Episode.
 The in-window screen that plays one Movie or Episode, starting from its saved position when there is one.
 
 **Autoplay**:
-When an Episode ends, the Player counts down 5 seconds and then plays the next Episode of the same Series. The user can skip the wait or cancel. There is no Autoplay after a Movie or after the last Episode.
+In the last 30 seconds of an Episode, the Player offers the next Episode of the same Series and plays it when the Episode ends. The user can play it right away or cancel. There is no Autoplay after a Movie or after the last Episode.
 _Avoid_: Binge, continuous play
 
 **PiP**:
