@@ -64,12 +64,16 @@ impl Sort {
         }
     }
 
-    fn query(self) -> &'static str {
-        match self {
-            Sort::Name => "SortBy=SortName&SortOrder=Ascending",
-            Sort::DateAdded => "SortBy=DateCreated,SortName&SortOrder=Descending,Ascending",
-            Sort::Year => "SortBy=ProductionYear,SortName&SortOrder=Descending,Ascending",
-            Sort::Rating => "SortBy=CommunityRating,SortName&SortOrder=Descending,Ascending",
+    /// Series "added" means newest Episode, like the Home Series row.
+    fn query(self, kind: Kind) -> &'static str {
+        match (self, kind) {
+            (Sort::Name, _) => "SortBy=SortName&SortOrder=Ascending",
+            (Sort::DateAdded, Kind::Series) => {
+                "SortBy=DateLastContentAdded,SortName&SortOrder=Descending,Ascending"
+            }
+            (Sort::DateAdded, _) => "SortBy=DateCreated,SortName&SortOrder=Descending,Ascending",
+            (Sort::Year, _) => "SortBy=ProductionYear,SortName&SortOrder=Descending,Ascending",
+            (Sort::Rating, _) => "SortBy=CommunityRating,SortName&SortOrder=Descending,Ascending",
         }
     }
 }
@@ -78,6 +82,8 @@ impl Sort {
 #[serde(rename_all = "PascalCase")]
 pub struct Item {
     pub id: String,
+    /// Season of an Episode.
+    pub season_id: Option<String>,
     pub name: String,
     pub production_year: Option<i32>,
     #[serde(default)]
@@ -88,8 +94,10 @@ pub struct Item {
     pub series_name: Option<String>,
     /// Season number (Episodes only).
     pub parent_index_number: Option<i32>,
-    /// Episode number (Episodes only).
+    /// Episode number, or season number for a season.
     pub index_number: Option<i32>,
+    pub run_time_ticks: Option<i64>,
+    pub overview: Option<String>,
 }
 
 impl Item {
@@ -103,7 +111,7 @@ impl Item {
 }
 
 /// Item type searched on its own, so one type can't crowd out the others.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum Kind {
     Movie,
     Series,
@@ -127,6 +135,8 @@ pub struct UserData {
     pub played: bool,
     #[serde(default)]
     pub playback_position_ticks: i64,
+    /// Only present while partly watched.
+    pub played_percentage: Option<f64>,
 }
 
 /// Fresh per-play details: which file to stream and where to resume.
@@ -275,13 +285,53 @@ impl Api {
     }
 
     /// Every Movie from all Libraries.
-    pub async fn movies(&self, sort: Sort) -> Result<Vec<Item>> {
+    pub async fn library(&self, kind: Kind, sort: Sort) -> Result<Vec<Item>> {
         let query = format!(
-            "/Items?userId={}&IncludeItemTypes=Movie&Recursive=true&{}&Fields=ProductionYear&EnableImageTypes=Primary&ImageTypeLimit=1",
+            "/Items?userId={}&IncludeItemTypes={}&Recursive=true&{}&Fields=ProductionYear&EnableImageTypes=Primary&ImageTypeLimit=1",
             self.session.user_id,
-            sort.query()
+            kind.as_str(),
+            sort.query(kind)
         );
         Ok(self.get::<ItemsResult>(&query).await?.items)
+    }
+
+    /// Any item with its overview.
+    pub async fn item(&self, id: &str) -> Result<Item> {
+        self.get(&format!("/Items/{id}?userId={}", self.session.user_id))
+            .await
+    }
+
+    /// Numbered seasons first, Specials (season 0) last.
+    pub async fn seasons(&self, series_id: &str) -> Result<Vec<Item>> {
+        let path = format!("/Shows/{series_id}/Seasons?userId={}", self.session.user_id);
+        let mut seasons = self.get::<ItemsResult>(&path).await?.items;
+        seasons.sort_by_key(|s| match s.index_number {
+            Some(0) | None => i32::MAX,
+            Some(n) => n,
+        });
+        Ok(seasons)
+    }
+
+    pub async fn episodes(&self, series_id: &str, season_id: &str) -> Result<Vec<Item>> {
+        let path = format!(
+            "/Shows/{series_id}/Episodes?userId={}&seasonId={season_id}&EnableImageTypes=Primary&ImageTypeLimit=1",
+            self.session.user_id
+        );
+        Ok(self.get::<ItemsResult>(&path).await?.items)
+    }
+
+    /// Next unwatched Episode of one Series, if any.
+    pub async fn next_up(&self, series_id: &str) -> Result<Option<Item>> {
+        let path = format!(
+            "/Shows/NextUp?seriesId={series_id}&userId={}&Limit=1",
+            self.session.user_id
+        );
+        Ok(self
+            .get::<ItemsResult>(&path)
+            .await?
+            .items
+            .into_iter()
+            .next())
     }
 
     /// Server-side search across all Libraries, one type at a time.

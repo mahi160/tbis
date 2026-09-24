@@ -7,10 +7,13 @@ use crate::jellyfin::{Api, Item};
 /// Emitted by any screen when the user picks a Movie or Episode to play.
 pub struct Play(pub Item);
 
+/// Emitted when the user picks a Series; opens Series detail.
+pub struct OpenSeries(pub Item);
+
 const TITLE_HEIGHT: f32 = 20.;
 const META_HEIGHT: f32 = 16.;
 
-type OnClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
+pub type OnClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
 /// 2:3 poster, title, year; check badge when played. Fixed height so grid rows stay uniform.
 pub fn poster_card(

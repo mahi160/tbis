@@ -7,13 +7,14 @@ use gpui_kit::component::{
 };
 use gpui_kit::*;
 
-use crate::card::Play;
+use crate::card::{OpenSeries, Play};
 use crate::config::{self, Config};
-use crate::jellyfin::{Api, Item, Session};
+use crate::jellyfin::{Api, Item, Kind, Session};
+use crate::library::{LibraryView, SortChanged};
 use crate::login::{LoggedIn, LoginView};
-use crate::movies::{MoviesView, SortChanged};
 use crate::player::{Closed, PlayerView};
 use crate::search::SearchView;
+use crate::series::{Back, SeriesView};
 
 actions!(tbis, [FocusSearch]);
 
@@ -34,16 +35,32 @@ struct Main {
     session: Session,
     api: Api,
     tab: Tab,
-    movies: Entity<MoviesView>,
+    movies: Entity<LibraryView>,
+    series: Entity<LibraryView>,
     search_input: Entity<InputState>,
     search: Entity<SearchView>,
+    /// Series detail shown over the current tab.
+    detail: Option<(Entity<SeriesView>, [Subscription; 2])>,
     player: Option<(Entity<PlayerView>, Subscription)>,
-    _subscriptions: [Subscription; 4],
+    _subscriptions: [Subscription; 7],
 }
 
 impl Main {
     fn searching(&self, cx: &App) -> bool {
         !self.search_input.read(cx).value().trim().is_empty()
+    }
+
+    /// Reloads whatever is on screen so played state and progress are fresh.
+    fn refresh_visible(&self, cx: &mut App) {
+        if let Some((detail, _)) = &self.detail {
+            detail.update(cx, |detail, cx| detail.refresh(cx));
+        } else {
+            match self.tab {
+                Tab::Movies => self.movies.update(cx, |view, cx| view.refresh(cx)),
+                Tab::Series => self.series.update(cx, |view, cx| view.refresh(cx)),
+                Tab::Home => {}
+            }
+        }
     }
 }
 
@@ -106,7 +123,8 @@ impl AppView {
         cx: &mut Context<Self>,
     ) -> Screen {
         let api = Api::new(cx.http_client(), session.clone(), config.device_id.clone());
-        let movies = cx.new(|_| MoviesView::new(api.clone(), config.movies_sort));
+        let movies = cx.new(|_| LibraryView::new(Kind::Movie, api.clone(), config.movies_sort));
+        let series = cx.new(|_| LibraryView::new(Kind::Series, api.clone(), config.series_sort));
         let search = cx.new(|_| SearchView::new(api.clone()));
         let search_input = cx.new(|cx| {
             InputState::new(window, cx)
@@ -120,11 +138,23 @@ impl AppView {
                     eprintln!("failed to save sort: {err}");
                 }
             }),
+            cx.subscribe(&series, |this, _, SortChanged(sort), _| {
+                this.config.series_sort = *sort;
+                if let Err(err) = config::save(&this.config) {
+                    eprintln!("failed to save sort: {err}");
+                }
+            }),
             cx.subscribe_in(&movies, window, |this, _, Play(item), window, cx| {
                 this.open_player(item, window, cx)
             }),
+            cx.subscribe_in(&series, window, |this, _, OpenSeries(item), window, cx| {
+                this.open_series(item, window, cx)
+            }),
             cx.subscribe_in(&search, window, |this, _, Play(item), window, cx| {
                 this.open_player(item, window, cx)
+            }),
+            cx.subscribe_in(&search, window, |this, _, OpenSeries(item), window, cx| {
+                this.open_series(item, window, cx)
             }),
             cx.subscribe(&search_input, |this, input, event: &InputEvent, cx| {
                 if let (InputEvent::Change, Screen::Main(main)) = (event, &this.screen) {
@@ -140,8 +170,10 @@ impl AppView {
             api,
             tab: Tab::Home,
             movies,
+            series,
             search_input,
             search,
+            detail: None,
             player: None,
             _subscriptions,
         })
@@ -152,14 +184,39 @@ impl AppView {
             return;
         };
         main.tab = TABS[index].0;
-        // picking a tab leaves Search
+        main.detail = None;
+        Self::clear_search(main, window, cx);
+        main.refresh_visible(cx);
+        cx.notify();
+    }
+
+    fn clear_search(main: &Main, window: &mut Window, cx: &mut App) {
         main.search_input
             .update(cx, |input, cx| input.set_value("", window, cx));
         main.search
             .update(cx, |search, cx| search.set_query("", cx));
-        if main.tab == Tab::Movies {
-            main.movies.update(cx, |movies, cx| movies.refresh(cx));
-        }
+    }
+
+    fn open_series(&mut self, series: &Item, window: &mut Window, cx: &mut Context<Self>) {
+        let Screen::Main(main) = &mut self.screen else {
+            return;
+        };
+        let (api, series) = (main.api.clone(), series.clone());
+        let detail = cx.new(|cx| SeriesView::new(api, series, cx));
+        let subscriptions = [
+            cx.subscribe_in(&detail, window, |this, _, Play(item), window, cx| {
+                this.open_player(item, window, cx)
+            }),
+            cx.subscribe(&detail, |this, _, Back, cx| {
+                if let Screen::Main(main) = &mut this.screen {
+                    main.detail = None;
+                    main.refresh_visible(cx);
+                    cx.notify();
+                }
+            }),
+        ];
+        main.detail = Some((detail, subscriptions));
+        Self::clear_search(main, window, cx);
         cx.notify();
     }
 
@@ -199,9 +256,7 @@ impl AppView {
         };
         main.player = None; // drops mpv
         set_video_background(false, window, cx);
-        if main.tab == Tab::Movies {
-            main.movies.update(cx, |movies, cx| movies.refresh(cx));
-        }
+        main.refresh_visible(cx);
         self.focus.focus(window, cx);
         cx.notify();
     }
@@ -293,10 +348,19 @@ impl Render for AppView {
             Screen::Login { view, .. } => view.clone().into_any_element(),
             Screen::Main(main) if main.searching(cx) => main.search.clone().into_any_element(),
             Screen::Main(Main {
+                detail: Some((detail, _)),
+                ..
+            }) => detail.clone().into_any_element(),
+            Screen::Main(Main {
                 tab: Tab::Movies,
                 movies,
                 ..
             }) => movies.clone().into_any_element(),
+            Screen::Main(Main {
+                tab: Tab::Series,
+                series,
+                ..
+            }) => series.clone().into_any_element(),
             Screen::Main(Main { tab, .. }) => {
                 let title = TABS
                     .iter()

@@ -3,11 +3,12 @@ mod assets;
 mod card;
 mod config;
 mod jellyfin;
+mod library;
 mod login;
-mod movies;
 mod mpv;
 mod player;
 mod search;
+mod series;
 
 use std::sync::Arc;
 

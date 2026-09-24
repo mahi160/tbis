@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Movies page, and 03 — Player tracer bullet
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Series from every Library appear, and every sort option works
 - [ ] Fully played Series show the check badge

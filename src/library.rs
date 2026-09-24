@@ -6,8 +6,8 @@ use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::card::{Play, poster_card};
-use crate::jellyfin::{Api, Item, Sort};
+use crate::card::{OnClick, OpenSeries, Play, poster_card};
+use crate::jellyfin::{Api, Item, Kind, Sort};
 
 pub struct SortChanged(pub Sort);
 
@@ -15,7 +15,9 @@ const PAD: f32 = 24.;
 const GAP: f32 = 16.;
 const MIN_CARD_WIDTH: f32 = 150.;
 
-pub struct MoviesView {
+/// Movies or Series page: every item of one kind from all Libraries.
+pub struct LibraryView {
+    kind: Kind,
     api: Api,
     sort: Sort,
     items: Vec<Item>,
@@ -27,12 +29,14 @@ pub struct MoviesView {
     _load: Task<()>,
 }
 
-impl EventEmitter<SortChanged> for MoviesView {}
-impl EventEmitter<Play> for MoviesView {}
+impl EventEmitter<SortChanged> for LibraryView {}
+impl EventEmitter<Play> for LibraryView {}
+impl EventEmitter<OpenSeries> for LibraryView {}
 
-impl MoviesView {
-    pub fn new(api: Api, sort: Sort) -> Self {
+impl LibraryView {
+    pub fn new(kind: Kind, api: Api, sort: Sort) -> Self {
         Self {
+            kind,
             api,
             sort,
             items: Vec::new(),
@@ -47,13 +51,12 @@ impl MoviesView {
 
     /// Keeps showing the current list until fresh data arrives.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
-        let api = self.api.clone();
-        let sort = self.sort;
+        let (api, kind, sort) = (self.api.clone(), self.kind, self.sort);
         self.loading = true;
         cx.notify();
         // replacing task cancels older in-flight load
         self._load = cx.spawn(async move |this, cx| {
-            let result = api.movies(sort).await;
+            let result = api.library(kind, sort).await;
             this.update(cx, |this, cx| {
                 this.loading = false;
                 match result {
@@ -61,7 +64,9 @@ impl MoviesView {
                         this.items = items;
                         this.error = None;
                     }
-                    Err(err) => this.error = Some(format!("Could not load movies: {err}").into()),
+                    Err(err) => {
+                        this.error = Some(format!("Could not load {}: {err}", this.title()).into())
+                    }
                 }
                 cx.notify();
             })
@@ -101,18 +106,30 @@ impl MoviesView {
         out
     }
 
+    fn title(&self) -> &'static str {
+        match self.kind {
+            Kind::Series => "Series",
+            _ => "Movies",
+        }
+    }
+
     fn render_card(&self, item: &Item, cx: &mut Context<Self>) -> AnyElement {
-        let play = {
-            let item = item.clone();
-            cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Play(item.clone())))
+        let item_ = item.clone();
+        let open: OnClick = match self.kind {
+            Kind::Series => Box::new(
+                cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(OpenSeries(item_.clone()))),
+            ),
+            _ => {
+                Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Play(item_.clone()))))
+            }
         };
-        poster_card(&self.api, item, self.card_width, Some(Box::new(play)), cx)
+        poster_card(&self.api, item, self.card_width, Some(open), cx)
     }
 
     fn render_sort_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity().downgrade();
         let current = self.sort;
-        Button::new("movies-sort")
+        Button::new("library-sort")
             .ghost()
             .small()
             .label(format!("Sort: {}", current.label()))
@@ -133,7 +150,7 @@ impl MoviesView {
     }
 }
 
-impl Render for MoviesView {
+impl Render for LibraryView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let available = window.viewport_size().width.as_f32() - PAD * 2.;
         self.columns = (((available + GAP) / (MIN_CARD_WIDTH + GAP)).floor() as usize).max(1);
@@ -152,7 +169,7 @@ impl Render for MoviesView {
                         div()
                             .text_2xl()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Movies"),
+                            .child(self.title()),
                     )
                     .when(!self.items.is_empty(), |this| {
                         this.child(
@@ -173,7 +190,7 @@ impl Render for MoviesView {
                 .gap_3()
                 .child(div().text_color(cx.theme().danger).child(error))
                 .child(
-                    Button::new("movies-retry")
+                    Button::new("library-retry")
                         .label("Retry")
                         .loading(self.loading)
                         .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
@@ -181,9 +198,9 @@ impl Render for MoviesView {
                 .into_any_element()
         } else if self.items.is_empty() {
             let message = if self.loading {
-                "Loading…"
+                "Loading…".to_string()
             } else {
-                "No movies"
+                format!("No {}", self.title().to_lowercase())
             };
             div()
                 .flex_1()
@@ -197,19 +214,22 @@ impl Render for MoviesView {
             let rows = self.items.len().div_ceil(self.columns);
             // posters freed when page stops rendering
             // ponytail: retains every poster scrolled past; LRU cache if memory hurts
-            image_cache(retain_all("movie-posters"))
-                .flex_1()
-                .min_h_0()
-                .child(
-                    uniform_list(
-                        "movies-grid",
-                        rows,
-                        cx.processor(|this, range, _, cx| this.render_rows(range, cx)),
-                    )
-                    .size_full()
-                    .track_scroll(&self.scroll),
+            image_cache(retain_all(SharedString::from(format!(
+                "posters-{}",
+                self.title()
+            ))))
+            .flex_1()
+            .min_h_0()
+            .child(
+                uniform_list(
+                    "library-grid",
+                    rows,
+                    cx.processor(|this, range, _, cx| this.render_rows(range, cx)),
                 )
-                .into_any_element()
+                .size_full()
+                .track_scroll(&self.scroll),
+            )
+            .into_any_element()
         };
 
         v_flex()
