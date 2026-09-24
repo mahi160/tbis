@@ -6,8 +6,13 @@ use crate::card::{self, OnClick, OpenSeries, Play};
 use crate::jellyfin::{Api, Item, Kind};
 
 const PER_ROW: usize = 24;
-const POSTER_WIDTH: f32 = 150.;
-const WIDE_WIDTH: f32 = 256.;
+// Photon's row card widths (11rem / 18rem).
+const POSTER_WIDTH: f32 = 176.;
+const WIDE_WIDTH: f32 = 288.;
+// Photon's fluid gutter: clamp(1.5rem, 4vw, 3rem).
+fn gutter(window: &Window) -> Pixels {
+    px((f32::from(window.viewport_size().width) * 0.04).clamp(24., 48.))
+}
 
 #[derive(Default)]
 struct Rows {
@@ -102,25 +107,35 @@ impl HomeView {
         Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Play(item.clone()))))
     }
 
-    fn row(title: &'static str, id: &'static str, cards: Vec<AnyElement>) -> Option<AnyElement> {
+    /// Row heading: small mono uppercase label, Photon's `.heading`.
+    fn row(
+        title: &'static str,
+        id: &'static str,
+        cards: Vec<AnyElement>,
+        gutter: Pixels,
+        mono_font: SharedString,
+        muted_fg: Hsla,
+    ) -> Option<AnyElement> {
         if cards.is_empty() {
             return None;
         }
         Some(
             v_flex()
-                .gap_3()
+                .gap_4()
                 .child(
                     div()
-                        .px_6()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title),
+                        .px(gutter)
+                        .text_xs()
+                        .font_family(mono_font)
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(muted_fg)
+                        .child(title.to_uppercase()),
                 )
                 .child(
                     h_flex()
                         .id(id)
                         .overflow_x_scroll()
-                        .px_6()
+                        .px(gutter)
                         .gap_4()
                         .items_start()
                         .children(cards),
@@ -131,8 +146,10 @@ impl HomeView {
 }
 
 impl Render for HomeView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let muted_fg = cx.theme().muted_foreground;
+        let gutter = gutter(window);
+        let mono_font = cx.theme().mono_font_family.clone();
         if self.rows.is_empty() {
             let status = match self.error.clone() {
                 Some(error) => v_flex()
@@ -198,20 +215,46 @@ impl Render for HomeView {
             })
             .collect();
 
+        // Photon's `.page { padding-block: 1.5rem 3rem }` + `.section` gap (2.75rem).
         v_flex()
             .id("home")
             .size_full()
             .overflow_y_scroll()
-            .py_6()
-            .gap_8()
+            .pt(px(24.))
+            .pb(px(48.))
+            .gap(px(44.))
             .children(Self::row(
                 "Continue Watching",
                 "row-continue",
                 continue_watching,
+                gutter,
+                mono_font.clone(),
+                muted_fg,
             ))
-            .children(Self::row("Next Up", "row-next-up", next_up))
-            .children(Self::row("Movies", "row-movies", movies))
-            .children(Self::row("Series", "row-series", series))
+            .children(Self::row(
+                "Next Up",
+                "row-next-up",
+                next_up,
+                gutter,
+                mono_font.clone(),
+                muted_fg,
+            ))
+            .children(Self::row(
+                "Movies",
+                "row-movies",
+                movies,
+                gutter,
+                mono_font.clone(),
+                muted_fg,
+            ))
+            .children(Self::row(
+                "Series",
+                "row-series",
+                series,
+                gutter,
+                mono_font,
+                muted_fg,
+            ))
             .into_any_element()
     }
 }
