@@ -37,9 +37,6 @@ const MONO_FILES: &[(&str, &[u8])] = &embedded_by_name!(
 /// The family name every embedded Inter file above resolves to.
 pub const FAMILY: &str = "Inter";
 
-/// The family name every embedded JetBrains Mono file above resolves to.
-pub const MONO_FAMILY: &str = "JetBrains Mono";
-
 /// Registers Inter and JetBrains Mono with GPUI's text system so `theme.font.family`
 /// and `theme.mono_font.family` render.
 pub fn embed(cx: &gpui_kit::App) -> gpui_kit::Result<()> {

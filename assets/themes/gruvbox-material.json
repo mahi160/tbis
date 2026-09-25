@@ -8,7 +8,7 @@
       "name": "Gruvbox Material",
       "mode": "dark",
       "font.family": "Inter",
-      "mono_font.family": "Inter",
+      "mono_font.family": "JetBrains Mono",
       "colors": {
         "background": "#282828",
         "foreground": "#d4be98",

@@ -10,6 +10,7 @@ const EXTRA: &[(&str, &[u8])] = &embedded_by_path!(
     [
         "caret-left.svg",
         "cc.svg",
+        "chapters.svg",
         "cc-filled.svg",
         "forward-step.svg",
         "headphones.svg",
