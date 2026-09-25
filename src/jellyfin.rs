@@ -233,12 +233,83 @@ pub struct PlaybackItem {
     media_sources: Vec<MediaSource>,
     #[serde(default)]
     pub user_data: UserData,
+    #[serde(default)]
+    pub chapters: Vec<Chapter>,
+    #[serde(default)]
+    trickplay: HashMap<String, HashMap<String, TrickplayInfo>>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct MediaSource {
     id: String,
+    #[serde(default)]
+    media_streams: Vec<MediaStream>,
+}
+
+/// One audio/video/subtitle stream of a `MediaSource`; only subtitle fields are read.
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct MediaStream {
+    #[serde(rename = "Type")]
+    kind: String,
+    #[serde(default)]
+    is_external: bool,
+    #[serde(default)]
+    is_default: bool,
+    delivery_url: Option<String>,
+    display_title: Option<String>,
+    language: Option<String>,
+}
+
+/// A chapter marker; Jellyfin's own (possibly auto-generated), not mpv's embedded ones --
+/// present on more files and carries a name.
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct Chapter {
+    pub name: Option<String>,
+    start_position_ticks: i64,
+}
+
+impl Chapter {
+    pub fn start_seconds(&self) -> f64 {
+        ticks_to_seconds(self.start_position_ticks)
+    }
+}
+
+/// One sprite-sheet resolution of scrub-preview tiles for a `MediaSource`.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct TrickplayInfo {
+    pub width: i32,
+    pub height: i32,
+    pub tile_width: i32,
+    pub tile_height: i32,
+    pub thumbnail_count: i32,
+    pub interval: i32,
+}
+
+impl TrickplayInfo {
+    /// Which sprite tile holds the thumbnail closest to `seconds`, and that
+    /// thumbnail's pixel offset within the tile.
+    pub fn thumbnail_at(&self, seconds: f64) -> (i32, i32, i32) {
+        let tile_width = self.tile_width.max(1);
+        let per_tile = (tile_width * self.tile_height).max(1);
+        let index = ((seconds * 1000. / self.interval.max(1) as f64) as i32)
+            .clamp(0, (self.thumbnail_count - 1).max(0));
+        let in_tile = index % per_tile;
+        let (col, row) = (in_tile % tile_width, in_tile / tile_width);
+        (index / per_tile, col * self.width, row * self.height)
+    }
+}
+
+/// An external (sidecar) text subtitle: not muxed into the stream mpv loads, so it
+/// needs its own `sub-add` once the file is open.
+pub struct ExternalSubtitle {
+    pub url: String,
+    pub title: String,
+    pub lang: String,
+    pub is_default: bool,
 }
 
 impl PlaybackItem {
@@ -248,6 +319,15 @@ impl PlaybackItem {
 
     pub fn resume_seconds(&self) -> f64 {
         ticks_to_seconds(self.user_data.playback_position_ticks)
+    }
+
+    /// Widest available trickplay sprite sheet for the media source mpv is playing.
+    fn trickplay(&self) -> Option<TrickplayInfo> {
+        self.trickplay
+            .get(self.media_source_id())?
+            .values()
+            .max_by_key(|t| t.width)
+            .copied()
     }
 }
 
@@ -324,8 +404,11 @@ impl Api {
     }
 
     pub async fn playback_item(&self, item_id: &str) -> Result<PlaybackItem> {
-        self.get(&format!("/Items/{item_id}?userId={}", self.session.user_id))
-            .await
+        self.get(&format!(
+            "/Items/{item_id}?userId={}&Fields=Chapters,Trickplay",
+            self.session.user_id
+        ))
+        .await
     }
 
     /// Original file, never transcoded.
@@ -334,6 +417,53 @@ impl Api {
             "{}/Videos/{}/stream?static=true&mediaSourceId={}",
             self.session.server,
             item.id,
+            item.media_source_id()
+        )
+    }
+
+    /// Sidecar text subtitles mpv can't see in the stream mpv opens (not muxed into
+    /// the container), each needing its own `sub-add` once that file is loaded.
+    pub fn external_subtitles(&self, item: &PlaybackItem) -> Vec<ExternalSubtitle> {
+        let Some(source) = item
+            .media_sources
+            .iter()
+            .find(|m| m.id == item.media_source_id())
+        else {
+            return Vec::new();
+        };
+        source
+            .media_streams
+            .iter()
+            .filter(|s| s.kind == "Subtitle" && s.is_external)
+            .filter_map(|s| {
+                let url = s.delivery_url.as_ref()?;
+                Some(ExternalSubtitle {
+                    url: format!("{}{url}", self.session.server),
+                    title: s.display_title.clone().unwrap_or_default(),
+                    lang: s.language.clone().unwrap_or_default(),
+                    is_default: s.is_default,
+                })
+            })
+            .collect()
+    }
+
+    /// Widest scrub-preview sprite sheet the server generated for this item, if any.
+    pub fn trickplay(&self, item: &PlaybackItem) -> Option<TrickplayInfo> {
+        item.trickplay()
+    }
+
+    /// One sprite-sheet tile (a grid of `info.tile_width`x`info.tile_height` thumbnails).
+    pub fn trickplay_tile_url(
+        &self,
+        item: &PlaybackItem,
+        info: &TrickplayInfo,
+        tile: i32,
+    ) -> String {
+        format!(
+            "{}/Videos/{}/Trickplay/{}/{tile}.jpg?mediaSourceId={}",
+            self.session.server,
+            item.id,
+            info.width,
             item.media_source_id()
         )
     }
