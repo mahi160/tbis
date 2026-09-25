@@ -8,7 +8,7 @@ const TITLE_HEIGHT: f32 = 20.;
 const META_HEIGHT: f32 = 16.;
 
 /// Art tile corner radius (Photon's `--radius-m`, 0.875rem).
-const RADIUS: f32 = 14.;
+pub(crate) const RADIUS: f32 = 14.;
 
 pub type OnClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 

@@ -2,10 +2,39 @@
 //! (Home, Movies/Series library, Search, Movie/Series detail).
 
 use gpui_kit::component::button::Button;
+use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::{ActiveTheme as _, v_flex};
 use gpui_kit::*;
 
-use crate::card::OnClick;
+use crate::card::{OnClick, RADIUS};
+
+const SKELETON_CARD_WIDTH: f32 = 150.;
+const SKELETON_COUNT: usize = 12;
+
+/// Poster-shaped placeholders standing in for a grid that hasn't loaded yet, so the
+/// page doesn't jump when real cards replace them.
+fn skeleton_grid() -> AnyElement {
+    div()
+        .size_full()
+        .flex()
+        .flex_wrap()
+        .gap_4()
+        .p_6()
+        .children((0..SKELETON_COUNT).map(|_| {
+            v_flex()
+                .w(px(SKELETON_CARD_WIDTH))
+                .gap_2()
+                .child(
+                    Skeleton::new()
+                        .w(px(SKELETON_CARD_WIDTH))
+                        .h(px(SKELETON_CARD_WIDTH * 1.5))
+                        .rounded(px(RADIUS)),
+                )
+                .child(Skeleton::new().h(px(14.)).w(relative(0.75)))
+                .child(Skeleton::new().secondary().h(px(12.)).w(relative(0.4)))
+        }))
+        .into_any_element()
+}
 
 pub enum Status {
     Loading,
@@ -17,12 +46,12 @@ pub enum Status {
 /// Full-screen centered placeholder, replacing a list's content while it's empty.
 /// Error shows a Retry button; `loading` puts it in its spinner state while refreshing.
 pub fn full_status(status: Status, retry: OnClick, loading: bool, cx: &App) -> AnyElement {
+    if let Status::Loading = status {
+        return skeleton_grid();
+    }
     let theme = cx.theme();
     let body = match status {
-        Status::Loading => div()
-            .text_color(theme.muted_foreground)
-            .child("Loading…")
-            .into_any_element(),
+        Status::Loading => unreachable!(),
         Status::Empty(message) => div()
             .text_color(theme.muted_foreground)
             .child(message)
