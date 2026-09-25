@@ -41,6 +41,8 @@ pub(super) struct Playback {
     pub(super) next: Option<Item>,
     pub(super) next_cancelled: bool,
     pub(super) started: bool,
+    /// Guards external `sub-add` against a repeat `FileLoaded` for the same item.
+    pub(super) subs_added: bool,
     pub(super) finished: bool,
     pub(super) time: f64,
     /// Time last drawn; throttles redraws to `REDRAW_STEP`.
@@ -68,6 +70,7 @@ impl Playback {
             next: None,
             next_cancelled: false,
             started: false,
+            subs_added: false,
             finished: false,
             time: 0.,
             shown_time: 0.,
@@ -139,6 +142,18 @@ impl PlayerView {
                 if !self.playback.started {
                     self.playback.started = true;
                     self.report(Report::Start);
+                }
+                // sub-add before FILE_LOADED races the core opening the file (mpv has no
+                // current file to attach the track to yet); deferred to here instead.
+                // Guarded: a repeat FILE_LOADED for this item would otherwise re-add every
+                // external subtitle and double up the track menu.
+                if !self.playback.subs_added
+                    && let (Some(mpv), Some(item)) = (&self.mpv, &self.playback.item)
+                {
+                    self.playback.subs_added = true;
+                    for sub in self.api.external_subtitles(item) {
+                        let _ = mpv.add_subtitle(&sub.url, &sub.title, &sub.lang, sub.is_default);
+                    }
                 }
             }
             MpvEvent::EndFile(Ok(true)) => {
@@ -241,6 +256,68 @@ impl PlayerView {
     pub(super) fn select_track(&mut self, kind: TrackKind, id: Option<i64>) {
         if let Some(mpv) = self.active_mpv() {
             let _ = mpv.select_track(kind, id);
+        }
+    }
+
+    /// Selects the next track of `kind`, wrapping. Subtitle also cycles through "off".
+    pub(super) fn cycle_track(&mut self, kind: TrackKind) {
+        let tracks: Vec<&Track> = self
+            .playback
+            .tracks
+            .iter()
+            .filter(|t| t.kind == kind)
+            .collect();
+        if tracks.is_empty() {
+            return;
+        }
+        let current = tracks.iter().position(|t| t.selected);
+        let id = match kind {
+            TrackKind::Subtitle => {
+                let next = current.map_or(0, |i| i + 1);
+                tracks.get(next).map(|t| t.id)
+            }
+            TrackKind::Audio => {
+                let next = current.map_or(0, |i| (i + 1) % tracks.len());
+                Some(tracks[next].id)
+            }
+        };
+        self.select_track(kind, id);
+    }
+
+    /// Jellyfin's own chapter list (not mpv's embedded one -- present on more files,
+    /// carries a name); the one whose start is at or before `self.playback.time`.
+    pub(super) fn chapter_index(&self) -> Option<usize> {
+        let chapters = &self.playback.item.as_ref()?.chapters;
+        if chapters.is_empty() {
+            return None;
+        }
+        Some(
+            chapters
+                .iter()
+                .rposition(|c| c.start_seconds() <= self.playback.time)
+                .unwrap_or(0),
+        )
+    }
+
+    /// `direction`: -1 previous, 1 next. More than 3s into the current chapter,
+    /// "previous" restarts it instead of skipping to the one before (DVD-player convention).
+    pub(super) fn seek_chapter(&mut self, direction: i32) {
+        let Some(item) = self.playback.item.clone() else {
+            return;
+        };
+        if item.chapters.is_empty() {
+            return;
+        }
+        let current = self.chapter_index().unwrap_or(0);
+        let restart =
+            direction < 0 && self.playback.time - item.chapters[current].start_seconds() > 3.;
+        let target = if restart {
+            current
+        } else {
+            (current as i32 + direction).clamp(0, item.chapters.len() as i32 - 1) as usize
+        };
+        if let Some(mpv) = self.active_mpv() {
+            let _ = mpv.seek(item.chapters[target].start_seconds());
         }
     }
 }

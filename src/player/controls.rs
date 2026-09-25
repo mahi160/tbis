@@ -11,11 +11,15 @@ use crate::mpv::{Track, TrackKind};
 
 use super::clock::{clock, format_time};
 use super::{
-    CONTEXT, Escape, HIDE_CONTROLS_AFTER, PlayNext, PlayerView, SEEK_STEP, SeekBack, SeekForward,
-    ToggleFullscreen, ToggleMute, TogglePause, TogglePip, hide_cursor,
+    AudioDelayEarlier, AudioDelayLater, CONTEXT, ChapterNext, ChapterPrev, CycleAudio,
+    CycleSubtitle, DELAY_STEP, Escape, HIDE_CONTROLS_AFTER, PlayNext, PlayerView, SEEK_STEP,
+    SeekBack, SeekForward, SpeedDown, SpeedUp, SubDelayEarlier, SubDelayLater, ToggleFullscreen,
+    ToggleMute, TogglePause, TogglePip, VOLUME_STEP, VolumeDown, VolumeUp, hide_cursor,
 };
 
 const SPEEDS: [f64; 7] = [0.5, 0.75, 1., 1.25, 1.5, 1.75, 2.];
+/// Displayed width of the scrub-preview thumbnail; the sprite sheet scales to fit.
+const TRICKPLAY_WIDTH: f32 = 160.;
 
 impl PlayerView {
     pub(super) fn sync_seek_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -78,6 +82,101 @@ impl PlayerView {
             let _ = mpv.set_mute(!self.muted);
         }
         self.refocus(window, cx);
+    }
+
+    /// Actual `self.volume` update comes back through `MpvEvent::Volume`, same as the
+    /// volume slider's own drag handler.
+    fn volume_up(&mut self, _: &VolumeUp, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(mpv) = self.active_mpv() {
+            let _ = mpv.set_volume((self.volume + VOLUME_STEP).min(100.));
+        }
+        self.show_controls(window, cx);
+    }
+
+    fn volume_down(&mut self, _: &VolumeDown, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(mpv) = self.active_mpv() {
+            let _ = mpv.set_volume((self.volume - VOLUME_STEP).max(0.));
+        }
+        self.show_controls(window, cx);
+    }
+
+    fn cycle_audio(&mut self, _: &CycleAudio, window: &mut Window, cx: &mut Context<Self>) {
+        self.cycle_track(TrackKind::Audio);
+        self.refocus(window, cx);
+    }
+
+    fn cycle_subtitle(&mut self, _: &CycleSubtitle, window: &mut Window, cx: &mut Context<Self>) {
+        self.cycle_track(TrackKind::Subtitle);
+        self.refocus(window, cx);
+    }
+
+    fn chapter_prev(&mut self, _: &ChapterPrev, window: &mut Window, cx: &mut Context<Self>) {
+        self.seek_chapter(-1);
+        self.show_controls(window, cx);
+    }
+
+    fn chapter_next(&mut self, _: &ChapterNext, window: &mut Window, cx: &mut Context<Self>) {
+        self.seek_chapter(1);
+        self.show_controls(window, cx);
+    }
+
+    fn sub_delay_later(&mut self, _: &SubDelayLater, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(mpv) = self.active_mpv() {
+            let _ = mpv.adjust_sub_delay(DELAY_STEP);
+        }
+        self.show_controls(window, cx);
+    }
+
+    fn sub_delay_earlier(
+        &mut self,
+        _: &SubDelayEarlier,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(mpv) = self.active_mpv() {
+            let _ = mpv.adjust_sub_delay(-DELAY_STEP);
+        }
+        self.show_controls(window, cx);
+    }
+
+    fn audio_delay_later(
+        &mut self,
+        _: &AudioDelayLater,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(mpv) = self.active_mpv() {
+            let _ = mpv.adjust_audio_delay(DELAY_STEP);
+        }
+        self.show_controls(window, cx);
+    }
+
+    fn audio_delay_earlier(
+        &mut self,
+        _: &AudioDelayEarlier,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(mpv) = self.active_mpv() {
+            let _ = mpv.adjust_audio_delay(-DELAY_STEP);
+        }
+        self.show_controls(window, cx);
+    }
+
+    fn speed_up(&mut self, _: &SpeedUp, window: &mut Window, cx: &mut Context<Self>) {
+        self.step_speed(1, window, cx);
+    }
+
+    fn speed_down(&mut self, _: &SpeedDown, window: &mut Window, cx: &mut Context<Self>) {
+        self.step_speed(-1, window, cx);
+    }
+
+    /// `SPEEDS[2]` is `1.` -- the fallback if `self.speed` somehow isn't in the list.
+    fn step_speed(&mut self, direction: i32, window: &mut Window, cx: &mut Context<Self>) {
+        let current = SPEEDS.iter().position(|&s| s == self.speed).unwrap_or(2);
+        let next = (current as i32 + direction).clamp(0, SPEEDS.len() as i32 - 1) as usize;
+        self.set_speed(SPEEDS[next]);
+        self.show_controls(window, cx);
     }
 
     fn toggle_fullscreen(
@@ -186,6 +285,41 @@ impl PlayerView {
         cx.notify();
     }
 
+    /// Scrub-preview thumbnail for `seconds`, cropped from the server's sprite sheet.
+    fn trickplay_preview(&self, seconds: f64) -> Option<AnyElement> {
+        let item = self.playback.item.as_ref()?;
+        let info = self
+            .api
+            .trickplay(item)
+            .filter(|i| i.width > 0 && i.height > 0)?;
+        let (tile, x, y) = info.thumbnail_at(seconds);
+        let scale = TRICKPLAY_WIDTH / info.width as f32;
+        let (tile_w, tile_h) = (TRICKPLAY_WIDTH, info.height as f32 * scale);
+        let sprite_w = tile_w * info.tile_width as f32;
+        let sprite_h = tile_h * info.tile_height as f32;
+        let url = self.api.trickplay_tile_url(item, &info, tile);
+        Some(
+            div()
+                .w(px(tile_w))
+                .h(px(tile_h))
+                .rounded(px(8.))
+                .overflow_hidden()
+                .relative()
+                .shadow(vec![
+                    BoxShadow::new(px(0.), px(4.), video_black(0.5)).blur_radius(px(12.)),
+                ])
+                .child(
+                    img(url)
+                        .absolute()
+                        .top(px(-(y as f32) * scale))
+                        .left(px(-(x as f32) * scale))
+                        .w(px(sprite_w))
+                        .h(px(sprite_h)),
+                )
+                .into_any_element(),
+        )
+    }
+
     fn track_menu(&self, kind: TrackKind, cx: &mut Context<Self>) -> Option<AnyElement> {
         let tracks: Vec<Track> = self
             .playback
@@ -227,6 +361,44 @@ impl PlayerView {
                                 .on_click(move |_, _, cx| {
                                     this.update(cx, |this, _| {
                                         this.select_track(kind, Some(track_id))
+                                    })
+                                    .ok();
+                                }),
+                        );
+                    }
+                    menu
+                })
+                .on_open_change(self.on_menu_open(cx))
+                .into_any_element(),
+        )
+    }
+
+    /// Jellyfin's own chapter markers, not mpv's embedded ones (see `chapter_index`).
+    fn chapter_menu(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let chapters = self.playback.item.as_ref()?.chapters.clone();
+        if chapters.is_empty() {
+            return None;
+        }
+        let current = self.chapter_index();
+        let this = cx.entity().downgrade();
+        Some(
+            icon_button("player-chapters", "icons/chapters.svg", cx)
+                .dropdown_menu(move |mut menu, _, _| {
+                    for (i, chapter) in chapters.iter().enumerate() {
+                        let (this, seconds) = (this.clone(), chapter.start_seconds());
+                        let label = chapter
+                            .name
+                            .clone()
+                            .filter(|n| !n.is_empty())
+                            .unwrap_or_else(|| format!("Chapter {}", i + 1));
+                        menu = menu.item(
+                            PopupMenuItem::new(label)
+                                .checked(current == Some(i))
+                                .on_click(move |_, _, cx| {
+                                    this.update(cx, |this, _| {
+                                        if let Some(mpv) = this.active_mpv() {
+                                            let _ = mpv.seek(seconds);
+                                        }
                                     })
                                     .ok();
                                 }),
@@ -385,6 +557,20 @@ impl Render for PlayerView {
                     .child(clock(0.)),
             );
 
+        let scrub_preview = self
+            .playback
+            .scrubbing
+            .and_then(|seconds| self.trickplay_preview(seconds))
+            .map(|preview| {
+                let fraction = (time / self.playback.duration.max(1.)) as f32;
+                div()
+                    .absolute()
+                    .bottom(px(28.))
+                    .left(relative(fraction))
+                    .ml(px(-TRICKPLAY_WIDTH / 2.))
+                    .child(preview)
+            });
+
         let timeline = h_flex()
             .gap_3()
             .font_family(mono.clone())
@@ -392,12 +578,16 @@ impl Render for PlayerView {
             .text_color(dim(0.85))
             .child(format_time(time))
             .child(
-                div().flex_1().child(
-                    Slider::new(&self.seek)
-                        .bg(cx.theme().primary)
-                        .text_color(white())
-                        .disabled(self.playback.duration <= 0. || self.pip.is_some()),
-                ),
+                div()
+                    .relative()
+                    .flex_1()
+                    .child(
+                        Slider::new(&self.seek)
+                            .bg(cx.theme().primary)
+                            .text_color(white())
+                            .disabled(self.playback.duration <= 0. || self.pip.is_some()),
+                    )
+                    .children(scrub_preview),
             )
             .child(format_time(self.playback.duration));
 
@@ -471,6 +661,7 @@ impl Render for PlayerView {
             .children(ends_at)
             .child(div().flex_1())
             .child(self.speed_menu(cx))
+            .children(self.chapter_menu(cx))
             .children(self.track_menu(TrackKind::Audio, cx))
             .children(self.track_menu(TrackKind::Subtitle, cx))
             .child(icon_button("player-pip", "icons/pip.svg", cx).on_click(
@@ -598,6 +789,18 @@ impl Render for PlayerView {
             .on_action(cx.listener(Self::escape))
             .on_action(cx.listener(Self::play_next_now))
             .on_action(cx.listener(Self::toggle_pip))
+            .on_action(cx.listener(Self::volume_up))
+            .on_action(cx.listener(Self::volume_down))
+            .on_action(cx.listener(Self::cycle_audio))
+            .on_action(cx.listener(Self::cycle_subtitle))
+            .on_action(cx.listener(Self::speed_up))
+            .on_action(cx.listener(Self::speed_down))
+            .on_action(cx.listener(Self::chapter_prev))
+            .on_action(cx.listener(Self::chapter_next))
+            .on_action(cx.listener(Self::sub_delay_later))
+            .on_action(cx.listener(Self::sub_delay_earlier))
+            .on_action(cx.listener(Self::audio_delay_later))
+            .on_action(cx.listener(Self::audio_delay_earlier))
             .size_full()
             .relative()
             .justify_between()

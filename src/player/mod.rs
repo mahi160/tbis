@@ -30,12 +30,26 @@ actions!(
         Escape,
         ToggleMute,
         PlayNext,
-        TogglePip
+        TogglePip,
+        VolumeUp,
+        VolumeDown,
+        CycleAudio,
+        CycleSubtitle,
+        SpeedUp,
+        SpeedDown,
+        ChapterPrev,
+        ChapterNext,
+        SubDelayLater,
+        SubDelayEarlier,
+        AudioDelayLater,
+        AudioDelayEarlier
     ]
 );
 
 const CONTEXT: &str = "Player";
 const SEEK_STEP: f64 = 10.;
+const VOLUME_STEP: f64 = 5.;
+const DELAY_STEP: f64 = 0.1;
 
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
@@ -47,6 +61,18 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("m", ToggleMute, Some(CONTEXT)),
         KeyBinding::new("enter", PlayNext, Some(CONTEXT)),
         KeyBinding::new("p", TogglePip, Some(CONTEXT)),
+        KeyBinding::new("up", VolumeUp, Some(CONTEXT)),
+        KeyBinding::new("down", VolumeDown, Some(CONTEXT)),
+        KeyBinding::new("a", CycleAudio, Some(CONTEXT)),
+        KeyBinding::new("c", CycleSubtitle, Some(CONTEXT)),
+        KeyBinding::new("shift-.", SpeedUp, Some(CONTEXT)), // '>'
+        KeyBinding::new("shift-,", SpeedDown, Some(CONTEXT)), // '<'
+        KeyBinding::new("shift-left", ChapterPrev, Some(CONTEXT)),
+        KeyBinding::new("shift-right", ChapterNext, Some(CONTEXT)),
+        KeyBinding::new("]", SubDelayLater, Some(CONTEXT)),
+        KeyBinding::new("[", SubDelayEarlier, Some(CONTEXT)),
+        KeyBinding::new("shift-]", AudioDelayLater, Some(CONTEXT)),
+        KeyBinding::new("shift-[", AudioDelayEarlier, Some(CONTEXT)),
     ]);
 }
 
