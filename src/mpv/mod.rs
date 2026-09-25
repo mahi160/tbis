@@ -177,6 +177,31 @@ impl Mpv {
         *self.size.lock().unwrap() = (width, height);
         self.waker.notify();
     }
+
+    /// Loads an external (sidecar) text subtitle not muxed into the file mpv opened.
+    /// Deferred by the caller to `FileLoaded`: issued before the core opens a file,
+    /// `sub-add` has no current file to attach the track to.
+    pub fn add_subtitle(
+        &self,
+        url: &str,
+        title: &str,
+        lang: &str,
+        select: bool,
+    ) -> Result<(), String> {
+        let flag = if select { "select" } else { "auto" };
+        self.handle.command(&["sub-add", url, flag, title, lang])
+    }
+
+    /// Nudges subtitle/audio timing by `delta` seconds (mpv's own `add <prop>` idiom).
+    pub fn adjust_sub_delay(&self, delta: f64) -> Result<(), String> {
+        self.handle
+            .command(&["add", "sub-delay", &format!("{delta}")])
+    }
+
+    pub fn adjust_audio_delay(&self, delta: f64) -> Result<(), String> {
+        self.handle
+            .command(&["add", "audio-delay", &format!("{delta}")])
+    }
 }
 
 /// mpv's yes/no spelling for a bool property or CLI flag; shared with `pip.rs`,
@@ -374,10 +399,19 @@ fn read_tracks(mpv: Handle) -> Vec<Track> {
                 _ => return None,
             };
             let id = field("id")?.parse().ok()?;
-            let mut parts: Vec<String> = [field("title"), field("lang"), field("codec")]
+            let mut parts: Vec<String> = [field("title"), field("lang")]
                 .into_iter()
                 .flatten()
                 .collect();
+            // untagged: title/lang both missing (common for scene-released subs) --
+            // codec alone repeats identically across tracks, so tack on the id too.
+            let untagged = parts.is_empty();
+            if let Some(codec) = field("codec") {
+                parts.push(codec);
+            }
+            if untagged {
+                parts.push(format!("#{id}"));
+            }
             if kind == TrackKind::Audio
                 && let Some(channels) = field("demux-channel-count")
             {
