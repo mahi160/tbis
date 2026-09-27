@@ -187,11 +187,13 @@ impl Ipc {
     }
 }
 
-/// Finder/Dock launches lack the shell PATH, so try Homebrew paths first.
+/// The `.app`'s bundled mpv next to our executable (ADR-0004), else Homebrew's:
+/// Finder/Dock launches lack the shell PATH, so its paths are tried explicitly.
 fn mpv_binary() -> PathBuf {
-    ["/opt/homebrew/bin/mpv", "/usr/local/bin/mpv"]
+    let bundled = std::env::current_exe().ok().map(|exe| exe.with_file_name("mpv"));
+    bundled
         .into_iter()
-        .map(PathBuf::from)
+        .chain(["/opt/homebrew/bin/mpv", "/usr/local/bin/mpv"].map(PathBuf::from))
         .find(|p| p.is_file())
         .unwrap_or_else(|| PathBuf::from("mpv"))
 }
