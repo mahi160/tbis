@@ -113,7 +113,15 @@ pub fn poster_card(
 }
 
 /// 16:9 art, title, `S2E3 · Name` or year, progress bar. For Continue Watching and Next Up.
-pub fn wide_card(api: &Api, item: &Item, width: Pixels, on_click: OnClick, cx: &App) -> AnyElement {
+/// Art plays (`on_play`); the title/subtitle open the detail page (`on_open`).
+pub fn wide_card(
+    api: &Api,
+    item: &Item,
+    width: Pixels,
+    on_play: OnClick,
+    on_open: OnClick,
+    cx: &App,
+) -> AnyElement {
     let theme = cx.theme();
     let (title, subtitle) = match item.kind {
         Kind::Episode => (
@@ -128,14 +136,14 @@ pub fn wide_card(api: &Api, item: &Item, width: Pixels, on_click: OnClick, cx: &
         ),
     };
     v_flex()
-        .id(SharedString::from(item.id.clone()))
         .w(width)
         .flex_shrink_0()
         .gap_2()
-        .cursor_pointer()
-        .on_click(on_click)
         .child(
             art_tile(width, width * (9. / 16.), theme.muted)
+                .id(ElementId::Name(format!("wide-art-{}", item.id).into()))
+                .cursor_pointer()
+                .on_click(on_play)
                 .child(image(api.wide_image_url(item), title.clone().into(), cx))
                 .child(play_scrim(cx))
                 .when_some(
@@ -144,19 +152,27 @@ pub fn wide_card(api: &Api, item: &Item, width: Pixels, on_click: OnClick, cx: &
                 ),
         )
         .child(
-            div()
-                .text_sm()
-                .truncate()
-                .group_hover("card", |this| this.text_color(theme.primary))
-                .child(title),
-        )
-        .child(
-            div()
-                .text_xs()
-                .font_family(theme.mono_font_family.clone())
-                .text_color(theme.muted_foreground)
-                .truncate()
-                .child(subtitle),
+            v_flex()
+                .id(ElementId::Name(format!("wide-title-{}", item.id).into()))
+                .group("card-title")
+                .gap_2()
+                .cursor_pointer()
+                .on_click(on_open)
+                .child(
+                    div()
+                        .text_sm()
+                        .truncate()
+                        .group_hover("card-title", |this| this.text_color(theme.primary))
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .font_family(theme.mono_font_family.clone())
+                        .text_color(theme.muted_foreground)
+                        .truncate()
+                        .child(subtitle),
+                ),
         )
         .into_any_element()
 }
@@ -177,8 +193,9 @@ pub fn check_badge(cx: &App) -> Div {
         .child(Icon::new(IconName::Check).small())
 }
 
-/// Thin bar along the bottom of a relative image box; `percent` is 0..100.
-/// The fill is a signed beam (accent → info gradient, soft glow) marking how far playback got.
+/// Pill bar inset from the bottom of a relative image box; `percent` is 0..100.
+/// Inset, not edge-to-edge: flush it would need the box's corner radius, which
+/// `overflow_hidden` can't clip to. Fill: accent → info beam with a soft glow.
 pub fn progress_bar(percent: f64, cx: &App) -> Div {
     let theme = cx.theme();
     let beam = linear_gradient(
@@ -192,14 +209,16 @@ pub fn progress_bar(percent: f64, cx: &App) -> Div {
     ];
     div()
         .absolute()
-        .bottom_0()
-        .left_0()
-        .right_0()
-        .h(px(3.))
-        .bg(hsla(0., 0., 0., 0.45))
+        .bottom_2()
+        .left_2()
+        .right_2()
+        .h(px(4.))
+        .rounded_full()
+        .bg(hsla(0., 0., 0., 0.55))
         .child(
             div()
                 .h_full()
+                .rounded_full()
                 .w(relative((percent / 100.) as f32))
                 .bg(beam)
                 .shadow(glow),
