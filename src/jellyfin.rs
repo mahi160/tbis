@@ -391,6 +391,87 @@ pub struct PlaybackItem {
     trickplay: HashMap<String, HashMap<String, TrickplayInfo>>,
     #[serde(default)]
     media_streams: Vec<StreamInfo>,
+    /// How this play streams; filled in by `Api::playback_item`.
+    #[serde(skip)]
+    pub stream: Stream,
+}
+
+/// URL mpv plays, and whether it is a server transcode.
+#[derive(Clone, Debug, Default)]
+pub struct Stream {
+    pub url: String,
+    /// Server's PlaySessionId of a transcode; `None` for direct play.
+    pub transcode: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct PlaybackInfoResult {
+    #[serde(default)]
+    media_sources: Vec<NegotiatedSource>,
+    play_session_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct NegotiatedSource {
+    id: String,
+    #[serde(default)]
+    supports_direct_play: bool,
+    #[serde(default)]
+    supports_direct_stream: bool,
+    transcoding_url: Option<String>,
+}
+
+/// What mpv can play, for PlaybackInfo negotiation (ported from Photon's profile):
+/// anything direct, every HDR range (else the server tonemaps needlessly), subtitles
+/// kept as-is, and h264/aac HLS as the transcode target.
+fn device_profile(max_bitrate: u64) -> serde_json::Value {
+    let ranges = "SDR|HDR10|HDR10Plus|HLG|DOVI|DOVIWithHDR10|DOVIWithHLG|DOVIWithSDR|DOVIWithEL|DOVIWithHDR10Plus|DOVIWithELHDR10Plus";
+    let codecs = [
+        "h264",
+        "hevc",
+        "vp8",
+        "vp9",
+        "av1",
+        "mpeg2video",
+        "mpeg4",
+        "vc1",
+    ];
+    serde_json::json!({
+        "Name": "tbis",
+        "MaxStreamingBitrate": max_bitrate,
+        "CodecProfiles": codecs.map(|codec| serde_json::json!({
+            "Type": "Video",
+            "Codec": codec,
+            "Conditions": [{
+                "Condition": "EqualsAny",
+                "Property": "VideoRangeType",
+                "Value": ranges,
+                "IsRequired": false,
+            }],
+        })),
+        "DirectPlayProfiles": [{ "Type": "Video" }, { "Type": "Audio" }],
+        "TranscodingProfiles": [{
+            "Container": "mp4",
+            "Type": "Video",
+            "VideoCodec": "h264",
+            "AudioCodec": "aac,mp3",
+            "Protocol": "hls",
+            "Context": "Streaming",
+            "MaxAudioChannels": "8",
+            "MinSegments": 2,
+            "BreakOnNonKeyFrames": true,
+        }],
+        "SubtitleProfiles": [
+            { "Format": "srt", "Method": "External" },
+            { "Format": "pgssub", "Method": "Embed" },
+            { "Format": "dvdsub", "Method": "Embed" },
+            { "Format": "dvbsub", "Method": "Embed" },
+            { "Format": "ass", "Method": "Embed" },
+            { "Format": "ssa", "Method": "Embed" },
+        ],
+    })
 }
 
 impl PlaybackItem {
@@ -594,14 +675,22 @@ impl Api {
     }
 
     async fn request(&self, method: Method, path: &str, body: serde_json::Value) -> Result<()> {
-        let request = Request::builder()
+        self.send(self.json_request(method, path, body)?).await?;
+        Ok(())
+    }
+
+    fn json_request(
+        &self,
+        method: Method,
+        path: &str,
+        body: serde_json::Value,
+    ) -> Result<Request<AsyncBody>> {
+        Ok(Request::builder()
             .method(method)
             .uri(format!("{}{path}", self.session.server))
             .header("Content-Type", "application/json")
             .header("Authorization", self.auth_header())
-            .body(AsyncBody::from(body.to_string()))?;
-        self.send(request).await?;
-        Ok(())
+            .body(AsyncBody::from(body.to_string()))?)
     }
 
     /// `Items?...&{extra}`, with the `Fields`/image params every item listing shares.
@@ -618,12 +707,86 @@ impl Api {
         auth_header(&self.device_id, Some(&self.session.token))
     }
 
-    pub async fn playback_item(&self, item_id: &str) -> Result<PlaybackItem> {
-        self.get(&format!(
-            "/Items/{item_id}?userId={}&Fields=Chapters,Trickplay",
-            self.session.user_id
-        ))
-        .await
+    /// Play details plus how to stream them: direct play unless `max_mbps` caps the
+    /// bitrate, in which case the server decides (and may hand back a transcode).
+    pub async fn playback_item(
+        &self,
+        item_id: &str,
+        max_mbps: Option<u32>,
+    ) -> Result<PlaybackItem> {
+        let mut item: PlaybackItem = self
+            .get(&format!(
+                "/Items/{item_id}?userId={}&Fields=Chapters,Trickplay",
+                self.session.user_id
+            ))
+            .await?;
+        item.stream = match max_mbps {
+            None => self.direct_stream(&item),
+            Some(mbps) => self.negotiate_stream(&item, mbps).await?,
+        };
+        Ok(item)
+    }
+
+    fn direct_stream(&self, item: &PlaybackItem) -> Stream {
+        Stream {
+            url: format!(
+                "{}/Videos/{}/stream?static=true&mediaSourceId={}",
+                self.session.server,
+                item.id,
+                item.media_source_id()
+            ),
+            transcode: None,
+        }
+    }
+
+    /// Asks the server (PlaybackInfo) how to play `item` under `mbps`: direct when
+    /// the source fits, else its HLS transcode.
+    async fn negotiate_stream(&self, item: &PlaybackItem, mbps: u32) -> Result<Stream> {
+        let bitrate = u64::from(mbps) * 1_000_000;
+        let body = serde_json::json!({
+            "UserId": self.session.user_id,
+            "MaxStreamingBitrate": bitrate,
+            "DeviceProfile": device_profile(bitrate),
+            // 0, not the resume point: keeps the transcode on the file's own timeline,
+            // so mpv's resume seek, progress reports, and sidecar subtitles line up
+            "StartTimeTicks": 0,
+            "IsPlayback": true,
+            "AutoOpenLiveStream": false,
+            "MediaSourceId": item.media_source_id(),
+        });
+        let request = self.json_request(
+            Method::POST,
+            &format!("/Items/{}/PlaybackInfo", item.id),
+            body,
+        )?;
+        let info: PlaybackInfoResult = read_json(self.send(request).await?).await?;
+        let source = info
+            .media_sources
+            .iter()
+            .find(|s| s.id == item.media_source_id())
+            .or(info.media_sources.first())
+            .ok_or_else(|| anyhow!("Server offered no way to play this item"))?;
+        if source.supports_direct_play || source.supports_direct_stream {
+            return Ok(self.direct_stream(item));
+        }
+        let url = source
+            .transcoding_url
+            .as_ref()
+            .ok_or_else(|| anyhow!("Server can't stream this item under the bitrate cap"))?;
+        Ok(Stream {
+            url: format!("{}{url}", self.session.server),
+            transcode: Some(info.play_session_id.unwrap_or_default()),
+        })
+    }
+
+    /// Ends the server's ffmpeg job for a transcode; Stopped alone may leave it running.
+    async fn stop_transcode(&self, play_session_id: &str) -> Result<()> {
+        let path = format!(
+            "/Videos/ActiveEncodings?deviceId={}&playSessionId={play_session_id}",
+            self.device_id
+        );
+        self.request(Method::DELETE, &path, serde_json::Value::Null)
+            .await
     }
 
     /// Intro and credits ranges of one item, by start time.
@@ -651,16 +814,6 @@ impl Api {
             .collect();
         segments.sort_by(|a, b| a.start.total_cmp(&b.start));
         Ok(segments)
-    }
-
-    /// Original file, never transcoded.
-    pub fn stream_url(&self, item: &PlaybackItem) -> String {
-        format!(
-            "{}/Videos/{}/stream?static=true&mediaSourceId={}",
-            self.session.server,
-            item.id,
-            item.media_source_id()
-        )
     }
 
     /// Sidecar text subtitles mpv can't see in the stream mpv opens (not muxed into
@@ -723,16 +876,22 @@ impl Api {
             Report::Progress => "/Sessions/Playing/Progress",
             Report::Stopped => "/Sessions/Playing/Stopped",
         };
+        // a transcode's reports must carry the server's own session to reach its job
+        let session = item.stream.transcode.as_deref().unwrap_or(play_session_id);
         let body = serde_json::json!({
             "ItemId": item.id,
             "MediaSourceId": item.media_source_id(),
-            "PlaySessionId": play_session_id,
+            "PlaySessionId": session,
             "PositionTicks": seconds_to_ticks(seconds),
             "IsPaused": paused,
-            "PlayMethod": "DirectPlay",
+            "PlayMethod": if item.stream.transcode.is_some() { "Transcode" } else { "DirectPlay" },
             "CanSeek": true,
         });
-        self.post(path, body).await
+        self.post(path, body).await?;
+        if let (Report::Stopped, Some(session)) = (report, &item.stream.transcode) {
+            self.stop_transcode(session).await?;
+        }
+        Ok(())
     }
 
     /// Marks played (a Series: every Episode) or unplayed; either way the server

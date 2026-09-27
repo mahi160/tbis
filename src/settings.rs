@@ -49,21 +49,29 @@ const OFF: &str = "off";
 pub enum SettingsChanged {
     Language(LanguagePref),
     Subtitles(SubtitleStyle),
+    MaxBitrate(Option<u32>),
 }
 
 pub struct SettingsView {
     language: Entity<LanguagePref>,
     subtitles: Entity<SubtitleStyle>,
-    _observe: [Subscription; 2],
+    max_bitrate: Entity<Option<u32>>,
+    _observe: [Subscription; 3],
 }
 
 impl EventEmitter<Nav> for SettingsView {}
 impl EventEmitter<SettingsChanged> for SettingsView {}
 
 impl SettingsView {
-    pub fn new(language: LanguagePref, subtitles: SubtitleStyle, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        language: LanguagePref,
+        subtitles: SubtitleStyle,
+        max_bitrate: Option<u32>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let language = cx.new(|_| language);
         let subtitles = cx.new(|_| subtitles);
+        let max_bitrate = cx.new(|_| max_bitrate);
         let _observe = [
             cx.observe(&language, |_, language, cx| {
                 cx.emit(SettingsChanged::Language(language.read(cx).clone()))
@@ -71,12 +79,53 @@ impl SettingsView {
             cx.observe(&subtitles, |_, subtitles, cx| {
                 cx.emit(SettingsChanged::Subtitles(subtitles.read(cx).clone()))
             }),
+            cx.observe(&max_bitrate, |_, max_bitrate, cx| {
+                cx.emit(SettingsChanged::MaxBitrate(*max_bitrate.read(cx)))
+            }),
         ];
         Self {
             language,
             subtitles,
+            max_bitrate,
             _observe,
         }
+    }
+
+    fn streaming_group(&self) -> SettingGroup {
+        let (read, write) = (self.max_bitrate.clone(), self.max_bitrate.clone());
+        let options = [
+            ("", "No limit (direct play)"),
+            ("40", "40 Mbps"),
+            ("20", "20 Mbps"),
+            ("10", "10 Mbps"),
+            ("4", "4 Mbps"),
+            ("2", "2 Mbps"),
+        ];
+        let cap = SettingItem::new(
+            "Maximum bitrate",
+            SettingField::dropdown(
+                options
+                    .iter()
+                    .map(|(v, l)| (SharedString::from(*v), SharedString::from(*l)))
+                    .collect(),
+                move |cx| {
+                    read.read(cx)
+                        .map(|m| m.to_string())
+                        .unwrap_or_default()
+                        .into()
+                },
+                move |value, cx| {
+                    write.update(cx, |cap, cx| {
+                        *cap = value.parse().ok();
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description(
+            "Files above the limit are transcoded by the server. Applies from the next playback.",
+        );
+        SettingGroup::new().title("Streaming").items([cap])
     }
 
     /// Dropdown over `SubtitleStyle` field: `options` as (value, label), with
@@ -214,6 +263,7 @@ impl SettingsView {
                 .title("Language")
                 .items([audio, subtitles]),
             self.subtitles_group(),
+            self.streaming_group(),
         ])
     }
 }

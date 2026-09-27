@@ -72,6 +72,9 @@ pub struct Config {
     /// Text-subtitle look (Settings), for the Player and PiP.
     #[serde(default)]
     pub subtitles: SubtitleStyle,
+    /// Streaming cap in Mbps (Settings); `None` always direct plays.
+    #[serde(default)]
+    pub max_bitrate_mbps: Option<u32>,
     /// Last window size/position, restored on launch.
     #[serde(default)]
     pub window: Option<WindowState>,
@@ -188,6 +191,7 @@ pub fn load() -> Config {
             language: LanguagePref::default(),
             window: None,
             subtitles: SubtitleStyle::default(),
+            max_bitrate_mbps: None,
         })
 }
 

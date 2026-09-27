@@ -119,6 +119,8 @@ pub struct PlayerView {
     language: LanguagePref,
     /// Settings' subtitle look; PiP gets it too.
     subtitles: SubtitleStyle,
+    /// Settings' streaming cap; over it the server may transcode.
+    max_bitrate_mbps: Option<u32>,
     /// Held while video actually plays (here or in PiP); synced in `render`.
     awake: Option<Awake>,
     /// Media keys + Control Center; absent while PiP's own mpv owns them.
@@ -248,6 +250,7 @@ impl PlayerView {
             track_prefs: config.track_prefs.clone(),
             language: config.language.clone(),
             subtitles: config.subtitles.clone(),
+            max_bitrate_mbps: config.max_bitrate_mbps,
             awake: None,
             now_playing: None,
             remote,
@@ -270,8 +273,9 @@ impl PlayerView {
         }
         let api = self.api.clone();
         let artwork_url = self.playback.artwork_url.clone();
+        let max_mbps = self.max_bitrate_mbps;
         self.playback._load = cx.spawn(async move |this, cx| {
-            let result = api.playback_item(&item_id).await;
+            let result = api.playback_item(&item_id, max_mbps).await;
             let loaded = result.is_ok();
             let series_id = result.as_ref().ok().and_then(|i| i.series_id.clone());
             if this.update(cx, |this, cx| this.start(result, cx)).is_err() || !loaded {
@@ -330,7 +334,7 @@ impl PlayerView {
             cx.notify();
             return;
         };
-        if let Err(err) = mpv.load(&self.api.stream_url(item), item.resume_seconds()) {
+        if let Err(err) = mpv.load(&item.stream.url, item.resume_seconds()) {
             self.playback.error = Some(err.into());
         }
         self.playback.item = result.ok().map(std::sync::Arc::new);

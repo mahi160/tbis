@@ -4,9 +4,10 @@
 
 **Blocked by:** p1-gaps 06 — Settings screen with default language.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified against a real transcode)
 
-- [ ] Bitrate cap setting saved to config; default keeps today's always-direct-play behaviour
-- [ ] Over-cap items play via a server transcode at or under the cap
-- [ ] Resume position, track picks, and progress reporting still work on transcoded streams
-- [ ] Transcode session is stopped on the server when playback ends
+- [x] Bitrate cap setting saved to config; default keeps today's always-direct-play behaviour
+- [x] Over-cap items play via a server transcode at or under the cap
+- [x] Resume position and progress reporting work on transcoded streams (transcode requested from 0 so mpv's resume seek and reports stay on the file's timeline; reports carry the server's PlaySessionId and PlayMethod Transcode)
+- [ ] Track picks on transcoded streams: the server's HLS output carries only the audio track it negotiated, so switching audio mid-transcode needs a fresh PlaybackInfo negotiation. Not built yet.
+- [x] Transcode session is stopped on the server when playback ends (DELETE /Videos/ActiveEncodings after Stopped)

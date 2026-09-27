@@ -366,7 +366,16 @@ impl PlayerView {
             .map(|n| n as u64)
             .reduce(|a, b| a + b)
             .map(|n| n.to_string());
+        let method = self.playback.item.as_ref().map(|item| {
+            if item.stream.transcode.is_some() {
+                "Transcode"
+            } else {
+                "Direct play"
+            }
+            .into()
+        });
         vec![
+            ("Play method", or_dash(method)),
             ("Container", or_dash(get("file-format"))),
             ("Video", or_dash(get("video-codec"))),
             ("Resolution", or_dash(resolution)),
@@ -423,7 +432,7 @@ impl PlayerView {
         let (events_tx, mut events_rx) = futures::channel::mpsc::unbounded();
         let options = self.subtitles.mpv_options();
         let start = crate::pip::PipStart {
-            url: &self.api.stream_url(item),
+            url: &item.stream.url,
             auth_header: &self.api.auth_header(),
             start_seconds: self.playback.time,
             speed: self.speed,
