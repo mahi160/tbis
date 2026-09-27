@@ -26,6 +26,8 @@ pub struct PipStart<'a> {
     pub muted: bool,
     pub audio_track: Option<i64>,
     pub subtitle_track: Option<i64>,
+    /// `(name, value)` mpv options, e.g. the subtitle style.
+    pub options: &'a [(&'static str, String)],
 }
 
 /// Running PiP window; dropping it closes the window.
@@ -67,6 +69,11 @@ impl Pip {
             .arg(format!("--mute={}", crate::mpv::yes_no(args.muted)))
             .arg(format!("--aid={}", track(args.audio_track)))
             .arg(format!("--sid={}", track(args.subtitle_track)))
+            .args(
+                args.options
+                    .iter()
+                    .map(|(name, value)| format!("--{name}={value}")),
+            )
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())

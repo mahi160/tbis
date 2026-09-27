@@ -18,7 +18,7 @@ use crate::nav::Nav;
 use crate::player::{Closed, PlayerView};
 use crate::search::SearchView;
 use crate::series::SeriesView;
-use crate::settings::{LanguageChanged, SettingsView};
+use crate::settings::{SettingsChanged, SettingsView};
 use crate::shortcuts::{self, ShowShortcuts};
 
 actions!(tbis, [FocusSearch]);
@@ -332,11 +332,14 @@ impl AppView {
     }
 
     fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let language = self.config.language.clone();
-        let view = cx.new(|cx| SettingsView::new(language, cx));
-        let changed = cx.subscribe(&view, |this, _, LanguageChanged(language), _| {
-            this.config.language = language.clone();
-            save_config(&this.config, "language");
+        let (language, subtitles) = (self.config.language.clone(), self.config.subtitles.clone());
+        let view = cx.new(|cx| SettingsView::new(language, subtitles, cx));
+        let changed = cx.subscribe(&view, |this, _, changed: &SettingsChanged, _| {
+            match changed {
+                SettingsChanged::Language(language) => this.config.language = language.clone(),
+                SettingsChanged::Subtitles(style) => this.config.subtitles = style.clone(),
+            }
+            save_config(&this.config, "settings");
         });
         self.set_detail(view, |_| {}, window, cx);
         if let Screen::Main(main) = &mut self.screen
@@ -377,11 +380,8 @@ impl AppView {
             return;
         };
         let api = main.api.clone();
-        let volume = (self.config.volume, self.config.muted);
-        let track_prefs = self.config.track_prefs.clone();
-        let language = self.config.language.clone();
-        let player =
-            cx.new(|cx| PlayerView::new(api, item, volume, track_prefs, language, window, cx));
+        let config = &self.config;
+        let player = cx.new(|cx| PlayerView::new(api, item, config, window, cx));
         let subscription =
             cx.subscribe_in(&player, window, |this, _, closed: &Closed, window, cx| {
                 this.config.volume = closed.volume;

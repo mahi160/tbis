@@ -8,7 +8,7 @@ use gpui_kit::component::setting::{
 use gpui_kit::component::{IconName, h_flex, v_flex};
 use gpui_kit::*;
 
-use crate::config::LanguagePref;
+use crate::config::{LanguagePref, SubtitleStyle};
 use crate::detail::PAD;
 use crate::nav::Nav;
 
@@ -45,24 +45,103 @@ pub fn same_language(a: &str, b: &str) -> bool {
 const NO_PREFERENCE: &str = "";
 const OFF: &str = "off";
 
-/// Preferred languages changed; the app saves them.
-pub struct LanguageChanged(pub LanguagePref);
+/// A setting changed; the app saves it.
+pub enum SettingsChanged {
+    Language(LanguagePref),
+    Subtitles(SubtitleStyle),
+}
 
 pub struct SettingsView {
     language: Entity<LanguagePref>,
-    _observe: Subscription,
+    subtitles: Entity<SubtitleStyle>,
+    _observe: [Subscription; 2],
 }
 
 impl EventEmitter<Nav> for SettingsView {}
-impl EventEmitter<LanguageChanged> for SettingsView {}
+impl EventEmitter<SettingsChanged> for SettingsView {}
 
 impl SettingsView {
-    pub fn new(language: LanguagePref, cx: &mut Context<Self>) -> Self {
+    pub fn new(language: LanguagePref, subtitles: SubtitleStyle, cx: &mut Context<Self>) -> Self {
         let language = cx.new(|_| language);
-        let _observe = cx.observe(&language, |_, language, cx| {
-            cx.emit(LanguageChanged(language.read(cx).clone()))
-        });
-        Self { language, _observe }
+        let subtitles = cx.new(|_| subtitles);
+        let _observe = [
+            cx.observe(&language, |_, language, cx| {
+                cx.emit(SettingsChanged::Language(language.read(cx).clone()))
+            }),
+            cx.observe(&subtitles, |_, subtitles, cx| {
+                cx.emit(SettingsChanged::Subtitles(subtitles.read(cx).clone()))
+            }),
+        ];
+        Self {
+            language,
+            subtitles,
+            _observe,
+        }
+    }
+
+    /// Dropdown over `SubtitleStyle` field: `options` as (value, label), with
+    /// `get`/`set` mapping the field to and from the option value.
+    fn subtitle_item(
+        &self,
+        title: &'static str,
+        options: &[(&str, &str)],
+        get: fn(&SubtitleStyle) -> String,
+        set: fn(&mut SubtitleStyle, &str),
+    ) -> SettingItem {
+        let (read, write) = (self.subtitles.clone(), self.subtitles.clone());
+        SettingItem::new(
+            title,
+            SettingField::dropdown(
+                options
+                    .iter()
+                    .map(|(v, l)| {
+                        (
+                            SharedString::from(v.to_string()),
+                            SharedString::from(l.to_string()),
+                        )
+                    })
+                    .collect(),
+                move |cx| get(read.read(cx)).into(),
+                move |value, cx| {
+                    write.update(cx, |style, cx| {
+                        set(style, &value);
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+    }
+
+    fn subtitles_group(&self) -> SettingGroup {
+        SettingGroup::new()
+            .title("Subtitles")
+            .description("Text subtitles only; image subtitles keep their own look. Applies from the next playback.")
+            .items([
+                self.subtitle_item(
+                    "Size",
+                    &[("75", "Small"), ("100", "Default"), ("125", "Large"), ("150", "Larger"), ("200", "Huge")],
+                    |s| s.scale.to_string(),
+                    |s, v| s.scale = v.parse().unwrap_or(100),
+                ),
+                self.subtitle_item(
+                    "Colour",
+                    &[("#FFFFFF", "White"), ("#FFE66D", "Yellow"), ("#D8D8D8", "Soft grey"), ("#7FDBFF", "Cyan")],
+                    |s| s.color.clone(),
+                    |s, v| s.color = v.to_string(),
+                ),
+                self.subtitle_item(
+                    "Position",
+                    &[("100", "Bottom"), ("95", "Slightly raised"), ("88", "Raised")],
+                    |s| s.position.to_string(),
+                    |s, v| s.position = v.parse().unwrap_or(100),
+                ),
+                self.subtitle_item(
+                    "Style",
+                    &[("outline", "Outline"), ("box", "Dark box")],
+                    |s| if s.background { "box" } else { "outline" }.into(),
+                    |s, v| s.background = v == "box",
+                ),
+            ])
     }
 
     fn language_options(
@@ -130,11 +209,12 @@ impl SettingsView {
         )
         .description("Used when an item has no remembered subtitle track.");
 
-        SettingPage::new("Playback").default_open(true).group(
+        SettingPage::new("Playback").default_open(true).groups([
             SettingGroup::new()
                 .title("Language")
                 .items([audio, subtitles]),
-        )
+            self.subtitles_group(),
+        ])
     }
 }
 

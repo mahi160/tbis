@@ -69,9 +69,56 @@ pub struct Config {
     /// app-wide learned language.
     #[serde(default)]
     pub language: LanguagePref,
+    /// Text-subtitle look (Settings), for the Player and PiP.
+    #[serde(default)]
+    pub subtitles: SubtitleStyle,
     /// Last window size/position, restored on launch.
     #[serde(default)]
     pub window: Option<WindowState>,
+}
+
+/// Text-subtitle styling; image subtitles (PGS/VobSub) keep their own look.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct SubtitleStyle {
+    /// Percent of mpv's default size.
+    pub scale: u16,
+    /// `#RRGGBB`.
+    pub color: String,
+    /// Vertical position, 100 = mpv's default bottom placement, lower is higher up.
+    pub position: u8,
+    /// Dark box behind the text instead of an outline.
+    pub background: bool,
+}
+
+impl Default for SubtitleStyle {
+    fn default() -> Self {
+        Self {
+            scale: 100,
+            color: "#FFFFFF".into(),
+            position: 100,
+            background: false,
+        }
+    }
+}
+
+impl SubtitleStyle {
+    /// mpv options applying this style, shared by the Player and PiP.
+    pub fn mpv_options(&self) -> [(&'static str, String); 4] {
+        [
+            ("sub-scale", format!("{}", f64::from(self.scale) / 100.)),
+            ("sub-color", self.color.clone()),
+            ("sub-pos", self.position.to_string()),
+            (
+                "sub-border-style",
+                if self.background {
+                    "background-box"
+                } else {
+                    "outline-and-shadow"
+                }
+                .into(),
+            ),
+        ]
+    }
 }
 
 /// Restore bounds of the main window; fullscreen is saved as its windowed bounds.
@@ -140,6 +187,7 @@ pub fn load() -> Config {
             muted: false,
             language: LanguagePref::default(),
             window: None,
+            subtitles: SubtitleStyle::default(),
         })
 }
 

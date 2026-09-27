@@ -15,7 +15,7 @@ use futures::channel::mpsc;
 use gpui_kit::component::slider::{SliderEvent, SliderState};
 use gpui_kit::*;
 
-use crate::config::{LanguagePref, TrackPrefs};
+use crate::config::{Config, LanguagePref, SubtitleStyle, TrackPrefs};
 use crate::jellyfin::{Api, Item, PlaybackItem, Report};
 use crate::mpv::Mpv;
 use crate::now_playing::{NowPlaying, RemoteCommand};
@@ -117,6 +117,8 @@ pub struct PlayerView {
     track_prefs: TrackPrefs,
     /// Settings' preferred languages (read-only here).
     language: LanguagePref,
+    /// Settings' subtitle look; PiP gets it too.
+    subtitles: SubtitleStyle,
     /// Held while video actually plays (here or in PiP); synced in `render`.
     awake: Option<Awake>,
     /// Media keys + Control Center; absent while PiP's own mpv owns them.
@@ -137,12 +139,11 @@ impl PlayerView {
     pub fn new(
         api: Api,
         item: &Item,
-        (volume, muted): (f64, bool),
-        track_prefs: TrackPrefs,
-        language: LanguagePref,
+        config: &Config,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let (volume, muted) = (config.volume, config.muted);
         let seek = cx.new(|_| SliderState::new().min(0.).max(1.).step(0.0001));
         let volume_slider = cx.new(|_| {
             SliderState::new()
@@ -171,6 +172,9 @@ impl PlayerView {
             Ok(mpv) => {
                 let _ = mpv.set_volume(volume);
                 let _ = mpv.set_mute(muted);
+                for (name, value) in config.subtitles.mpv_options() {
+                    let _ = mpv.set_property(name, &value);
+                }
                 (Some(mpv), None)
             }
             Err(err) => (None, Some(format!("Cannot start player: {err}").into())),
@@ -241,8 +245,9 @@ impl PlayerView {
             focus,
             controls_visible: true,
             menu_open: false,
-            track_prefs,
-            language,
+            track_prefs: config.track_prefs.clone(),
+            language: config.language.clone(),
+            subtitles: config.subtitles.clone(),
             awake: None,
             now_playing: None,
             remote,

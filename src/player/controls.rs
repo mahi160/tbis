@@ -421,6 +421,7 @@ impl PlayerView {
                 .map(|t| t.id)
         };
         let (events_tx, mut events_rx) = futures::channel::mpsc::unbounded();
+        let options = self.subtitles.mpv_options();
         let start = crate::pip::PipStart {
             url: &self.api.stream_url(item),
             auth_header: &self.api.auth_header(),
@@ -430,6 +431,7 @@ impl PlayerView {
             muted: self.muted,
             audio_track: selected(TrackKind::Audio),
             subtitle_track: selected(TrackKind::Subtitle),
+            options: &options,
         };
         match crate::pip::Pip::start(start, events_tx) {
             Ok(pip) => {

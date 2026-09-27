@@ -216,6 +216,11 @@ impl Mpv {
             .command(&["screenshot-to-file", path, "subtitles"])
     }
 
+    /// Sets any property by name from its string form, e.g. `sub-scale` = `1.25`.
+    pub fn set_property(&self, name: &str, value: &str) -> Result<(), String> {
+        self.handle.set_property(name, value)
+    }
+
     /// Any property as mpv formats it (e.g. `video-codec`); `None` while unavailable.
     pub fn property(&self, name: &str) -> Option<String> {
         get_string(self.handle, name)

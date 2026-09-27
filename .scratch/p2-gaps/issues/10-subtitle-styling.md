@@ -4,9 +4,9 @@
 
 **Blocked by:** p1-gaps 06 — Settings screen with default language.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
-- [ ] Size, colour, position, and outline/background controls in Settings, saved to config
-- [ ] Changes apply to a currently playing video without restarting it
-- [ ] PiP uses the same styling
-- [ ] Image-based subtitles are unaffected
+- [x] Size, colour, position, and outline/box controls in Settings (preset dropdowns), saved to config
+- [ ] ~~Changes apply to a currently playing video~~ — N/A: Settings is unreachable while the Player covers the window; styles apply from the next playback
+- [x] PiP uses the same styling
+- [x] Image-based subtitles are unaffected
