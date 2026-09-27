@@ -56,6 +56,9 @@ pub struct Track {
     pub kind: TrackKind,
     pub label: String,
     pub selected: bool,
+    /// Raw language code (container tag, or the `sub-add` lang for an external
+    /// subtitle); for matching a remembered language pref, separately from `label`.
+    pub lang: Option<String>,
 }
 
 pub struct Mpv {
@@ -399,7 +402,8 @@ fn read_tracks(mpv: Handle) -> Vec<Track> {
                 _ => return None,
             };
             let id = field("id")?.parse().ok()?;
-            let mut parts: Vec<String> = [field("title"), field("lang")]
+            let lang = field("lang");
+            let mut parts: Vec<String> = [field("title"), lang.clone()]
                 .into_iter()
                 .flatten()
                 .collect();
@@ -427,6 +431,7 @@ fn read_tracks(mpv: Handle) -> Vec<Track> {
                 kind,
                 label,
                 selected: field("selected").as_deref() == Some("yes"),
+                lang,
             })
         })
         .collect()

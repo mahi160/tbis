@@ -3,18 +3,21 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::slider::{Slider, SliderEvent};
-use gpui_kit::component::{ActiveTheme as _, Icon, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::jellyfin::SegmentKind;
 use crate::mpv::{Track, TrackKind};
+use crate::now_playing::{Info, NowPlaying, RemoteCommand};
 
 use super::clock::{clock, format_time};
 use super::{
     AudioDelayEarlier, AudioDelayLater, CONTEXT, ChapterNext, ChapterPrev, CycleAudio,
     CycleSubtitle, DELAY_STEP, Escape, HIDE_CONTROLS_AFTER, PlayNext, PlayerView, SEEK_STEP,
-    SeekBack, SeekForward, SpeedDown, SpeedUp, SubDelayEarlier, SubDelayLater, ToggleFullscreen,
-    ToggleMute, TogglePause, TogglePip, VOLUME_STEP, VolumeDown, VolumeUp, hide_cursor,
+    SeekBack, SeekForward, SkipSegment, SpeedDown, SpeedUp, SubDelayEarlier, SubDelayLater,
+    ToggleFullscreen, ToggleMute, TogglePause, TogglePip, VOLUME_STEP, VolumeDown, VolumeUp,
+    hide_cursor,
 };
 
 const SPEEDS: [f64; 7] = [0.5, 0.75, 1., 1.25, 1.5, 1.75, 2.];
@@ -197,6 +200,75 @@ impl PlayerView {
             window.toggle_fullscreen();
         }
         self.show_controls(window, cx);
+    }
+
+    pub(super) fn on_remote(
+        &mut self,
+        command: RemoteCommand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match command {
+            RemoteCommand::Play | RemoteCommand::Pause => {
+                if let Some(mpv) = self.active_mpv() {
+                    let _ = mpv.set_pause(matches!(command, RemoteCommand::Pause));
+                }
+            }
+            RemoteCommand::Toggle => self.toggle_pause(&TogglePause, window, cx),
+            RemoteCommand::SkipForward => self.seek_forward(&SeekForward, window, cx),
+            RemoteCommand::SkipBackward => self.seek_back(&SeekBack, window, cx),
+            RemoteCommand::Seek(seconds) => {
+                if let Some(mpv) = self.active_mpv() {
+                    let _ = mpv.seek(seconds);
+                }
+            }
+            // like the skip button: not counted watched
+            RemoteCommand::Next => {
+                if let Some(next) = self.playback.next.clone() {
+                    self.play_next(next, window, cx);
+                }
+            }
+        }
+    }
+
+    /// Keeps Now Playing in step with the Player; called every render.
+    fn sync_now_playing(&mut self) {
+        let wanted =
+            self.pip.is_none() && self.playback.item.is_some() && self.playback.error.is_none();
+        if wanted != self.now_playing.is_some() {
+            self.now_playing = wanted.then(|| {
+                let now_playing = NowPlaying::new(self.remote.clone(), SEEK_STEP);
+                if let Some(bytes) = &self.playback.artwork {
+                    now_playing.set_artwork(bytes);
+                }
+                now_playing
+            });
+        }
+        let Some(now_playing) = &self.now_playing else {
+            return;
+        };
+        now_playing.set_next_enabled(self.playback.next.is_some());
+        // Episode: "S01E06 · Name" over the Series title; Movie: its name alone
+        let (title, subtitle) = match &self.playback.subtitle {
+            Some(episode) => (episode.to_string(), Some(self.playback.title.to_string())),
+            None => (self.playback.title.to_string(), None),
+        };
+        now_playing.update(&Info {
+            title,
+            subtitle,
+            duration: self.playback.duration,
+            elapsed: self.playback.time,
+            rate: if self.paused { 0. } else { self.speed },
+        });
+    }
+
+    fn skip_segment_action(
+        &mut self,
+        _: &SkipSegment,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.skip_segment(window, cx);
     }
 
     fn play_next_now(&mut self, _: &PlayNext, window: &mut Window, cx: &mut Context<Self>) {
@@ -499,6 +571,14 @@ fn video_white(alpha: f32) -> Hsla {
 
 impl Render for PlayerView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // every pause/PiP/error change notifies, so render is the one sync point
+        let playing = self.playback.started
+            && self.playback.error.is_none()
+            && (!self.paused || self.pip.is_some());
+        if playing != self.awake.is_some() {
+            self.awake = playing.then(super::Awake::new);
+        }
+        self.sync_now_playing();
         if let Some(mpv) = &self.mpv {
             let size = window.viewport_size();
             let scale = window.scale_factor();
@@ -549,12 +629,33 @@ impl Render for PlayerView {
                     })),
             )
             .child(
-                div()
+                h_flex()
                     .flex_none()
-                    .font_family(mono.clone())
-                    .text_size(px(17.))
-                    .text_color(dim(0.75))
-                    .child(clock(0.)),
+                    .gap_3()
+                    .children(
+                        self.playback
+                            .item
+                            .iter()
+                            .flat_map(|item| item.media_tags())
+                            .map(|tag| {
+                                div()
+                                    .px_1p5()
+                                    .rounded_sm()
+                                    .border_1()
+                                    .border_color(dim(0.35))
+                                    .font_family(mono.clone())
+                                    .text_xs()
+                                    .text_color(dim(0.75))
+                                    .child(tag)
+                            }),
+                    )
+                    .child(
+                        div()
+                            .font_family(mono.clone())
+                            .text_size(px(17.))
+                            .text_color(dim(0.75))
+                            .child(clock(0.)),
+                    ),
             );
 
         let scrub_preview = self
@@ -700,11 +801,16 @@ impl Render for PlayerView {
                     .child(controls),
             );
 
-        let error = self
-            .playback
-            .error
-            .clone()
-            .map(|error| overlay_banner(Some(cx.theme().danger), error));
+        let error = self.playback.error.clone().map(|error| {
+            let back = Button::new("error-back")
+                .label("Go back")
+                .on_click(cx.listener(|this, _, window, cx| this.close(window, cx)))
+                .into_any_element();
+            overlay_banner(
+                None,
+                crate::status::error_panel("Can't play this", error, [back], cx).p_4(),
+            )
+        });
 
         let pip_notice = self.pip.is_some().then(|| {
             overlay_banner(
@@ -731,6 +837,29 @@ impl Render for PlayerView {
                         .child(error),
                 )
         });
+        // up-next card's Play now already covers skipping credits
+        let skip = self
+            .active_segment()
+            .filter(|s| !(s.kind == SegmentKind::Outro && self.up_next().is_some()))
+            .map(|segment| {
+                let label = match segment.kind {
+                    SegmentKind::Intro => "Skip Intro",
+                    SegmentKind::Outro => "Skip Credits",
+                };
+                div()
+                    .absolute()
+                    .right_6()
+                    .bottom(px(112.)) // above timeline, where up-next sits
+                    .child(
+                        Button::new("skip-segment")
+                            .large()
+                            .label(label)
+                            .tooltip_with_action(label, &SkipSegment, Some(CONTEXT))
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.skip_segment(window, cx)),
+                            ),
+                    )
+            });
         let up_next = self.up_next().map(|next| {
             let left = (self.playback.duration - self.playback.time).max(0.).ceil() as u64;
             v_flex()
@@ -801,6 +930,7 @@ impl Render for PlayerView {
             .on_action(cx.listener(Self::sub_delay_earlier))
             .on_action(cx.listener(Self::audio_delay_later))
             .on_action(cx.listener(Self::audio_delay_earlier))
+            .on_action(cx.listener(Self::skip_segment_action))
             .size_full()
             .relative()
             .justify_between()
@@ -814,6 +944,7 @@ impl Render for PlayerView {
             .children(pip_notice)
             .children(pip_error)
             .children(up_next)
+            .children(skip)
             .when(
                 self.controls_visible || self.playback.error.is_some(),
                 |this| this.child(top).child(bottom),

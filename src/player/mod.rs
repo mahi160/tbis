@@ -15,8 +15,10 @@ use futures::channel::mpsc;
 use gpui_kit::component::slider::{SliderEvent, SliderState};
 use gpui_kit::*;
 
+use crate::config::{LanguagePref, TrackPrefs};
 use crate::jellyfin::{Api, Item, PlaybackItem, Report};
 use crate::mpv::Mpv;
+use crate::now_playing::{NowPlaying, RemoteCommand};
 use crate::pip::Pip;
 use playback::Playback;
 
@@ -42,7 +44,8 @@ actions!(
         SubDelayLater,
         SubDelayEarlier,
         AudioDelayLater,
-        AudioDelayEarlier
+        AudioDelayEarlier,
+        SkipSegment
     ]
 );
 
@@ -73,13 +76,15 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("[", SubDelayEarlier, Some(CONTEXT)),
         KeyBinding::new("shift-]", AudioDelayLater, Some(CONTEXT)),
         KeyBinding::new("shift-[", AudioDelayEarlier, Some(CONTEXT)),
+        KeyBinding::new("s", SkipSegment, Some(CONTEXT)),
     ]);
 }
 
-/// Player left; carries volume so the app can remember it.
+/// Player left; carries volume and track memory so the app can remember them.
 pub struct Closed {
     pub volume: f64,
     pub muted: bool,
+    pub track_prefs: TrackPrefs,
 }
 
 const HIDE_CONTROLS_AFTER: Duration = Duration::from_secs(3);
@@ -103,6 +108,14 @@ pub struct PlayerView {
     menu_open: bool,
     /// PiP-start failure; shown briefly, doesn't block controls or up-next like `error` does.
     pip_error: Option<SharedString>,
+    track_prefs: TrackPrefs,
+    /// Settings' preferred languages (read-only here).
+    language: LanguagePref,
+    /// Held while video actually plays (here or in PiP); synced in `render`.
+    awake: Option<Awake>,
+    /// Media keys + Control Center; absent while PiP's own mpv owns them.
+    now_playing: Option<NowPlaying>,
+    remote: mpsc::UnboundedSender<RemoteCommand>,
     _hide: Task<()>,
     _pip: Task<()>,
     _pip_error: Task<()>,
@@ -117,6 +130,8 @@ impl PlayerView {
         api: Api,
         item: &Item,
         (volume, muted): (f64, bool),
+        track_prefs: TrackPrefs,
+        language: LanguagePref,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -190,6 +205,18 @@ impl PlayerView {
             }
         }));
 
+        let (remote, mut remote_rx) = mpsc::unbounded();
+        tasks.push(cx.spawn_in(window, async move |this, cx| {
+            while let Some(command) = remote_rx.next().await {
+                if this
+                    .update_in(cx, |this, window, cx| this.on_remote(command, window, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }));
+
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let mut this = Self {
@@ -207,6 +234,11 @@ impl PlayerView {
             controls_visible: true,
             menu_open: false,
             pip_error: None,
+            track_prefs,
+            language,
+            awake: None,
+            now_playing: None,
+            remote,
             _hide: Task::ready(()),
             _pip: Task::ready(()),
             _pip_error: Task::ready(()),
@@ -224,11 +256,40 @@ impl PlayerView {
             return;
         }
         let api = self.api.clone();
+        let artwork_url = self.playback.artwork_url.clone();
         self.playback._load = cx.spawn(async move |this, cx| {
             let result = api.playback_item(&item_id).await;
+            let loaded = result.is_ok();
             let series_id = result.as_ref().ok().and_then(|i| i.series_id.clone());
-            if this.update(cx, |this, cx| this.start(result, cx)).is_err() {
+            if this.update(cx, |this, cx| this.start(result, cx)).is_err() || !loaded {
                 return;
+            }
+            if let Some(url) = artwork_url {
+                match api.image_bytes(&url).await {
+                    Ok(bytes) => {
+                        let Ok(()) = this.update(cx, |this, _| {
+                            if let Some(now_playing) = &this.now_playing {
+                                now_playing.set_artwork(&bytes);
+                            }
+                            this.playback.artwork = Some(bytes);
+                        }) else {
+                            return;
+                        };
+                    }
+                    Err(err) => eprintln!("artwork fetch failed: {err}"),
+                }
+            }
+            match api.segments(&item_id).await {
+                Ok(segments) => {
+                    let Ok(()) = this.update(cx, |this, cx| {
+                        this.playback.segments = segments;
+                        cx.notify();
+                    }) else {
+                        return;
+                    };
+                }
+                // pre-10.10 servers 404 here: just no skip button
+                Err(err) => eprintln!("media segments lookup failed: {err}"),
             }
             let Some(series_id) = series_id else {
                 return;
@@ -276,7 +337,7 @@ impl PlayerView {
         let (time, paused, finished) = (self.playback.time, self.paused, self.playback.finished);
         Some(async move {
             if finished {
-                let _ = api.mark_played(&item.id).await;
+                let _ = api.set_played(&item.id, true).await;
             } else {
                 let _ = api
                     .report(Report::Stopped, &item, &session, time, paused)
@@ -288,6 +349,11 @@ impl PlayerView {
     /// Volume/mute to persist on quit, mirroring what `Closed` carries on a normal close.
     pub fn volume_state(&self) -> (f64, bool) {
         (self.volume, self.muted)
+    }
+
+    /// Track memory to persist on quit, mirroring what `Closed` carries on a normal close.
+    pub fn track_prefs(&self) -> TrackPrefs {
+        self.track_prefs.clone()
     }
 
     /// mpv driving playback right now: in-window one, unless PiP has taken over.
@@ -304,7 +370,45 @@ impl PlayerView {
         cx.emit(Closed {
             volume: self.volume,
             muted: self.muted,
+            track_prefs: self.track_prefs.clone(),
         });
+    }
+}
+
+/// Holds off display/idle sleep while alive (macOS power assertion via NSProcessInfo).
+#[cfg(target_os = "macos")]
+struct Awake(
+    objc2::rc::Retained<objc2::runtime::ProtocolObject<dyn objc2_foundation::NSObjectProtocol>>,
+);
+
+#[cfg(target_os = "macos")]
+impl Awake {
+    fn new() -> Self {
+        use objc2_foundation::{NSActivityOptions, NSProcessInfo, ns_string};
+        Self(
+            NSProcessInfo::processInfo().beginActivityWithOptions_reason(
+                NSActivityOptions::UserInitiated | NSActivityOptions::IdleDisplaySleepDisabled,
+                ns_string!("Playing video"),
+            ),
+        )
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for Awake {
+    fn drop(&mut self) {
+        // SAFETY: token came from beginActivityWithOptions_reason
+        unsafe { objc2_foundation::NSProcessInfo::processInfo().endActivity(&self.0) };
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+struct Awake;
+
+#[cfg(not(target_os = "macos"))]
+impl Awake {
+    fn new() -> Self {
+        Self
     }
 }
 
