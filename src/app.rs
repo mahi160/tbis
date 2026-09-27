@@ -607,10 +607,22 @@ impl AppView {
             .border_b_0()
             .bg(cx.theme().background)
             .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("tbis"),
+                h_flex()
+                    .gap_1p5()
+                    .child(
+                        // mark's own aspect ratio (1707x1440), so it isn't squashed
+                        svg()
+                            .path("icons/tbis-mark.svg")
+                            .w(px(19.))
+                            .h(px(16.))
+                            .text_color(cx.theme().foreground),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("tbis"),
+                    ),
             )
             // spans whole window width so tabs sit at true center; offset cancels TitleBar left padding
             .child(

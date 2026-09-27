@@ -25,12 +25,15 @@ const EXTRA: &[(&str, &[u8])] = &embedded_by_path!(
     ]
 );
 
+/// tbis's own dinosaur mark (traced for assets/icon.svg), next to the wordmark.
+const BRAND: &[(&str, &[u8])] = &embedded_by_path!("icons", ["tbis-mark.svg"]);
+
 /// gpui-kit's default icons plus [`EXTRA`].
 pub struct Assets;
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
-        match EXTRA.iter().find(|(p, _)| *p == path) {
+        match EXTRA.iter().chain(BRAND).find(|(p, _)| *p == path) {
             Some((_, bytes)) => Ok(Some(Cow::Borrowed(bytes))),
             None => gpui_kit::assets::Assets.load(path),
         }
@@ -41,6 +44,7 @@ impl AssetSource for Assets {
         paths.extend(
             EXTRA
                 .iter()
+                .chain(BRAND)
                 .filter(|(p, _)| p.starts_with(path))
                 .map(|(p, _)| (*p).into()),
         );
