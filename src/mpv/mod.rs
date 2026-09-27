@@ -230,6 +230,16 @@ impl Drop for Mpv {
     }
 }
 
+/// Read-ahead buffer for streaming from the server, shared by the Player and PiP:
+/// rides out network hiccups and makes short back-seeks instant. Capped so a long
+/// 4K remux can't grow memory unbounded.
+pub const CACHE_OPTIONS: [(&str, &str); 4] = [
+    ("cache", "yes"),
+    ("demuxer-max-bytes", "400MiB"),
+    ("demuxer-max-back-bytes", "100MiB"),
+    ("demuxer-readahead-secs", "60"),
+];
+
 #[derive(Clone, Copy)]
 struct Handle(*mut mpv_handle);
 
@@ -248,6 +258,7 @@ impl Handle {
             ("ytdl", "no".to_string()), // plain Jellyfin URLs; skip youtube-dl hook
             ("sub-font", crate::fonts::FAMILY.to_string()),
         ];
+        options.extend(CACHE_OPTIONS.map(|(name, value)| (name, value.to_string())));
         if let Some(dir) = crate::fonts::extract_dir() {
             options.push(("sub-fonts-dir", dir.to_string_lossy().into_owned()));
         }

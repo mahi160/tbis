@@ -54,6 +54,7 @@ impl Pip {
             .arg("--autofit=640x360")
             .arg("--geometry=-24-24") // bottom-right corner
             .arg("--ytdl=no")
+            .args(crate::mpv::CACHE_OPTIONS.map(|(name, value)| format!("--{name}={value}")))
             .arg(format!("--sub-font={}", crate::fonts::FAMILY))
             .arg(format!("--input-ipc-server={}", socket.display()));
         if let Some(dir) = crate::fonts::extract_dir() {
