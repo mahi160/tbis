@@ -7,8 +7,8 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::card::{OnClick, poster_card};
-use crate::jellyfin::{Api, Item, Kind, Sort};
 use crate::detail::PAD;
+use crate::jellyfin::{Api, Item, Kind, Sort};
 use crate::nav::Nav;
 use crate::status::{Status, full_status, inline_status};
 

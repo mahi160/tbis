@@ -6,8 +6,8 @@ use gpui_kit::*;
 use std::time::{Duration, Instant};
 
 use crate::card::{self, OnClick};
-use crate::jellyfin::{Api, Item, Kind};
 use crate::detail::PAD;
+use crate::jellyfin::{Api, Item, Kind};
 use crate::nav::Nav;
 use crate::status::{Status, full_status, inline_status};
 
@@ -232,12 +232,7 @@ impl HomeView {
                     h_flex()
                         .px(gutter)
                         .justify_between()
-                        .child(
-                            div()
-                                .text_2xl()
-                                .font_weight(FontWeight::BOLD)
-                                .child(title),
-                        )
+                        .child(div().text_2xl().font_weight(FontWeight::BOLD).child(title))
                         .child(
                             h_flex()
                                 .gap_1()

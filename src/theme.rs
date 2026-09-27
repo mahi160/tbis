@@ -10,7 +10,12 @@ use gpui_kit::component::{Theme, ThemeRegistry};
 use crate::config::Config;
 
 /// Theme names as in the JSON's `"name"`, also the Settings labels. First is the default.
-pub const NAMES: [&str; 4] = ["Raptor Night", "Bronto Morning", "Stego Dusk", "Angry T-Rex"];
+pub const NAMES: [&str; 4] = [
+    "Raptor Night",
+    "Bronto Morning",
+    "Stego Dusk",
+    "Angry T-Rex",
+];
 
 /// Earlier names still found in saved configs.
 const RENAMED: [(&str, &str); 3] = [

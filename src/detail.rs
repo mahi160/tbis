@@ -301,12 +301,7 @@ pub fn cast_row(api: &Api, item: &Item, cx: &App) -> Option<AnyElement> {
     Some(
         v_flex()
             .gap_4()
-            .child(
-                div()
-                    .text_lg()
-                    .font_weight(FontWeight::BOLD)
-                    .child("Cast"),
-            )
+            .child(div().text_lg().font_weight(FontWeight::BOLD).child("Cast"))
             .child(
                 div()
                     .flex()

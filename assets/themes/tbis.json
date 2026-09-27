@@ -244,7 +244,7 @@
         "success.background": "#7bd88f",
         "info.background": "#6fb3ff",
         "warning.background": "#ffb347",
-        "danger.background": "#ff7a45",
+        "danger.background": "#ff6b6b",
         "popover.background": "#241315",
         "popover.foreground": "#f6e8e6",
         "overlay": "#0b0506b3",

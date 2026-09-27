@@ -436,9 +436,8 @@ impl PlayerView {
             .into()
         });
         // "Opus (Opus Interactive Audio Codec)" -> "Opus"
-        let codec = |name: &str| {
-            get(name).map(|c| c.split(" (").next().unwrap_or_default().to_string())
-        };
+        let codec =
+            |name: &str| get(name).map(|c| c.split(" (").next().unwrap_or_default().to_string());
         vec![
             (
                 "Stream",
@@ -858,7 +857,7 @@ impl Render for PlayerView {
                     .child(
                         div()
                             .font_family(mono.clone())
-                            .text_size(px(17.))
+                            .text_sm()
                             .text_color(dim(0.75))
                             .child(clock(0.)),
                     ),
@@ -1101,12 +1100,7 @@ impl Render for PlayerView {
                             h_flex()
                                 .gap_3()
                                 .justify_between()
-                                .child(
-                                    div()
-                                        .flex_none()
-                                        .text_color(video_white(0.6))
-                                        .child(*label),
-                                )
+                                .child(div().flex_none().text_color(video_white(0.6)).child(*label))
                                 .child(
                                     div()
                                         .min_w_0()
