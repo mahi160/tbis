@@ -22,7 +22,12 @@ const GROUPS: &[(&str, &[Row])] = &[
             (|| Box::new(ChapterPrev), "Previous chapter"),
             (|| Box::new(ChapterNext), "Next chapter"),
             (|| Box::new(SkipSegment), "Skip intro / credits"),
-            (|| Box::new(PlayNext), "Play next Episode now"),
+            (|| Box::new(PreviousEpisode), "Previous Episode"),
+            (|| Box::new(NextEpisode), "Next Episode"),
+            (
+                || Box::new(PlayNext),
+                "Play next Episode now (up-next card)",
+            ),
             (|| Box::new(SpeedDown), "Slower"),
             (|| Box::new(SpeedUp), "Faster"),
             (|| Box::new(VolumeUp), "Volume up"),

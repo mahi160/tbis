@@ -4,7 +4,9 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::slider::{Slider, SliderEvent};
-use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{
+    ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _, h_flex, v_flex,
+};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -15,10 +17,10 @@ use crate::now_playing::{Info, NowPlaying, RemoteCommand};
 use super::clock::{clock, format_time};
 use super::{
     AudioDelayEarlier, AudioDelayLater, CONTEXT, ChapterNext, ChapterPrev, CycleAudio,
-    CycleSubtitle, DELAY_STEP, Escape, HIDE_CONTROLS_AFTER, PlayNext, PlayerView, SEEK_STEP,
-    SeekBack, SeekForward, SkipSegment, SpeedDown, SpeedUp, SubDelayEarlier, SubDelayLater,
-    ToggleFullscreen, ToggleMute, TogglePause, TogglePip, VOLUME_STEP, VolumeDown, VolumeUp,
-    hide_cursor,
+    CycleSubtitle, DELAY_STEP, Escape, HIDE_CONTROLS_AFTER, NextEpisode, PlayNext, PlayerView,
+    PreviousEpisode, SEEK_STEP, SeekBack, SeekForward, SkipSegment, SpeedDown, SpeedUp,
+    SubDelayEarlier, SubDelayLater, ToggleFullscreen, ToggleMute, TogglePause, TogglePip,
+    VOLUME_STEP, VolumeDown, VolumeUp, hide_cursor,
 };
 
 const SPEEDS: [f64; 7] = [0.5, 0.75, 1., 1.25, 1.5, 1.75, 2.];
@@ -223,12 +225,8 @@ impl PlayerView {
                     let _ = mpv.seek(seconds);
                 }
             }
-            // like the skip button: not counted watched
-            RemoteCommand::Next => {
-                if let Some(next) = self.playback.next.clone() {
-                    self.play_next(next, window, cx);
-                }
-            }
+            RemoteCommand::Previous => self.previous_episode(&PreviousEpisode, window, cx),
+            RemoteCommand::Next => self.next_episode(&NextEpisode, window, cx),
         }
     }
 
@@ -248,7 +246,10 @@ impl PlayerView {
         let Some(now_playing) = &self.now_playing else {
             return;
         };
-        now_playing.set_next_enabled(self.playback.next.is_some());
+        now_playing.set_episode_nav(
+            self.playback.previous.is_some(),
+            self.playback.next.is_some(),
+        );
         // Episode: "S01E06 · Name" over the Series title; Movie: its name alone
         let (title, subtitle) = match &self.playback.subtitle {
             Some(episode) => (episode.to_string(), Some(self.playback.title.to_string())),
@@ -261,6 +262,25 @@ impl PlayerView {
             elapsed: self.playback.time,
             rate: if self.paused { 0. } else { self.speed },
         });
+    }
+
+    /// Switches to the Episode before this one; this one is reported, not marked played.
+    fn previous_episode(
+        &mut self,
+        _: &PreviousEpisode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(previous) = self.playback.previous.clone() {
+            self.play_next(previous, window, cx);
+        }
+    }
+
+    /// Like the skip button: switches without counting this Episode watched.
+    fn next_episode(&mut self, _: &NextEpisode, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(next) = self.playback.next.clone() {
+            self.play_next(next, window, cx);
+        }
     }
 
     fn skip_segment_action(
@@ -695,6 +715,11 @@ impl Render for PlayerView {
                     clock((self.playback.duration - time) / self.speed)
                 ))
         });
+        let is_episode = self
+            .playback
+            .item
+            .as_ref()
+            .is_some_and(|item| item.series_id.is_some());
         let controls = h_flex()
             .mt(px(14.))
             .gap_0p5()
@@ -712,15 +737,23 @@ impl Render for PlayerView {
                     cx.listener(|this, _, window, cx| this.toggle_pause(&TogglePause, window, cx)),
                 ),
             )
-            .when(self.playback.next.is_some(), |this| {
+            // Episodes only; disabled at the Series' first/last Episode
+            .when(is_episode, |this| {
                 this.child(
-                    icon_button("player-next", "icons/forward-step.svg", cx).on_click(cx.listener(
-                        |this, _, window, cx| {
-                            if let Some(next) = this.playback.next.clone() {
-                                this.play_next(next, window, cx);
-                            }
-                        },
-                    )),
+                    icon_button("player-previous", "icons/backward-step.svg", cx)
+                        .disabled(self.playback.previous.is_none())
+                        .tooltip_with_action("Previous Episode", &PreviousEpisode, Some(CONTEXT))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.previous_episode(&PreviousEpisode, window, cx)
+                        })),
+                )
+                .child(
+                    icon_button("player-next", "icons/forward-step.svg", cx)
+                        .disabled(self.playback.next.is_none())
+                        .tooltip_with_action("Next Episode", &NextEpisode, Some(CONTEXT))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.next_episode(&NextEpisode, window, cx)
+                        })),
                 )
             })
             .child(
@@ -893,6 +926,8 @@ impl Render for PlayerView {
             .on_action(cx.listener(Self::audio_delay_later))
             .on_action(cx.listener(Self::audio_delay_earlier))
             .on_action(cx.listener(Self::skip_segment_action))
+            .on_action(cx.listener(Self::previous_episode))
+            .on_action(cx.listener(Self::next_episode))
             .size_full()
             .relative()
             .justify_between()

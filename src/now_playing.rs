@@ -12,6 +12,7 @@ pub enum RemoteCommand {
     Toggle,
     SkipForward,
     SkipBackward,
+    Previous,
     Next,
     /// Absolute position in seconds (Control Center scrubber).
     Seek(f64),
@@ -41,7 +42,7 @@ impl NowPlaying {
     }
     pub fn update(&self, _: &Info) {}
     pub fn set_artwork(&self, _: &[u8]) {}
-    pub fn set_next_enabled(&self, _: bool) {}
+    pub fn set_episode_nav(&self, _: bool, _: bool) {}
 }
 
 #[cfg(target_os = "macos")]
@@ -75,6 +76,7 @@ mod mac {
     pub struct NowPlaying {
         targets: Vec<(Retained<MPRemoteCommand>, Retained<AnyObject>)>,
         next: Retained<MPRemoteCommand>,
+        previous: Retained<MPRemoteCommand>,
         /// Last published info and when, to extrapolate its position.
         info: RefCell<Option<(Info, Instant)>>,
         artwork: RefCell<Option<Retained<MPMediaItemArtwork>>>,
@@ -112,6 +114,9 @@ mod mac {
                 let next = center.nextTrackCommand();
                 add(next.clone(), RemoteCommand::Next);
                 next.setEnabled(false);
+                let previous = center.previousTrackCommand();
+                add(previous.clone(), RemoteCommand::Previous);
+                previous.setEnabled(false);
 
                 let position = center.changePlaybackPositionCommand();
                 let block = RcBlock::new(move |event: NonNull<MPRemoteCommandEvent>| {
@@ -126,6 +131,7 @@ mod mac {
                 Self {
                     targets,
                     next,
+                    previous,
                     info: RefCell::new(None),
                     artwork: RefCell::new(None),
                 }
@@ -172,9 +178,13 @@ mod mac {
             self.publish();
         }
 
-        pub fn set_next_enabled(&self, enabled: bool) {
-            // SAFETY: plain property setter on the main thread
-            unsafe { self.next.setEnabled(enabled) };
+        /// Enables previous/next track for the Episodes that exist.
+        pub fn set_episode_nav(&self, previous: bool, next: bool) {
+            // SAFETY: plain property setters on the main thread
+            unsafe {
+                self.previous.setEnabled(previous);
+                self.next.setEnabled(next);
+            }
         }
 
         fn publish(&self) {
@@ -231,6 +241,7 @@ mod mac {
                     command.removeTarget(Some(target));
                 }
                 self.next.setEnabled(false);
+                self.previous.setEnabled(false);
                 let center = MPNowPlayingInfoCenter::defaultCenter();
                 center.setNowPlayingInfo(None);
                 center.setPlaybackState(MPNowPlayingPlaybackState::Stopped);

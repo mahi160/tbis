@@ -45,7 +45,9 @@ actions!(
         SubDelayEarlier,
         AudioDelayLater,
         AudioDelayEarlier,
-        SkipSegment
+        SkipSegment,
+        PreviousEpisode,
+        NextEpisode
     ]
 );
 
@@ -77,6 +79,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("shift-]", AudioDelayLater, Some(CONTEXT)),
         KeyBinding::new("shift-[", AudioDelayEarlier, Some(CONTEXT)),
         KeyBinding::new("s", SkipSegment, Some(CONTEXT)),
+        KeyBinding::new("shift-p", PreviousEpisode, Some(CONTEXT)),
+        KeyBinding::new("shift-n", NextEpisode, Some(CONTEXT)),
     ]);
 }
 
@@ -289,9 +293,10 @@ impl PlayerView {
             let Some(series_id) = series_id else {
                 return;
             };
-            match api.next_episode(&series_id, &item_id).await {
-                Ok(next) => {
+            match api.adjacent_episodes(&series_id, &item_id).await {
+                Ok((previous, next)) => {
                     this.update(cx, |this, cx| {
+                        this.playback.previous = previous;
                         this.playback.next = next;
                         cx.notify();
                     })

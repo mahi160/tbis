@@ -8,6 +8,7 @@ use crate::embed::embedded_by_path;
 const EXTRA: &[(&str, &[u8])] = &embedded_by_path!(
     "icons",
     [
+        "backward-step.svg",
         "caret-left.svg",
         "cc.svg",
         "chapters.svg",

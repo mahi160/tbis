@@ -4,9 +4,9 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
-- [ ] Previous/next buttons and shortcuts switch Episodes, crossing season boundaries
-- [ ] Controls hidden for Movies and disabled at the first/last Episode
-- [ ] Current Episode's position is reported before switching; it is not marked played unless finished
-- [ ] Remembered track picks and resume positions apply to the newly loaded Episode
+- [x] Previous/next buttons and shortcuts switch Episodes, crossing season boundaries
+- [x] Controls hidden for Movies and disabled at the first/last Episode
+- [x] Current Episode's position is reported before switching; it is not marked played unless finished
+- [x] Remembered track picks and resume positions apply to the newly loaded Episode

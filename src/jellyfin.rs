@@ -781,14 +781,23 @@ impl Api {
         Ok(self.get::<ItemsResult>(&path).await?.items)
     }
 
-    /// Episode after `episode_id` in the server's order, crossing seasons.
-    pub async fn next_episode(&self, series_id: &str, episode_id: &str) -> Result<Option<Item>> {
+    /// Episodes before and after `episode_id` in the server's order, crossing seasons.
+    pub async fn adjacent_episodes(
+        &self,
+        series_id: &str,
+        episode_id: &str,
+    ) -> Result<(Option<Item>, Option<Item>)> {
         let path = format!(
-            "/Shows/{series_id}/Episodes?userId={}&startItemId={episode_id}&Limit=2",
+            "/Shows/{series_id}/Episodes?userId={}&{WIDE_IMAGES}",
             self.session.user_id
         );
-        let episodes = self.get::<ItemsResult>(&path).await?.items;
-        Ok(episodes.into_iter().find(|e| e.id != episode_id))
+        let mut episodes = self.get::<ItemsResult>(&path).await?.items;
+        let Some(at) = episodes.iter().position(|e| e.id == episode_id) else {
+            return Ok((None, None));
+        };
+        let next = (at + 1 < episodes.len()).then(|| episodes.remove(at + 1));
+        let previous = at.checked_sub(1).map(|ix| episodes.remove(ix));
+        Ok((previous, next))
     }
 
     /// Next unwatched Episode of one Series, if any.

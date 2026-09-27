@@ -41,6 +41,8 @@ pub(super) struct Playback {
     pub(super) item: Option<Arc<PlaybackItem>>,
     /// Episode that Autoplay continues with.
     pub(super) next: Option<Item>,
+    /// Episode before this one, for the previous button.
+    pub(super) previous: Option<Item>,
     pub(super) next_cancelled: bool,
     pub(super) started: bool,
     /// Guards external `sub-add` against a repeat `FileLoaded` for the same item.
@@ -78,6 +80,7 @@ impl Playback {
             subtitle,
             item: None,
             next: None,
+            previous: None,
             next_cancelled: false,
             started: false,
             subs_added: false,
