@@ -1,11 +1,12 @@
+use gpui_kit::component::button::Button;
 use gpui_kit::component::tab::TabBar;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::card;
-use crate::detail::{self, PAD};
-use crate::jellyfin::{Api, Item};
+use crate::detail::{self, PAD, Toggle, UserDataView};
+use crate::jellyfin::{Api, Item, UserData};
 use crate::nav::Nav;
 use crate::status::{Status, inline_status};
 
@@ -22,6 +23,29 @@ pub struct SeriesView {
 }
 
 impl EventEmitter<Nav> for SeriesView {}
+
+impl UserDataView for SeriesView {
+    fn user_data(&mut self, id: &str) -> Option<&mut UserData> {
+        if self.series.id == id {
+            return Some(&mut self.series.user_data);
+        }
+        self.episodes
+            .iter_mut()
+            .find(|e| e.id == id)
+            .map(|e| &mut e.user_data)
+    }
+
+    fn set_error(&mut self, error: SharedString) {
+        self.error = Some(error);
+    }
+
+    /// Whole-Series watched flips every Episode server-side; reload them.
+    fn saved(&mut self, id: &str, toggle: Toggle, cx: &mut Context<Self>) {
+        if matches!(toggle, Toggle::Played) && id == self.series.id {
+            self.load_episodes(cx);
+        }
+    }
+}
 
 impl SeriesView {
     pub fn new(api: Api, series: Item, cx: &mut Context<Self>) -> Self {
@@ -121,8 +145,34 @@ impl SeriesView {
         }
     }
 
+    /// `3 seasons`, from the loaded season list.
+    fn seasons_label(&self) -> Option<String> {
+        match self.seasons.len() {
+            0 => None,
+            1 => Some("1 season".into()),
+            n => Some(format!("{n} seasons")),
+        }
+    }
+
+    fn toggle_button(
+        &self,
+        item: &Item,
+        element_id: ElementId,
+        toggle: Toggle,
+        cx: &mut Context<Self>,
+    ) -> Button {
+        let id = item.id.clone();
+        detail::toggle_button(element_id, toggle, &item.user_data).on_click(cx.listener(
+            move |this, _, _, cx| {
+                // gpui-kit Button doesn't stop the click; Episode row would play
+                cx.stop_propagation();
+                let api = this.api.clone();
+                detail::toggle(this, &api, &id, toggle, cx)
+            },
+        ))
+    }
+
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let muted_fg = cx.theme().muted_foreground;
         let back = Box::new(cx.listener(|_, _, _, cx| cx.emit(Nav::Back)));
         let body = v_flex()
             .min_w_0()
@@ -133,16 +183,25 @@ impl SeriesView {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(self.series.name.clone()),
             )
-            .children(
-                self.series
-                    .production_year
-                    .map(|y| div().text_sm().text_color(muted_fg).child(y.to_string())),
-            )
+            .children(detail::meta_line(&self.series, self.seasons_label(), cx))
+            .children(detail::genres_line(&self.series, cx))
             .children(
                 self.series
                     .overview
                     .clone()
                     .map(|o| div().text_sm().line_clamp(4).child(o)),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .children([Toggle::Played, Toggle::Favorite].map(|toggle| {
+                        self.toggle_button(
+                            &self.series,
+                            ("series-toggle", toggle as usize).into(),
+                            toggle,
+                            cx,
+                        )
+                    })),
             );
         detail::detail_header(
             &self.api,
@@ -196,6 +255,7 @@ impl SeriesView {
             )
             .child(
                 v_flex()
+                    .flex_1()
                     .min_w_0()
                     .gap_1()
                     .child(
@@ -211,6 +271,12 @@ impl SeriesView {
                             .map(|o| div().text_sm().text_color(muted_fg).line_clamp(2).child(o)),
                     ),
             )
+            .child(self.toggle_button(
+                episode,
+                ElementId::Name(format!("episode-played-{}", episode.id).into()),
+                Toggle::Played,
+                cx,
+            ))
             .into_any_element()
     }
 }
@@ -249,10 +315,13 @@ impl Render for SeriesView {
         v_flex()
             .id("series-detail")
             .size_full()
+            .relative()
             .overflow_y_scroll()
             .p(px(PAD))
             .gap_6()
+            .children(detail::backdrop(&self.api, &self.series, cx))
             .child(self.render_header(cx))
+            .children(detail::cast_row(&self.api, &self.series, cx))
             .children(seasons)
             .children(inline_status(status, cx))
             .child(v_flex().gap_1().children(episodes))
