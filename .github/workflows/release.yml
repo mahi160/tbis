@@ -54,7 +54,8 @@ jobs:
           git config user.name "$BOT"
           git config user.email \
             "41898282+$BOT@users.noreply.github.com"
-          git commit -am "chore(release): v$VERSION"
+          # first release keeps Cargo.toml's version: nothing to commit
+          git diff --quiet || git commit -am "chore(release): v$VERSION"
           git tag "v$VERSION"
 
       - name: Package

@@ -33,6 +33,8 @@ Pushing to the `prod` branch builds and publishes a release through GitHub Actio
 - any `feat:` commit bumps the minor version
 - anything else bumps the patch version
 
+The first release has no earlier tag to bump from, so it uses the version in `Cargo.toml` as is.
+
 ## License
 
 tbis is licensed under the [GNU General Public License v3.0 or later](LICENSE). The app bundles GPL builds of mpv and FFmpeg (see [ADR-0004](docs/adr/0004-bundle-libmpv-and-license-as-gpl.md)). Each release includes a `sources` archive with the source code of tbis and of every bundled library, and the app carries their license files in `tbis.app/Contents/Resources/licenses`.
