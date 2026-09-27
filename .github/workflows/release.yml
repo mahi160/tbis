@@ -77,3 +77,31 @@ jobs:
             "tbis-$VERSION-sources.tar" \
             --title "tbis $VERSION" \
             --generate-notes
+
+      # mahi160/homebrew-tbis: deploy key with write access to the tap only
+      - name: Update Homebrew cask
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          # pinned: GitHub's ed25519 host key from api.github.com/meta
+          GITHUB_HOST_KEY: >-
+            ssh-ed25519
+            AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+        run: |
+          sha=$(shasum -a 256 "tbis-$VERSION-macos-arm64.zip" | cut -d' ' -f1)
+          key="$RUNNER_TEMP/tap_key"
+          printf '%s\n' "$DEPLOY_KEY" > "$key"
+          chmod 600 "$key"
+          hosts="$RUNNER_TEMP/known_hosts"
+          echo "github.com $GITHUB_HOST_KEY" > "$hosts"
+          ssh_opts="-o IdentitiesOnly=yes -o UserKnownHostsFile=$hosts"
+          export GIT_SSH_COMMAND="ssh -i $key $ssh_opts"
+          git clone git@github.com:mahi160/homebrew-tbis.git "$RUNNER_TEMP/tap"
+          cd "$RUNNER_TEMP/tap"
+          sed -i '' -e "s/^  version \".*\"/  version \"$VERSION\"/" \
+            -e "s/^  sha256 \".*\"/  sha256 \"$sha\"/" Casks/tbis.rb
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "tbis $VERSION"
+          git push origin main
