@@ -47,7 +47,8 @@ actions!(
         AudioDelayEarlier,
         SkipSegment,
         PreviousEpisode,
-        NextEpisode
+        NextEpisode,
+        TogglePlaybackInfo
     ]
 );
 
@@ -81,6 +82,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("s", SkipSegment, Some(CONTEXT)),
         KeyBinding::new("shift-p", PreviousEpisode, Some(CONTEXT)),
         KeyBinding::new("shift-n", NextEpisode, Some(CONTEXT)),
+        KeyBinding::new("i", TogglePlaybackInfo, Some(CONTEXT)),
     ]);
 }
 
@@ -118,6 +120,9 @@ pub struct PlayerView {
     /// Media keys + Control Center; absent while PiP's own mpv owns them.
     now_playing: Option<NowPlaying>,
     remote: mpsc::UnboundedSender<RemoteCommand>,
+    /// Playback Info overlay rows while open; refreshed every second by `_info`.
+    info: Option<Vec<(&'static str, String)>>,
+    _info: Task<()>,
     _hide: Task<()>,
     _pip: Task<()>,
     _tasks: Vec<Task<()>>,
@@ -239,6 +244,8 @@ impl PlayerView {
             awake: None,
             now_playing: None,
             remote,
+            info: None,
+            _info: Task::ready(()),
             _hide: Task::ready(()),
             _pip: Task::ready(()),
             _tasks: tasks,

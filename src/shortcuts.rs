@@ -35,6 +35,7 @@ const GROUPS: &[(&str, &[Row])] = &[
             (|| Box::new(ToggleMute), "Mute"),
             (|| Box::new(ToggleFullscreen), "Fullscreen"),
             (|| Box::new(TogglePip), "Picture-in-Picture"),
+            (|| Box::new(TogglePlaybackInfo), "Playback info"),
             (|| Box::new(Escape), "Exit fullscreen / cancel"),
         ],
     ),

@@ -209,6 +209,13 @@ impl Mpv {
 
 /// mpv's yes/no spelling for a bool property or CLI flag; shared with `pip.rs`,
 /// which passes the same spelling to the standalone mpv it spawns.
+impl Mpv {
+    /// Any property as mpv formats it (e.g. `video-codec`); `None` while unavailable.
+    pub fn property(&self, name: &str) -> Option<String> {
+        get_string(self.handle, name)
+    }
+}
+
 pub fn yes_no(b: bool) -> &'static str {
     if b { "yes" } else { "no" }
 }

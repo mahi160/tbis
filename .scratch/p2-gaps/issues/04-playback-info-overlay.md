@@ -4,9 +4,9 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
-- [ ] Shortcut and menu entry toggle the overlay; it survives controls auto-hiding
-- [ ] Fields update live and show "—" when mpv doesn't report a value
-- [ ] Overlay stays legible over any video frame and doesn't block controls
-- [ ] Polling stops when the overlay closes or the Player closes
+- [x] Shortcut (`i`) and a control-bar button toggle the overlay; it survives controls auto-hiding
+- [x] Fields update live and show "—" when mpv doesn't report a value
+- [x] Overlay stays legible over any video frame and doesn't block controls
+- [x] Polling stops when the overlay closes or the Player closes

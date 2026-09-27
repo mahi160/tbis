@@ -5,7 +5,8 @@ use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::slider::{Slider, SliderEvent};
 use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _, h_flex, v_flex,
+    ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _, WindowExt as _,
+    h_flex, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -20,9 +21,10 @@ use super::{
     CycleSubtitle, DELAY_STEP, Escape, HIDE_CONTROLS_AFTER, NextEpisode, PlayNext, PlayerView,
     PreviousEpisode, SEEK_STEP, SeekBack, SeekForward, SkipSegment, SpeedDown, SpeedUp,
     SubDelayEarlier, SubDelayLater, ToggleFullscreen, ToggleMute, TogglePause, TogglePip,
-    VOLUME_STEP, VolumeDown, VolumeUp, hide_cursor,
+    TogglePlaybackInfo, VOLUME_STEP, VolumeDown, VolumeUp, hide_cursor,
 };
 
+const INFO_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 const SPEEDS: [f64; 7] = [0.5, 0.75, 1., 1.25, 1.5, 1.75, 2.];
 /// Displayed width of the scrub-preview thumbnail; the sprite sheet scales to fit.
 const TRICKPLAY_WIDTH: f32 = 160.;
@@ -281,6 +283,83 @@ impl PlayerView {
         if let Some(next) = self.playback.next.clone() {
             self.play_next(next, window, cx);
         }
+    }
+
+    fn toggle_playback_info(
+        &mut self,
+        _: &TogglePlaybackInfo,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.info.take().is_some() {
+            self._info = Task::ready(()); // stops polling
+        } else {
+            self.info = Some(self.playback_info());
+            self._info = cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor().timer(INFO_EVERY).await;
+                    let Ok(()) = this.update(cx, |this, cx| {
+                        this.info = Some(this.playback_info());
+                        cx.notify();
+                    }) else {
+                        break;
+                    };
+                }
+            });
+        }
+        self.refocus(window, cx);
+    }
+
+    /// Live stats rows from mpv; "—" for whatever it can't report right now.
+    fn playback_info(&self) -> Vec<(&'static str, String)> {
+        let mpv = self.active_mpv();
+        let get = |name: &str| {
+            mpv.and_then(|mpv| mpv.property(name))
+                .filter(|v| !v.is_empty())
+        };
+        let num = |name: &str| get(name).and_then(|v| v.parse::<f64>().ok());
+        let or_dash = |v: Option<String>| v.unwrap_or_else(|| "\u{2014}".into());
+        let resolution = get("video-params/w")
+            .zip(get("video-params/h"))
+            .map(|(w, h)| format!("{w}\u{d7}{h}"));
+        let fps = num("container-fps").map(|fps| format!("{fps:.3} fps"));
+        let colour = [get("video-params/primaries"), get("video-params/gamma")]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" / ");
+        let bitrate = match (num("video-bitrate"), num("audio-bitrate")) {
+            (None, None) => None,
+            (video, audio) => Some(format!(
+                "{:.1} Mb/s",
+                (video.unwrap_or(0.) + audio.unwrap_or(0.)) / 1e6
+            )),
+        };
+        let dropped = [num("frame-drop-count"), num("decoder-frame-drop-count")]
+            .into_iter()
+            .flatten()
+            .map(|n| n as u64)
+            .reduce(|a, b| a + b)
+            .map(|n| n.to_string());
+        vec![
+            ("Container", or_dash(get("file-format"))),
+            ("Video", or_dash(get("video-codec"))),
+            ("Resolution", or_dash(resolution)),
+            ("Frame rate", or_dash(fps)),
+            ("Colour", or_dash((!colour.is_empty()).then_some(colour))),
+            (
+                "Hardware decoding",
+                or_dash(get("hwdec-current").map(|h| if h == "no" { "off".into() } else { h })),
+            ),
+            ("Audio", or_dash(get("audio-codec"))),
+            ("Channels", or_dash(get("audio-params/hr-channels"))),
+            ("Bitrate", or_dash(bitrate)),
+            ("Dropped frames", or_dash(dropped)),
+            (
+                "Buffered",
+                or_dash(num("demuxer-cache-duration").map(|s| format!("{s:.0} s ahead"))),
+            ),
+        ]
     }
 
     fn skip_segment_action(
@@ -784,6 +863,17 @@ impl Render for PlayerView {
             .children(self.chapter_menu(cx))
             .children(self.track_menu(TrackKind::Audio, cx))
             .children(self.track_menu(TrackKind::Subtitle, cx))
+            .child(
+                Button::new("player-info")
+                    .ghost()
+                    .rounded(cx.theme().radius_full())
+                    .icon(Icon::new(assets::IconName::Info))
+                    .selected(self.info.is_some())
+                    .tooltip_with_action("Playback info", &TogglePlaybackInfo, Some(CONTEXT))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.toggle_playback_info(&TogglePlaybackInfo, window, cx)
+                    })),
+            )
             .child(icon_button("player-pip", "icons/pip.svg", cx).on_click(
                 cx.listener(|this, _, window, cx| this.toggle_pip(&TogglePip, window, cx)),
             ))
@@ -855,6 +945,31 @@ impl Render for PlayerView {
                             ),
                     )
             });
+        let info = self.info.as_ref().map(|rows| {
+            v_flex()
+                .absolute()
+                .top(px(96.)) // below the title bar
+                .left_6()
+                .w(px(320.))
+                .p_4()
+                .gap_1()
+                .rounded_lg()
+                .bg(overlay_scrim())
+                .font_family(cx.theme().mono_font_family.clone())
+                .text_xs()
+                .children(rows.iter().map(|(label, value)| {
+                    h_flex()
+                        .gap_3()
+                        .justify_between()
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_color(video_white(0.55))
+                                .child(*label),
+                        )
+                        .child(div().min_w_0().truncate().child(value.clone()))
+                }))
+        });
         let up_next = self.up_next().map(|next| {
             let left = (self.playback.duration - self.playback.time).max(0.).ceil() as u64;
             v_flex()
@@ -928,6 +1043,7 @@ impl Render for PlayerView {
             .on_action(cx.listener(Self::skip_segment_action))
             .on_action(cx.listener(Self::previous_episode))
             .on_action(cx.listener(Self::next_episode))
+            .on_action(cx.listener(Self::toggle_playback_info))
             .size_full()
             .relative()
             .justify_between()
@@ -941,6 +1057,7 @@ impl Render for PlayerView {
             .children(pip_notice)
             .children(up_next)
             .children(skip)
+            .children(info)
             .when(
                 self.controls_visible || self.playback.error.is_some(),
                 |this| this.child(top).child(bottom),
