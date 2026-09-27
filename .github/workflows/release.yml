@@ -1,0 +1,78 @@
+# Push to prod: bump the version from commit types, build and test, bundle the
+# self-contained app, and publish a GitHub release with the app zip and the GPL
+# sources archive (ADR-0004).
+name: Release
+
+on:
+  push:
+    branches: [prod]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # the version-bump commit this job pushes must not release again
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
+    runs-on: macos-15 # arm64: the bundle ships Homebrew's arm64 libraries
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags and history for scripts/next-version.sh
+
+      - name: Next version
+        id: version
+        run: echo "version=$(sh scripts/next-version.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Install mpv
+        run: brew install mpv pkgconf
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Set version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+
+      - name: Test
+        run: cargo test --release
+
+      - name: Bundle
+        run: sh scripts/bundle.sh
+
+      - name: Commit and tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BOT: github-actions[bot]
+        run: |
+          git config user.name "$BOT"
+          git config user.email \
+            "41898282+$BOT@users.noreply.github.com"
+          git commit -am "chore(release): v$VERSION"
+          git tag "v$VERSION"
+
+      - name: Package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ditto -c -k --keepParent target/tbis.app \
+            "tbis-$VERSION-macos-arm64.zip"
+          sh scripts/gpl-sources.sh "tbis-$VERSION-sources.tar"
+
+      - name: Push and release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git push origin HEAD:prod "v$VERSION"
+          gh release create "v$VERSION" \
+            "tbis-$VERSION-macos-arm64.zip" \
+            "tbis-$VERSION-sources.tar" \
+            --title "tbis $VERSION" \
+            --generate-notes
