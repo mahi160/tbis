@@ -70,6 +70,26 @@ pub fn error_panel(
         .child(h_flex().mt_3().gap_2().children(actions))
 }
 
+/// Centered empty block: the faded tbis mark over a muted `message`.
+pub fn empty_panel(message: SharedString, cx: &App) -> Div {
+    let theme = cx.theme();
+    v_flex()
+        .max_w(px(440.))
+        .items_center()
+        .gap_3()
+        .text_center()
+        .child(
+            // mark's own aspect ratio (1707x1440), so it isn't squashed
+            svg()
+                .path("icons/tbis-mark.svg")
+                .w(px(57.))
+                .h(px(48.))
+                .text_color(theme.muted_foreground)
+                .opacity(0.5),
+        )
+        .child(div().text_color(theme.muted_foreground).child(message))
+}
+
 pub enum Status {
     Loading,
     /// No error and no items.
@@ -83,13 +103,9 @@ pub fn full_status(status: Status, retry: OnClick, loading: bool, cx: &App) -> A
     if let Status::Loading = status {
         return skeleton_grid(cx.theme().radius_lg);
     }
-    let theme = cx.theme();
     let body = match status {
         Status::Loading => unreachable!(),
-        Status::Empty(message) => div()
-            .text_color(theme.muted_foreground)
-            .child(message)
-            .into_any_element(),
+        Status::Empty(message) => empty_panel(message, cx).into_any_element(),
         Status::Error(message) => error_panel(
             "Something went wrong",
             message,

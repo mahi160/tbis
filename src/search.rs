@@ -2,14 +2,15 @@ use std::time::Duration;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::card;
+use crate::detail::PAD;
 use crate::jellyfin::{Api, Item, Kind};
 use crate::library::LibraryView;
-use crate::detail::PAD;
 use crate::nav::Nav;
-use crate::status::{Status, inline_status};
+use crate::status::{Status, empty_panel, inline_status};
 
 const CARD_WIDTH: f32 = 150.;
 const MIN_CHARS: usize = 2;
@@ -304,12 +305,7 @@ mod tests {
 fn section(title: &'static str, body: impl IntoElement) -> AnyElement {
     v_flex()
         .gap_3()
-        .child(
-            div()
-                .text_2xl()
-                .font_weight(FontWeight::BOLD)
-                .child(title),
-        )
+        .child(div().text_2xl().font_weight(FontWeight::BOLD).child(title))
         .child(body)
         .into_any_element()
 }
@@ -323,18 +319,12 @@ impl Render for SearchView {
             None
         } else if short {
             Some(Status::Empty("Type at least 2 characters".into()))
-        } else if self.results.is_empty() {
-            Some(Status::Empty(
-                if self.loading {
-                    "Searching…"
-                } else {
-                    "No results"
-                }
-                .into(),
-            ))
+        } else if self.results.is_empty() && self.loading {
+            Some(Status::Empty("Searching…".into()))
         } else {
             None
         };
+        let no_results = status.is_none() && !short && self.results.is_empty();
 
         let mut sections = Vec::new();
         if self.query.is_empty() && self.has_recent() {
@@ -357,6 +347,14 @@ impl Render for SearchView {
             .p(px(PAD))
             .gap_8()
             .children(inline_status(status, cx))
+            .when(no_results, |this| {
+                this.child(div().flex_1().flex().items_center().justify_center().child(
+                    empty_panel(
+                        format!("No matches for \u{201c}{}\u{201d}", self.query.trim()).into(),
+                        cx,
+                    ),
+                ))
+            })
             .children(sections)
     }
 }
