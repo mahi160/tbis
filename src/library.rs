@@ -50,6 +50,11 @@ impl LibraryView {
         }
     }
 
+    /// Whatever has loaded so far (empty until the tab is first opened).
+    pub fn items(&self) -> &[Item] {
+        &self.items
+    }
+
     /// Keeps showing the current list until fresh data arrives.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         let (api, kind, sort) = (self.api.clone(), self.kind, self.sort);

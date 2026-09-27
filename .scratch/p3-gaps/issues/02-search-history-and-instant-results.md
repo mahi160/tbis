@@ -4,8 +4,8 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
-- [ ] Recent searches persist across launches, capped, with a clear action
-- [ ] Picking a recent search runs it
-- [ ] Local matches appear immediately; server results merge in without duplicates or layout jumps
+- [x] Recent searches persist across launches, capped, with a clear action
+- [x] Picking a recent search runs it
+- [x] Local matches appear immediately; server results merge in without duplicates or layout jumps

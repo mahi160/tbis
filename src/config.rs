@@ -82,6 +82,9 @@ pub struct Config {
     /// Player seek distances (Settings).
     #[serde(default)]
     pub seek: SeekSteps,
+    /// Recent search queries, newest first.
+    #[serde(default)]
+    pub recent_searches: Vec<String>,
     /// Last window size/position, restored on launch.
     #[serde(default)]
     pub window: Option<WindowState>,
@@ -220,6 +223,7 @@ pub fn load() -> Config {
             max_bitrate_mbps: None,
             shaders: ShaderProfile::Off,
             seek: SeekSteps::default(),
+            recent_searches: Vec::new(),
         })
 }
 

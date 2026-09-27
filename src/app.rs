@@ -16,7 +16,7 @@ use crate::login::{LoggedIn, LoginView};
 use crate::movie::MovieView;
 use crate::nav::Nav;
 use crate::player::{Closed, PlayerView};
-use crate::search::SearchView;
+use crate::search::{SearchEvent, SearchView};
 use crate::series::SeriesView;
 use crate::settings::{SettingsChanged, SettingsView};
 use crate::shortcuts::{self, ShowShortcuts};
@@ -51,7 +51,7 @@ struct Main {
     /// (e.g. Episode back to its Series).
     details: Vec<Detail>,
     player: Option<(Entity<PlayerView>, Subscription)>,
-    _subscriptions: [Subscription; 7],
+    _subscriptions: [Subscription; 8],
     /// Waits for `Api`'s 401 signal; dropped with Main so a stale one can't fire later.
     _expired: Task<()>,
 }
@@ -193,7 +193,9 @@ impl AppView {
         });
         let movies = cx.new(|_| LibraryView::new(Kind::Movie, api.clone(), config.movies_sort));
         let series = cx.new(|_| LibraryView::new(Kind::Series, api.clone(), config.series_sort));
-        let search = cx.new(|_| SearchView::new(api.clone()));
+        let local = [movies.clone(), series.clone()];
+        let recent = config.recent_searches.clone();
+        let search = cx.new(|_| SearchView::new(api.clone(), local, recent));
         let search_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("Search")
@@ -217,9 +219,37 @@ impl AppView {
             cx.subscribe_in(&series, window, |this, _, nav, window, cx| {
                 this.on_nav(nav, window, cx)
             }),
-            cx.subscribe_in(&search, window, |this, _, nav, window, cx| {
+            cx.subscribe_in(&search, window, |this, search, nav, window, cx| {
+                // opening a result is what makes a query worth keeping
+                search.update(cx, |search, cx| search.remember(cx));
                 this.on_nav(nav, window, cx)
             }),
+            cx.subscribe_in(
+                &search,
+                window,
+                |this, search, event: &SearchEvent, window, cx| {
+                    match event {
+                        SearchEvent::Pick(query) => {
+                            let Screen::Main(main) = &mut this.screen else {
+                                return;
+                            };
+                            // set_value emits no Change, so run the query directly
+                            main.search_input.update(cx, |input, cx| {
+                                input.set_value(query.clone(), window, cx);
+                                input.focus(window, cx);
+                            });
+                            main.search_open = true;
+                            search.update(cx, |search, cx| search.set_query(query, cx));
+                            cx.notify();
+                        }
+                        SearchEvent::RecentChanged(recent) => {
+                            this.config.recent_searches = recent.clone();
+                            save_config(&this.config, "recent searches");
+                            cx.notify();
+                        }
+                    }
+                },
+            ),
             cx.subscribe(&search_input, |this, input, event: &InputEvent, cx| {
                 let Screen::Main(main) = &mut this.screen else {
                     return;
@@ -234,6 +264,9 @@ impl AppView {
                     InputEvent::Blur => {
                         main.search_open = false;
                         cx.notify();
+                    }
+                    InputEvent::PressEnter { .. } => {
+                        main.search.update(cx, |search, cx| search.remember(cx));
                     }
                     _ => {}
                 }
@@ -583,7 +616,13 @@ impl Render for AppView {
 
         let content = match &self.screen {
             Screen::Login { view, .. } => view.clone().into_any_element(),
-            Screen::Main(main) if main.searching(cx) => main.search.clone().into_any_element(),
+            // focused and empty: the search view shows recent searches
+            Screen::Main(main)
+                if main.searching(cx)
+                    || (main.search_open && main.search.read(cx).has_recent()) =>
+            {
+                main.search.clone().into_any_element()
+            }
             Screen::Main(Main { details, .. }) if !details.is_empty() => {
                 details[details.len() - 1].view.clone().into_any_element()
             }
