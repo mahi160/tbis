@@ -106,8 +106,6 @@ pub struct PlayerView {
     focus: FocusHandle,
     controls_visible: bool,
     menu_open: bool,
-    /// PiP-start failure; shown briefly, doesn't block controls or up-next like `error` does.
-    pip_error: Option<SharedString>,
     track_prefs: TrackPrefs,
     /// Settings' preferred languages (read-only here).
     language: LanguagePref,
@@ -118,7 +116,6 @@ pub struct PlayerView {
     remote: mpsc::UnboundedSender<RemoteCommand>,
     _hide: Task<()>,
     _pip: Task<()>,
-    _pip_error: Task<()>,
     _tasks: Vec<Task<()>>,
     _subscriptions: [Subscription; 2],
 }
@@ -233,7 +230,6 @@ impl PlayerView {
             focus,
             controls_visible: true,
             menu_open: false,
-            pip_error: None,
             track_prefs,
             language,
             awake: None,
@@ -241,7 +237,6 @@ impl PlayerView {
             remote,
             _hide: Task::ready(()),
             _pip: Task::ready(()),
-            _pip_error: Task::ready(()),
             _tasks: tasks,
             _subscriptions,
         };

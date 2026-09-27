@@ -2,8 +2,9 @@
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::notification::Notification;
 use gpui_kit::component::slider::{Slider, SliderEvent};
-use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -323,19 +324,7 @@ impl PlayerView {
                 });
             }
             // not fatal: in-window mpv keeps playing, only the standalone window failed
-            Err(err) => {
-                self.pip_error = Some(err.into());
-                self._pip_error = cx.spawn_in(window, async move |this, cx| {
-                    cx.background_executor()
-                        .timer(std::time::Duration::from_secs(4))
-                        .await;
-                    this.update(cx, |this, cx| {
-                        this.pip_error = None;
-                        cx.notify();
-                    })
-                    .ok();
-                });
-            }
+            Err(err) => window.push_notification(Notification::error(err), cx),
         }
         self.refocus(window, cx);
     }
@@ -535,12 +524,9 @@ fn icon_button(id: &'static str, icon: &'static str, cx: &App) -> Button {
 }
 
 /// One overlay banner centered on the video, shared by the fatal error and the
-/// "playing in PiP" notice (the PiP-start `pip_error` toast uses its own smaller one).
-fn overlay_banner(color: Option<Hsla>, content: impl IntoElement) -> AnyElement {
-    let mut label = div().p_4().rounded_md().bg(overlay_scrim());
-    if let Some(color) = color {
-        label = label.text_color(color);
-    }
+/// "playing in PiP" notice.
+fn overlay_banner(content: impl IntoElement) -> AnyElement {
+    let label = div().p_4().rounded_md().bg(overlay_scrim());
     div()
         .absolute()
         .inset_0()
@@ -806,37 +792,13 @@ impl Render for PlayerView {
                 .label("Go back")
                 .on_click(cx.listener(|this, _, window, cx| this.close(window, cx)))
                 .into_any_element();
-            overlay_banner(
-                None,
-                crate::status::error_panel("Can't play this", error, [back], cx).p_4(),
-            )
+            overlay_banner(crate::status::error_panel("Can't play this", error, [back], cx).p_4())
         });
 
-        let pip_notice = self.pip.is_some().then(|| {
-            overlay_banner(
-                None,
-                "Playing in Picture-in-Picture \u{b7} press P to return",
-            )
-        });
-        let pip_error = self.pip_error.clone().map(|error| {
-            div()
-                .absolute()
-                .top(px(96.))
-                .left_0()
-                .right_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
-                    div()
-                        .px_4()
-                        .py_2()
-                        .rounded_md()
-                        .bg(overlay_scrim())
-                        .text_color(cx.theme().danger)
-                        .child(error),
-                )
-        });
+        let pip_notice = self
+            .pip
+            .is_some()
+            .then(|| overlay_banner("Playing in Picture-in-Picture \u{b7} press P to return"));
         // up-next card's Play now already covers skipping credits
         let skip = self
             .active_segment()
@@ -942,7 +904,6 @@ impl Render for PlayerView {
             }))
             .children(error)
             .children(pip_notice)
-            .children(pip_error)
             .children(up_next)
             .children(skip)
             .when(

@@ -549,13 +549,17 @@ fn set_video_background(video: bool, window: &mut Window, cx: &mut App) {
 }
 
 impl Render for AppView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Screen::Main(Main {
             player: Some((player, _)),
             ..
         }) = &self.screen
         {
-            return div().size_full().child(player.clone()).into_any_element();
+            return div()
+                .size_full()
+                .child(player.clone())
+                .children(Root::render_notification_layer(window, cx))
+                .into_any_element();
         }
 
         let content = match &self.screen {
@@ -586,6 +590,7 @@ impl Render for AppView {
             .text_color(cx.theme().foreground)
             .child(self.render_title_bar(cx))
             .child(div().flex_1().min_h_0().child(content))
+            .children(Root::render_notification_layer(window, cx))
             .into_any_element()
     }
 }
