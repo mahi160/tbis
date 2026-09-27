@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::{Result, ensure};
+use anyhow::{Result, anyhow};
 use futures::AsyncReadExt as _;
+use futures::channel::mpsc::UnboundedSender;
 use gpui_kit::http_client::{AsyncBody, HttpClient, Method, Request, Response, Url};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -48,14 +49,46 @@ async fn send(
     http: &Arc<dyn HttpClient>,
     request: Request<AsyncBody>,
 ) -> Result<Response<AsyncBody>> {
-    let response = http.send(request).await?;
-    ensure!(
-        response.status().is_success(),
-        "HTTP {}",
-        response.status().as_u16()
-    );
+    let response = http.send(request).await.map_err(|err| {
+        // reqwest's message embeds the full URL (server, user id, token-bearing query); keep only the cause
+        let cause = err
+            .chain()
+            .map(|cause| cause.to_string())
+            .filter(|cause| !cause.contains("://"))
+            .last()
+            .map(|cause| format!(": {cause}"))
+            .unwrap_or_default();
+        anyhow!("Can't reach the server{cause}")
+    })?;
+    if !response.status().is_success() {
+        return Err(HttpStatus(response.status().as_u16()).into());
+    }
     Ok(response)
 }
+
+/// Non-success status from the server.
+#[derive(Debug)]
+struct HttpStatus(u16);
+
+impl std::fmt::Display for HttpStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "HTTP {}", self.0)
+    }
+}
+
+impl std::error::Error for HttpStatus {}
+
+/// Server rejected the saved token (HTTP 401); `Api` also signals its `expired` channel.
+#[derive(Debug)]
+pub struct SessionExpired;
+
+impl std::fmt::Display for SessionExpired {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("Your session expired. Sign in again.")
+    }
+}
+
+impl std::error::Error for SessionExpired {}
 
 /// Order of the Movies and Series pages. Ties fall back to name.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -93,10 +126,12 @@ impl Sort {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Item {
     pub id: String,
+    /// Series of an Episode.
+    pub series_id: Option<String>,
     /// Season of an Episode.
     pub season_id: Option<String>,
     pub name: String,
@@ -121,6 +156,19 @@ pub struct Item {
     pub index_number: Option<i32>,
     pub run_time_ticks: Option<i64>,
     pub overview: Option<String>,
+    /// Detail-page metadata; single-item requests carry them, list requests mostly don't.
+    pub community_rating: Option<f32>,
+    /// Critics score, 0-100.
+    pub critic_rating: Option<f32>,
+    /// Age rating, e.g. `PG-13`, `TV-MA`.
+    pub official_rating: Option<String>,
+    #[serde(default)]
+    pub genres: Vec<String>,
+    #[serde(default)]
+    pub people: Vec<Person>,
+    /// Streams of the default media source; single-item requests only.
+    #[serde(default)]
+    media_streams: Vec<StreamInfo>,
     /// unverified: assumes the server always sends `Type`; falls back to `Kind::Other`
     /// when it's missing or not one of the kinds this app knows about (e.g. Season).
     #[serde(rename = "Type", default)]
@@ -128,6 +176,25 @@ pub struct Item {
 }
 
 impl Item {
+    /// What a click on this item's title opens: an Episode's Series, else itself.
+    /// The stub only needs id/name/kind; Series detail loads the rest.
+    pub fn detail_target(&self) -> Item {
+        match (&self.kind, &self.series_id) {
+            (Kind::Episode, Some(series_id)) => Item {
+                id: series_id.clone(),
+                name: self.series_name.clone().unwrap_or_default(),
+                kind: Kind::Series,
+                ..Item::default()
+            },
+            _ => self.clone(),
+        }
+    }
+
+    /// Special format tags (4K, HDR kind, premium audio, surround); see `media_tags`.
+    pub fn media_tags(&self) -> Vec<&'static str> {
+        media_tags(&self.media_streams)
+    }
+
     /// `S02E03 · Name`, or just the name when numbers are missing.
     pub fn episode_label(&self) -> String {
         match (self.parent_index_number, self.index_number) {
@@ -158,6 +225,87 @@ impl Item {
         }
         &self.name
     }
+}
+
+/// Format facts of one stream, read for the detail page's media tags.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct StreamInfo {
+    #[serde(rename = "Type")]
+    kind: String,
+    codec: Option<String>,
+    profile: Option<String>,
+    display_title: Option<String>,
+    width: Option<i32>,
+    height: Option<i32>,
+    channels: Option<i32>,
+    video_range: Option<String>,
+    video_range_type: Option<String>,
+    #[serde(default)]
+    is_default: bool,
+}
+
+/// Tags only for formats worth calling out, best first: 4K, HDR kind, premium audio,
+/// surround layout (e.g. `4K`, `Dolby Vision`, `Dolby Atmos`, `7.1`). Plain HD/SD,
+/// SDR, stereo, and ordinary codecs get none.
+fn media_tags(streams: &[StreamInfo]) -> Vec<&'static str> {
+    let mut tags = Vec::new();
+    if let Some(video) = streams.iter().find(|s| s.kind == "Video") {
+        let (w, h) = (video.width.unwrap_or(0), video.height.unwrap_or(0));
+        if w >= 3200 || h >= 2000 {
+            tags.push("4K");
+        }
+        let range = video.video_range_type.as_deref().unwrap_or_default();
+        tags.extend(match range {
+            _ if range.starts_with("DOVI") => Some("Dolby Vision"),
+            "HDR10Plus" => Some("HDR10+"),
+            "HDR10" => Some("HDR10"),
+            "HLG" => Some("HLG"),
+            _ if video.video_range.as_deref() == Some("HDR") => Some("HDR"),
+            _ => None,
+        });
+    }
+    let mut audio_streams = streams.iter().filter(|s| s.kind == "Audio");
+    let audio = audio_streams
+        .clone()
+        .find(|s| s.is_default)
+        .or_else(|| audio_streams.next());
+    if let Some(audio) = audio {
+        let text =
+            |field: &Option<String>| field.as_deref().unwrap_or_default().to_ascii_lowercase();
+        let (profile, title) = (text(&audio.profile), text(&audio.display_title));
+        let atmos = profile.contains("atmos") || title.contains("atmos");
+        tags.extend(match text(&audio.codec).as_str() {
+            _ if atmos => Some("Dolby Atmos"),
+            "truehd" => Some("Dolby TrueHD"),
+            "eac3" => Some("Dolby Digital+"),
+            "ac3" => Some("Dolby Digital"),
+            "dts" if profile.contains("dts:x") || title.contains("dts:x") => Some("DTS:X"),
+            "dts" if profile.contains("ma") => Some("DTS-HD MA"),
+            "dts" => Some("DTS"),
+            _ => None,
+        });
+        tags.extend(match audio.channels {
+            Some(8) => Some("7.1"),
+            Some(6) => Some("5.1"),
+            _ => None,
+        });
+    }
+    tags
+}
+
+/// Cast or crew member of an item.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct Person {
+    pub id: String,
+    pub name: String,
+    /// Character played, for actors.
+    pub role: Option<String>,
+    /// `Actor`, `Director`, `Writer`, ...
+    #[serde(rename = "Type")]
+    pub kind: Option<String>,
+    primary_image_tag: Option<String>,
 }
 
 /// `S04E15`, zero-padded; the one format used everywhere an Episode's numbers show.
@@ -220,6 +368,8 @@ pub struct UserData {
     pub playback_position_ticks: i64,
     /// Only present while partly watched.
     pub played_percentage: Option<f64>,
+    #[serde(default)]
+    pub is_favorite: bool,
 }
 
 /// Fresh per-play details: which file to stream and where to resume.
@@ -237,6 +387,15 @@ pub struct PlaybackItem {
     pub chapters: Vec<Chapter>,
     #[serde(default)]
     trickplay: HashMap<String, HashMap<String, TrickplayInfo>>,
+    #[serde(default)]
+    media_streams: Vec<StreamInfo>,
+}
+
+impl PlaybackItem {
+    /// Special format tags shown beside the Player's clock; see `media_tags`.
+    pub fn media_tags(&self) -> Vec<&'static str> {
+        media_tags(&self.media_streams)
+    }
 }
 
 #[derive(Deserialize)]
@@ -269,6 +428,36 @@ struct MediaStream {
 pub struct Chapter {
     pub name: Option<String>,
     start_position_ticks: i64,
+}
+
+/// Server-detected range the Player offers to skip (Jellyfin 10.10+ media segments).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Segment {
+    pub kind: SegmentKind,
+    pub start: f64,
+    pub end: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SegmentKind {
+    Intro,
+    /// Credits.
+    Outro,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct SegmentDto {
+    #[serde(rename = "Type")]
+    kind: String,
+    start_ticks: i64,
+    end_ticks: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct SegmentsResult {
+    items: Vec<SegmentDto>,
 }
 
 impl Chapter {
@@ -359,15 +548,35 @@ pub struct Api {
     http: Arc<dyn HttpClient>,
     session: Session,
     device_id: String,
+    /// Fired on every 401 so the app can drop the session and return to sign-in.
+    expired: UnboundedSender<()>,
 }
 
 impl Api {
-    pub fn new(http: Arc<dyn HttpClient>, session: Session, device_id: String) -> Self {
+    pub fn new(
+        http: Arc<dyn HttpClient>,
+        session: Session,
+        device_id: String,
+        expired: UnboundedSender<()>,
+    ) -> Self {
         Self {
             http,
             session,
             device_id,
+            expired,
         }
+    }
+
+    async fn send(&self, request: Request<AsyncBody>) -> Result<Response<AsyncBody>> {
+        send(&self.http, request).await.map_err(|err| {
+            if let Some(HttpStatus(401)) = err.downcast_ref() {
+                // receiver gone means app already left Main; nothing to signal
+                let _ = self.expired.unbounded_send(());
+                SessionExpired.into()
+            } else {
+                err
+            }
+        })
     }
 
     async fn get<T: DeserializeOwned>(&self, path_and_query: &str) -> Result<T> {
@@ -375,17 +584,21 @@ impl Api {
             .uri(format!("{}{path_and_query}", self.session.server))
             .header("Authorization", self.auth_header())
             .body(AsyncBody::empty())?;
-        read_json(send(&self.http, request).await?).await
+        read_json(self.send(request).await?).await
     }
 
     async fn post(&self, path: &str, body: serde_json::Value) -> Result<()> {
+        self.request(Method::POST, path, body).await
+    }
+
+    async fn request(&self, method: Method, path: &str, body: serde_json::Value) -> Result<()> {
         let request = Request::builder()
-            .method(Method::POST)
+            .method(method)
             .uri(format!("{}{path}", self.session.server))
             .header("Content-Type", "application/json")
             .header("Authorization", self.auth_header())
             .body(AsyncBody::from(body.to_string()))?;
-        send(&self.http, request).await?;
+        self.send(request).await?;
         Ok(())
     }
 
@@ -409,6 +622,33 @@ impl Api {
             self.session.user_id
         ))
         .await
+    }
+
+    /// Intro and credits ranges of one item, by start time.
+    pub async fn segments(&self, item_id: &str) -> Result<Vec<Segment>> {
+        let path =
+            format!("/MediaSegments/{item_id}?includeSegmentTypes=Intro&includeSegmentTypes=Outro");
+        let mut segments: Vec<Segment> = self
+            .get::<SegmentsResult>(&path)
+            .await?
+            .items
+            .into_iter()
+            .filter_map(|dto| {
+                let kind = match dto.kind.as_str() {
+                    "Intro" => SegmentKind::Intro,
+                    "Outro" => SegmentKind::Outro,
+                    _ => return None,
+                };
+                Some(Segment {
+                    kind,
+                    start: ticks_to_seconds(dto.start_ticks),
+                    end: ticks_to_seconds(dto.end_ticks),
+                })
+            })
+            .filter(|segment| segment.end > segment.start)
+            .collect();
+        segments.sort_by(|a, b| a.start.total_cmp(&b.start));
+        Ok(segments)
     }
 
     /// Original file, never transcoded.
@@ -493,9 +733,22 @@ impl Api {
         self.post(path, body).await
     }
 
-    pub async fn mark_played(&self, item_id: &str) -> Result<()> {
+    /// Marks played (a Series: every Episode) or unplayed; either way the server
+    /// resets the saved resume position.
+    pub async fn set_played(&self, item_id: &str, played: bool) -> Result<()> {
         let path = format!("/Users/{}/PlayedItems/{item_id}", self.session.user_id);
-        self.post(&path, serde_json::Value::Null).await
+        let method = if played { Method::POST } else { Method::DELETE };
+        self.request(method, &path, serde_json::Value::Null).await
+    }
+
+    pub async fn set_favorite(&self, item_id: &str, favorite: bool) -> Result<()> {
+        let path = format!("/Users/{}/FavoriteItems/{item_id}", self.session.user_id);
+        let method = if favorite {
+            Method::POST
+        } else {
+            Method::DELETE
+        };
+        self.request(method, &path, serde_json::Value::Null).await
     }
 
     /// Every item of one kind (Movie or Series) from all Libraries.
@@ -625,6 +878,38 @@ impl Api {
         ))
     }
 
+    /// Raw bytes of an image URL from this API (e.g. Now Playing artwork).
+    pub async fn image_bytes(&self, url: &str) -> Result<Vec<u8>> {
+        let request = Request::builder()
+            .uri(url)
+            .header("Authorization", self.auth_header())
+            .body(AsyncBody::empty())?;
+        let mut bytes = Vec::new();
+        self.send(request)
+            .await?
+            .into_body()
+            .read_to_end(&mut bytes)
+            .await?;
+        Ok(bytes)
+    }
+
+    /// Full-width backdrop art for detail pages.
+    pub fn backdrop_url(&self, item: &Item) -> Option<String> {
+        let tag = item.backdrop_image_tags.first()?;
+        Some(format!(
+            "{}/Items/{}/Images/Backdrop/0?fillWidth=1920&quality=85&tag={tag}",
+            self.session.server, item.id
+        ))
+    }
+
+    pub fn person_image_url(&self, person: &Person) -> Option<String> {
+        let tag = person.primary_image_tag.as_ref()?;
+        Some(format!(
+            "{}/Items/{}/Images/Primary?fillWidth=128&quality=90&tag={tag}",
+            self.session.server, person.id
+        ))
+    }
+
     pub fn poster_url(&self, item: &Item) -> Option<String> {
         let tag = item.image_tags.get("Primary")?;
         Some(format!(
@@ -739,7 +1024,9 @@ pub async fn login(
 
 #[cfg(test)]
 mod tests {
-    use super::{Item, login, normalize_server};
+    use super::{
+        Api, Item, Segment, SegmentKind, Session, SessionExpired, login, normalize_server,
+    };
     use std::io::{Read as _, Write as _};
     use std::net::TcpListener;
     use std::sync::Arc;
@@ -806,6 +1093,13 @@ mod tests {
                     } else {
                         ("401 Unauthorized", "")
                     }
+                } else if req.starts_with("GET /MediaSegments/ep1") {
+                    (
+                        "200 OK",
+                        r#"{"Items":[{"Type":"Outro","StartTicks":12000000000,"EndTicks":13000000000},{"Type":"Recap","StartTicks":0,"EndTicks":100},{"Type":"Intro","StartTicks":300000000,"EndTicks":900000000}]}"#,
+                    )
+                } else if req.starts_with("GET /Expired") {
+                    ("401 Unauthorized", "")
                 } else {
                     ("404 Not Found", "")
                 };
@@ -860,6 +1154,68 @@ mod tests {
                 .unwrap_err()
                 .starts_with("Enter a server URL")
         );
+    }
+
+    #[test]
+    fn unauthorized_signals_session_expired() {
+        let (tx, mut rx) = futures::channel::mpsc::unbounded();
+        let session = Session {
+            server: format!("http://{}", fake_server().trim_end_matches('/')),
+            user_id: "u1".into(),
+            user_name: "mahi".into(),
+            token: "tok".into(),
+        };
+        let http = Arc::new(reqwest_client::ReqwestClient::new());
+        let api = Api::new(http, session, "dev".into(), tx);
+        let get = |path| futures::executor::block_on(api.get::<serde_json::Value>(path));
+
+        assert!(get("/Expired").unwrap_err().is::<SessionExpired>());
+        assert!(matches!(rx.try_next(), Ok(Some(()))), "401 signals expiry");
+
+        assert!(!get("/Missing").unwrap_err().is::<SessionExpired>());
+        assert!(rx.try_next().is_err(), "other failures don't signal");
+
+        let segments = futures::executor::block_on(api.segments("ep1")).unwrap();
+        assert_eq!(
+            segments,
+            [
+                Segment {
+                    kind: SegmentKind::Intro,
+                    start: 30.,
+                    end: 90.
+                },
+                Segment {
+                    kind: SegmentKind::Outro,
+                    start: 1200.,
+                    end: 1300.
+                },
+            ],
+            "Intro/Outro only, sorted, in seconds"
+        );
+    }
+
+    #[test]
+    fn media_tags_from_streams() {
+        let item: Item = serde_json::from_value(serde_json::json!({
+            "Id": "m", "Name": "Movie",
+            "MediaStreams": [
+                {"Type": "Video", "Width": 3840, "Height": 1600, "VideoRange": "HDR", "VideoRangeType": "DOVIWithHDR10"},
+                {"Type": "Audio", "Codec": "eac3", "Channels": 6},
+                {"Type": "Audio", "Codec": "truehd", "Profile": "TrueHD + Dolby Atmos", "Channels": 8, "IsDefault": true},
+            ]
+        }))
+        .unwrap();
+        assert_eq!(
+            item.media_tags(),
+            ["4K", "Dolby Vision", "Dolby Atmos", "7.1"]
+        );
+
+        let plain: Item = serde_json::from_value(serde_json::json!({
+            "Id": "e", "Name": "Ep",
+            "MediaStreams": [{"Type": "Video", "Width": 1920, "Height": 1080}, {"Type": "Audio", "Codec": "aac", "Channels": 2}]
+        }))
+        .unwrap();
+        assert!(plain.media_tags().is_empty(), "1080p stereo is not special");
     }
 
     #[test]
