@@ -258,6 +258,24 @@ pub const CACHE_OPTIONS: [(&str, &str); 4] = [
     ("demuxer-readahead-secs", "60"),
 ];
 
+/// Options the in-window video path depends on (ADR-0001: libmpv render API, our
+/// own controls and keys); a user mpv.conf may not change them.
+const EMBEDDING: [(&str, &str); 5] = [
+    ("vo", "libmpv"),
+    ("terminal", "no"),
+    ("input-default-bindings", "no"),
+    ("input-vo-keyboard", "no"),
+    ("osc", "no"),
+];
+
+/// `~/Library/Application Support/tbis/mpv` when it holds an `mpv.conf`: the user's
+/// own mpv config for the Player and PiP (scripts/shaders it names resolve there too).
+/// Absent: mpv runs exactly as without it.
+pub fn user_config_dir() -> Option<std::path::PathBuf> {
+    let dir = crate::support_dir::app_support_dir().join("mpv");
+    dir.join("mpv.conf").is_file().then_some(dir)
+}
+
 #[derive(Clone, Copy)]
 struct Handle(*mut mpv_handle);
 
@@ -266,16 +284,20 @@ unsafe impl Send for Handle {}
 
 impl Handle {
     fn init(self, auth_header: &str) -> Result<(), String> {
-        let mut options = vec![
-            ("vo", "libmpv".to_string()),
+        let user_config = user_config_dir();
+        let mut options: Vec<(&str, String)> = EMBEDDING
+            .iter()
+            .map(|(name, value)| (*name, value.to_string()))
+            .collect();
+        options.extend([
             ("hwdec", "auto-safe".to_string()),
-            ("terminal", "no".to_string()),
-            ("input-default-bindings", "no".to_string()),
-            ("input-vo-keyboard", "no".to_string()),
-            ("osc", "no".to_string()),
             ("ytdl", "no".to_string()), // plain Jellyfin URLs; skip youtube-dl hook
             ("sub-font", crate::fonts::FAMILY.to_string()),
-        ];
+        ]);
+        if let Some(dir) = &user_config {
+            options.push(("config-dir", dir.to_string_lossy().into_owned()));
+            options.push(("config", "yes".to_string()));
+        }
         options.extend(CACHE_OPTIONS.map(|(name, value)| (name, value.to_string())));
         if let Some(dir) = crate::fonts::extract_dir() {
             options.push(("sub-fonts-dir", dir.to_string_lossy().into_owned()));
@@ -287,6 +309,14 @@ impl Handle {
         unsafe {
             mpv_request_log_messages(self.0, c"warn".as_ptr());
             check(mpv_initialize(self.0), "mpv_initialize")?;
+        }
+        // mpv.conf loads during initialize, over the options above; take these back
+        if user_config.is_some() {
+            for (name, value) in EMBEDDING {
+                if let Err(err) = self.set_property(name, value) {
+                    eprintln!("mpv: re-applying {name} over user mpv.conf failed: {err}");
+                }
+            }
         }
         // change-list: one verbatim item; plain option would split header on its commas
         let header = format!("Authorization: {auth_header}");

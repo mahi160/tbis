@@ -4,9 +4,9 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (in-app runtime unverified)
 
-- [ ] A documented config folder under tbis's support directory is read by both the Player and PiP
-- [ ] Embedding-critical options always win over the user file
-- [ ] A malformed user config logs a warning and playback still starts
-- [ ] No config folder present: behaviour identical to today
+- [x] `~/Library/Application Support/tbis/mpv/mpv.conf` is read by both the Player and PiP
+- [x] Embedding-critical options always win over the user file
+- [x] A malformed user config logs a warning and playback still starts (checked with standalone mpv 0.41: bad lines are reported and skipped)
+- [x] No config folder present: behaviour identical to today

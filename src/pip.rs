@@ -62,6 +62,10 @@ impl Pip {
         if let Some(dir) = crate::fonts::extract_dir() {
             child.arg(format!("--sub-fonts-dir={}", dir.display()));
         }
+        // same user config as the Player; without one PiP keeps mpv's usual lookup
+        if let Some(dir) = crate::mpv::user_config_dir() {
+            child.arg(format!("--config-dir={}", dir.display()));
+        }
         let child = child
             .arg(format!("--start={}", args.start_seconds))
             .arg(format!("--speed={}", args.speed))
