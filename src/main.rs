@@ -12,10 +12,12 @@ mod login;
 mod movie;
 mod mpv;
 mod nav;
+mod now_playing;
 mod pip;
 mod player;
 mod search;
 mod series;
+mod settings;
 mod status;
 mod support_dir;
 mod theme;
@@ -79,6 +81,11 @@ fn main() {
                         cx.update(|cx| Bounds::centered(None, size(px(1200.), px(800.)), cx)),
                     )),
                     window_min_size: Some(size(px(800.), px(560.))),
+                    // recentre traffic lights in 40px title bar (app.rs)
+                    titlebar: Some(TitlebarOptions {
+                        traffic_light_position: Some(point(px(13.), px(13.))),
+                        ..TitleBar::title_bar_options()
+                    }),
                     ..TitleBar::window_options()
                 };
                 cx.open_window(options, |window, cx| {
