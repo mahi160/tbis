@@ -372,6 +372,10 @@ pub struct UserData {
     pub played_percentage: Option<f64>,
     #[serde(default)]
     pub is_favorite: bool,
+    #[serde(default)]
+    pub play_count: u32,
+    /// ISO 8601, e.g. `2024-05-01T20:15:00.0000000Z`.
+    pub last_played_date: Option<String>,
 }
 
 /// Fresh per-play details: which file to stream and where to resume.
@@ -915,6 +919,15 @@ impl Api {
     /// Every item of one kind (Movie or Series) from all Libraries.
     pub async fn library(&self, kind: Kind, sort: Sort) -> Result<Vec<Item>> {
         self.items(kind, sort.query(kind)).await
+    }
+
+    /// Every played Movie and Episode (no images), for Watch stats.
+    pub async fn played_items(&self) -> Result<Vec<Item>> {
+        let path = format!(
+            "/Items?userId={}&Recursive=true&IncludeItemTypes=Movie,Episode&Filters=IsPlayed&EnableImages=false",
+            self.session.user_id
+        );
+        Ok(self.get::<ItemsResult>(&path).await?.items)
     }
 
     /// Any item with its overview.

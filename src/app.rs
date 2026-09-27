@@ -366,8 +366,11 @@ impl AppView {
     }
 
     fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let config = &self.config;
-        let view = cx.new(|cx| SettingsView::new(config, cx));
+        let Screen::Main(main) = &self.screen else {
+            return;
+        };
+        let (config, api) = (&self.config, main.api.clone());
+        let view = cx.new(|cx| SettingsView::new(config, api, cx));
         let changed = cx.subscribe(&view, |this, _, changed: &SettingsChanged, cx| {
             match changed {
                 SettingsChanged::Language(language) => this.config.language = language.clone(),

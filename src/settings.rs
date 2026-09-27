@@ -10,8 +10,10 @@ use gpui_kit::*;
 
 use crate::config::{Config, LanguagePref, SeekSteps, SubtitleStyle};
 use crate::detail::PAD;
+use crate::jellyfin::Api;
 use crate::nav::Nav;
 use crate::shaders::ShaderProfile;
+use crate::stats::StatsView;
 
 /// Languages offered in Settings: canonical code (ISO 639-2/B, as most containers
 /// tag tracks), label, and the other codes the same language turns up as.
@@ -61,6 +63,7 @@ pub struct SettingsView {
     max_bitrate: Entity<Option<u32>>,
     shaders: Entity<ShaderProfile>,
     seek: Entity<SeekSteps>,
+    stats: Entity<StatsView>,
     _observe: [Subscription; 5],
 }
 
@@ -68,7 +71,8 @@ impl EventEmitter<Nav> for SettingsView {}
 impl EventEmitter<SettingsChanged> for SettingsView {}
 
 impl SettingsView {
-    pub fn new(config: &Config, cx: &mut Context<Self>) -> Self {
+    pub fn new(config: &Config, api: Api, cx: &mut Context<Self>) -> Self {
+        let stats = cx.new(|cx| StatsView::new(api, cx));
         let language = cx.new(|_| config.language.clone());
         let subtitles = cx.new(|_| config.subtitles.clone());
         let max_bitrate = cx.new(|_| config.max_bitrate_mbps);
@@ -97,6 +101,7 @@ impl SettingsView {
             max_bitrate,
             shaders,
             seek,
+            stats,
             _observe,
         }
     }
@@ -141,6 +146,16 @@ impl SettingsView {
                 |s| &mut s.long,
             ),
         ])
+    }
+
+    fn stats_page(&self) -> SettingPage {
+        let stats = self.stats.clone();
+        SettingPage::new("Stats").group(
+            SettingGroup::new()
+                .title("Watch stats")
+                .description("From the server's play history. Recent totals count each item at its last play.")
+                .item(SettingItem::render(move |_, _, _| stats.clone())),
+        )
     }
 
     fn video_group(&self) -> SettingGroup {
@@ -373,10 +388,9 @@ impl Render for SettingsView {
                     ),
             )
             .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(Settings::new("settings").page(self.playback_page())),
+                div().flex_1().min_h_0().child(
+                    Settings::new("settings").pages([self.playback_page(), self.stats_page()]),
+                ),
             )
     }
 }

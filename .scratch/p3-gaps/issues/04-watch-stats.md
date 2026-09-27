@@ -4,8 +4,8 @@
 
 **Blocked by:** p1-gaps 06 — Settings screen with default language.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
-- [ ] Stats computed from server play data, not only local sessions
-- [ ] Loading/empty/error states use the shared status component
-- [ ] Chart uses gpui-kit's chart component and theme colours
+- [x] Stats computed from server play data, not only local sessions (the server keeps only last-play date and play count per item, so 7/30-day totals and the weekly chart count each item once, at its last play)
+- [x] Loading/empty/error states use the shared status component
+- [x] Chart uses gpui-kit's chart component and theme colours

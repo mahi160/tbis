@@ -20,6 +20,7 @@ mod series;
 mod settings;
 mod shaders;
 mod shortcuts;
+mod stats;
 mod status;
 mod support_dir;
 mod theme;
