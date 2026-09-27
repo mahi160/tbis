@@ -4,9 +4,9 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Size, position, and maximized state saved on quit/close and restored on launch
-- [ ] Off-screen saved bounds fall back to centered default size
-- [ ] Fullscreen at quit restores as the pre-fullscreen window, not fullscreen
-- [ ] Minimum window size still enforced
+- [x] Size, position, and maximized state saved on quit/close and restored on launch
+- [x] Off-screen saved bounds fall back to centered default size
+- [x] Fullscreen at quit restores as the pre-fullscreen window, not fullscreen
+- [x] Minimum window size still enforced

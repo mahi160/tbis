@@ -76,11 +76,23 @@ fn main() {
             cx.on_window_closed(|cx, _| cx.quit()).detach();
 
             cx.spawn(async move |cx| {
+                let min = size(px(800.), px(560.));
+                let saved = config::load().window;
+                let window_bounds = cx.update(|cx| {
+                    let displays: Vec<_> = cx.displays().iter().map(|d| d.bounds()).collect();
+                    saved
+                        .and_then(|w| w.restore(&displays, min))
+                        .unwrap_or_else(|| {
+                            WindowBounds::Windowed(Bounds::centered(
+                                None,
+                                size(px(1200.), px(800.)),
+                                cx,
+                            ))
+                        })
+                });
                 let options = WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(
-                        cx.update(|cx| Bounds::centered(None, size(px(1200.), px(800.)), cx)),
-                    )),
-                    window_min_size: Some(size(px(800.), px(560.))),
+                    window_bounds: Some(window_bounds),
+                    window_min_size: Some(min),
                     // recentre traffic lights in 40px title bar (app.rs)
                     titlebar: Some(TitlebarOptions {
                         traffic_light_position: Some(point(px(13.), px(13.))),

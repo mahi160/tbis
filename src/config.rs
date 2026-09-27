@@ -4,6 +4,7 @@ use std::io::{self, Write as _};
 use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
 use std::path::PathBuf;
 
+use gpui_kit::{Bounds, Pixels, Size, WindowBounds, size};
 use serde::{Deserialize, Serialize};
 
 use crate::jellyfin::{Session, Sort};
@@ -68,6 +69,52 @@ pub struct Config {
     /// app-wide learned language.
     #[serde(default)]
     pub language: LanguagePref,
+    /// Last window size/position, restored on launch.
+    #[serde(default)]
+    pub window: Option<WindowState>,
+}
+
+/// Restore bounds of the main window; fullscreen is saved as its windowed bounds.
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub struct WindowState {
+    pub bounds: Bounds<Pixels>,
+    pub maximized: bool,
+}
+
+impl From<WindowBounds> for WindowState {
+    fn from(bounds: WindowBounds) -> Self {
+        match bounds {
+            WindowBounds::Windowed(bounds) | WindowBounds::Fullscreen(bounds) => Self {
+                bounds,
+                maximized: false,
+            },
+            WindowBounds::Maximized(bounds) => Self {
+                bounds,
+                maximized: true,
+            },
+        }
+    }
+}
+
+impl WindowState {
+    /// `None` when no display shows any part of it (e.g. its monitor was unplugged).
+    pub fn restore(self, displays: &[Bounds<Pixels>], min: Size<Pixels>) -> Option<WindowBounds> {
+        if !displays.iter().any(|d| d.intersects(&self.bounds)) {
+            return None;
+        }
+        let bounds = Bounds::new(
+            self.bounds.origin,
+            size(
+                self.bounds.size.width.max(min.width),
+                self.bounds.size.height.max(min.height),
+            ),
+        );
+        Some(if self.maximized {
+            WindowBounds::Maximized(bounds)
+        } else {
+            WindowBounds::Windowed(bounds)
+        })
+    }
 }
 
 fn full_volume() -> f64 {
@@ -92,6 +139,7 @@ pub fn load() -> Config {
             track_prefs: TrackPrefs::default(),
             muted: false,
             language: LanguagePref::default(),
+            window: None,
         })
 }
 
@@ -110,4 +158,33 @@ pub fn save(config: &Config) -> io::Result<()> {
     file.sync_all()?;
     fs::set_permissions(&tmp, Permissions::from_mode(0o600))?;
     fs::rename(&tmp, &path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WindowState;
+    use gpui_kit::{Bounds, WindowBounds, point, px, size};
+
+    #[test]
+    fn restores_only_on_a_visible_display() {
+        let display = Bounds::new(point(px(0.), px(0.)), size(px(1440.), px(900.)));
+        let min = size(px(800.), px(560.));
+        let saved = |x: f32, w: f32| WindowState {
+            bounds: Bounds::new(point(px(x), px(40.)), size(px(w), px(700.))),
+            maximized: false,
+        };
+
+        let Some(WindowBounds::Windowed(b)) = saved(100., 1000.).restore(&[display], min) else {
+            panic!("on-screen bounds restore windowed");
+        };
+        assert_eq!(b.origin.x, px(100.));
+        assert!(
+            saved(3000., 1000.).restore(&[display], min).is_none(),
+            "off-screen"
+        );
+        let Some(WindowBounds::Windowed(b)) = saved(100., 300.).restore(&[display], min) else {
+            panic!();
+        };
+        assert_eq!(b.size.width, px(800.), "clamped to minimum");
+    }
 }

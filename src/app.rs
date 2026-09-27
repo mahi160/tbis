@@ -8,7 +8,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::*;
 
-use crate::config::{self, Config};
+use crate::config::{self, Config, WindowState};
 use crate::home::HomeView;
 use crate::jellyfin::{Api, Item, Kind, Session};
 use crate::library::{LibraryView, SortChanged};
@@ -101,6 +101,8 @@ pub struct AppView {
     screen: Screen,
     /// Keeps app-wide shortcuts (⌘F) reachable when nothing else has focus.
     focus: FocusHandle,
+    /// Tracks size/position into `config.window`; saved with the rest on quit.
+    _window_bounds: Subscription,
 }
 
 impl AppView {
@@ -125,9 +127,9 @@ impl AppView {
                 this.config.volume = volume;
                 this.config.muted = muted;
                 this.config.track_prefs = player.read(cx).track_prefs();
-                save_config(&this.config, "volume");
                 report = player.read(cx).quit_report();
             }
+            save_config(&this.config, "volume/window");
             async move {
                 if let Some(report) = report {
                     report.await;
@@ -135,10 +137,14 @@ impl AppView {
             }
         })
         .detach();
+        let _window_bounds = cx.observe_window_bounds(window, |this, window, _| {
+            this.config.window = Some(WindowState::from(window.window_bounds()));
+        });
         Self {
             config,
             screen,
             focus,
+            _window_bounds,
         }
     }
 
