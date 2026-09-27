@@ -4,6 +4,14 @@ A native macOS client for [Jellyfin](https://jellyfin.org), built with [GPUI](ht
 
 ## Install
 
+With [Homebrew](https://brew.sh), which also handles the Gatekeeper step below:
+
+```sh
+brew install --cask mahi160/tbis/tbis
+```
+
+Or by hand:
+
 1. Download the latest `tbis-*-macos-arm64.zip` from [Releases](https://github.com/mahi160/tbis/releases). It needs an Apple Silicon Mac running macOS 11 or later.
 2. Unzip it and move `tbis.app` to your Applications folder.
 3. Open it once. macOS will say it can't check the app for malicious software, because tbis isn't signed with an Apple Developer ID yet. To allow it, do one of the following:
