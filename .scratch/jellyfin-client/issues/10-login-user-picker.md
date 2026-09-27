@@ -4,9 +4,9 @@
 
 **Blocked by:** 01 — App shell, Jellyfin login, and saved session
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Public users appear after the server address is typed
-- [ ] A passwordless user signs in with one click
-- [ ] A user with a password fills Username and focuses Password
-- [ ] An unreachable server or an empty user list shows no picker and no error until Sign in
+- [x] Public users appear after the server address is typed
+- [x] A passwordless user signs in with one click
+- [x] A user with a password fills Username and focuses Password
+- [x] An unreachable server or an empty user list shows no picker and no error until Sign in

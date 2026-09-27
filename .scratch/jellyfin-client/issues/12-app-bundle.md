@@ -4,8 +4,8 @@
 
 **Blocked by:** None
 
-**Status:** ready-for-agent
+**Status:** done (superseded by ADR-0004: the bundle now also ships libmpv)
 
-- [ ] `scripts/bundle.sh` produces `target/tbis.app`
-- [ ] The app launches from Finder, shows its icon in the Dock, and plays video
-- [ ] Launched from Finder, the app still raises its open-file limit and finds mpv for PiP
+- [x] `scripts/bundle.sh` produces `target/tbis.app`
+- [x] The app launches from Finder, shows its icon in the Dock, and plays video
+- [x] Launched from Finder, the app still raises its open-file limit and finds mpv for PiP

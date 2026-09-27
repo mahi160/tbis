@@ -4,8 +4,8 @@
 
 **Blocked by:** 05 — Series page and Series detail
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] "The Office (US) - S04E15 - Night Out" shows as "S4E15 · Night Out"
-- [ ] "The Office (US) - S04E18-19 - Goodbye, Toby" shows as "S4E18 · Goodbye, Toby"
-- [ ] A name whose code does not match the Episode's numbers is left as is
+- [x] "The Office (US) - S04E15 - Night Out" shows as "S4E15 · Night Out"
+- [x] "The Office (US) - S04E18-19 - Goodbye, Toby" shows as "S4E18 · Goodbye, Toby"
+- [x] A name whose code does not match the Episode's numbers is left as is
