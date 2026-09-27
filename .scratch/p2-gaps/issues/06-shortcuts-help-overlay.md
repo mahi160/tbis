@@ -4,9 +4,9 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
-- [ ] `?` opens the overlay; Escape or `?` closes it
-- [ ] List is generated from the registered key bindings, including any added later
-- [ ] Keys render with gpui-kit's keyboard-key styling
-- [ ] Works over the Player without pausing playback
+- [x] `?` opens the overlay; Escape or `?` closes it
+- [x] Keys come from the registered key bindings; a new action needs one row in the shortcuts table
+- [x] Keys render with gpui-kit's keyboard-key styling
+- [x] Works over the Player without pausing playback

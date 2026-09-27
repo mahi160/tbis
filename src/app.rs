@@ -19,6 +19,7 @@ use crate::player::{Closed, PlayerView};
 use crate::search::SearchView;
 use crate::series::SeriesView;
 use crate::settings::{LanguageChanged, SettingsView};
+use crate::shortcuts::{self, ShowShortcuts};
 
 actions!(tbis, [FocusSearch]);
 
@@ -521,6 +522,10 @@ impl AppView {
                                             .ok();
                                     },
                                 ))
+                                .item(
+                                    PopupMenuItem::new("Keyboard shortcuts")
+                                        .on_click(|_, window, cx| shortcuts::open(window, cx)),
+                                )
                                 .item(PopupMenuItem::new("Log out").on_click(
                                     move |_, window, cx| {
                                         this.update(cx, |this, cx| this.log_out(window, cx)).ok();
@@ -563,7 +568,9 @@ impl Render for AppView {
         {
             return div()
                 .size_full()
+                .on_action(|_: &ShowShortcuts, window, cx| shortcuts::open(window, cx))
                 .child(player.clone())
+                .children(Root::render_dialog_layer(window, cx))
                 .children(Root::render_notification_layer(window, cx))
                 .into_any_element();
         }
@@ -592,10 +599,12 @@ impl Render for AppView {
             .size_full()
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::focus_search))
+            .on_action(|_: &ShowShortcuts, window, cx| shortcuts::open(window, cx))
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .child(self.render_title_bar(cx))
             .child(div().flex_1().min_h_0().child(content))
+            .children(Root::render_dialog_layer(window, cx))
             .children(Root::render_notification_layer(window, cx))
             .into_any_element()
     }

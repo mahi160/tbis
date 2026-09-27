@@ -18,6 +18,7 @@ mod player;
 mod search;
 mod series;
 mod settings;
+mod shortcuts;
 mod status;
 mod support_dir;
 mod theme;
@@ -72,6 +73,7 @@ fn main() {
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
             player::bind_keys(cx);
+            shortcuts::bind_keys(cx);
             // single-window app: closing window quits
             cx.on_window_closed(|cx, _| cx.quit()).detach();
 
