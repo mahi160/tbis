@@ -1,10 +1,9 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{ActiveTheme as _, IconName, h_flex, v_flex};
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::component::{IconName, h_flex, v_flex};
 use gpui_kit::*;
 
-use crate::detail::{self, PAD};
-use crate::jellyfin::{Api, Item};
+use crate::detail::{self, PAD, Toggle, UserDataView};
+use crate::jellyfin::{Api, Item, UserData};
 use crate::nav::Nav;
 use crate::status::{Status, inline_status};
 
@@ -18,6 +17,16 @@ pub struct MovieView {
 }
 
 impl EventEmitter<Nav> for MovieView {}
+
+impl UserDataView for MovieView {
+    fn user_data(&mut self, id: &str) -> Option<&mut UserData> {
+        (self.movie.id == id).then_some(&mut self.movie.user_data)
+    }
+
+    fn set_error(&mut self, error: SharedString) {
+        self.error = Some(error);
+    }
+}
 
 impl MovieView {
     pub fn new(api: Api, movie: Item, cx: &mut Context<Self>) -> Self {
@@ -62,7 +71,6 @@ impl MovieView {
 
 impl Render for MovieView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let muted_fg = cx.theme().muted_foreground;
         let resumed = self.movie.user_data.playback_position_ticks > 0;
         let runtime = self.runtime_label();
         let movie = self.movie.clone();
@@ -77,19 +85,9 @@ impl Render for MovieView {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(self.movie.name.clone()),
             )
-            .when(
-                self.movie.production_year.is_some() || runtime.is_some(),
-                |this| {
-                    this.child(
-                        h_flex()
-                            .gap_3()
-                            .text_sm()
-                            .text_color(muted_fg)
-                            .children(self.movie.production_year.map(|y| y.to_string()))
-                            .children(runtime),
-                    )
-                },
-            )
+            .children(detail::meta_line(&self.movie, runtime, cx))
+            .children(detail::genres_line(&self.movie, cx))
+            .children(detail::media_tags(&self.movie))
             .children(
                 self.movie
                     .overview
@@ -97,12 +95,28 @@ impl Render for MovieView {
                     .map(|o| div().text_sm().max_w(px(560.)).line_clamp(6).child(o)),
             )
             .child(
-                Button::new("movie-play")
-                    .primary()
-                    .icon(IconName::Play)
-                    .label(if resumed { "Resume" } else { "Play" })
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                        cx.emit(Nav::Play(movie.clone()))
+                h_flex()
+                    .gap_2()
+                    .child(
+                        Button::new("movie-play")
+                            .primary()
+                            .icon(IconName::Play)
+                            .label(if resumed { "Resume" } else { "Play" })
+                            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                                cx.emit(Nav::Play(movie.clone()))
+                            })),
+                    )
+                    .children([Toggle::Played, Toggle::Favorite].map(|toggle| {
+                        let id = self.movie.id.clone();
+                        detail::toggle_button(
+                            ("movie-toggle", toggle as usize),
+                            toggle,
+                            &self.movie.user_data,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let api = this.api.clone();
+                            detail::toggle(this, &api, &id, toggle, cx)
+                        }))
                     })),
             );
         let header =
@@ -119,10 +133,13 @@ impl Render for MovieView {
         v_flex()
             .id("movie-detail")
             .size_full()
+            .relative()
             .overflow_y_scroll()
             .p(px(PAD))
             .gap_6()
+            .children(detail::backdrop(&self.api, &self.movie, cx))
             .child(header)
             .children(inline_status(status, cx))
+            .children(detail::cast_row(&self.api, &self.movie, cx))
     }
 }
