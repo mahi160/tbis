@@ -30,10 +30,10 @@ impl EventEmitter<LoggedIn> for LoginView {}
 impl LoginView {
     pub fn new(device_id: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let server = cx.new(|cx| InputState::new(window, cx).placeholder("192.168.1.5:8096"));
-        let username = cx.new(|cx| InputState::new(window, cx).placeholder("Username"));
+        let username = cx.new(|cx| InputState::new(window, cx));
         let password = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("Password (optional)")
+                .placeholder("Optional")
                 .masked(true)
         });
         let mut _subscriptions: Vec<Subscription> = [&server, &username, &password]
@@ -165,43 +165,68 @@ impl Render for LoginView {
             .child(
                 v_flex()
                     .w(px(360.))
-                    .gap_4()
+                    .gap_6()
                     .child(
-                        div()
-                            .text_2xl()
-                            .font_weight(FontWeight::BOLD)
-                            .child("Sign in to Jellyfin"),
+                        v_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                // mark's own aspect ratio (1707x1440), so it isn't squashed
+                                svg()
+                                    .path("icons/tbis-mark.svg")
+                                    .w(px(57.))
+                                    .h(px(48.))
+                                    .text_color(cx.theme().primary),
+                            )
+                            .child(div().text_3xl().font_weight(FontWeight::BOLD).child("tbis"))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Sign in to your Jellyfin server"),
+                            ),
                     )
-                    .child(field("Server", &self.server))
-                    .when(!self.users.is_empty(), |this| {
-                        this.child(h_flex().flex_wrap().gap_2().children(
-                            self.users.iter().enumerate().map(|(i, user)| {
-                                let picked = user.clone();
-                                Button::new(("user", i))
-                                    .outline()
-                                    .small()
-                                    .label(user.name.clone())
+                    .child(
+                        v_flex()
+                            .p_6()
+                            .gap_4()
+                            .rounded(cx.theme().radius_lg)
+                            .bg(cx.theme().secondary)
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .child(field("Server address", &self.server))
+                            .when(!self.users.is_empty(), |this| {
+                                this.child(h_flex().flex_wrap().gap_2().children(
+                                    self.users.iter().enumerate().map(|(i, user)| {
+                                        let picked = user.clone();
+                                        Button::new(("user", i))
+                                            .outline()
+                                            .small()
+                                            .label(user.name.clone())
+                                            .disabled(self.busy)
+                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                                this.pick_user(&picked, window, cx)
+                                            }))
+                                    }),
+                                ))
+                            })
+                            .child(field("Username", &self.username))
+                            .child(field("Password", &self.password))
+                            .children(self.error.clone().map(|error| {
+                                div().text_sm().text_color(cx.theme().danger).child(error)
+                            }))
+                            .child(
+                                Button::new("sign-in")
+                                    .primary()
+                                    .large()
+                                    .mt_2()
+                                    .label("Sign in")
+                                    .loading(self.busy)
                                     .disabled(self.busy)
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.pick_user(&picked, window, cx)
-                                    }))
-                            }),
-                        ))
-                    })
-                    .child(field("Username", &self.username))
-                    .child(field("Password", &self.password))
-                    .children(
-                        self.error.clone().map(|error| {
-                            div().text_sm().text_color(cx.theme().danger).child(error)
-                        }),
-                    )
-                    .child(
-                        Button::new("sign-in")
-                            .primary()
-                            .label("Sign in")
-                            .loading(self.busy)
-                            .disabled(self.busy)
-                            .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| this.submit(window, cx)),
+                                    ),
+                            ),
                     ),
             )
     }
