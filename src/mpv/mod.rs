@@ -380,6 +380,7 @@ fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent
     let send = |event| {
         let _ = tx.unbounded_send(event);
     };
+    let mut log = LogDedup::default();
     while !stop.load(Ordering::SeqCst) {
         let event = unsafe { &*mpv_wait_event(mpv.0, -1.0) };
         match event.event_id {
@@ -426,10 +427,33 @@ fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent
                 let msg = unsafe { &*(event.data as *const mpv_event_log_message) };
                 let prefix = unsafe { CStr::from_ptr(msg.prefix) }.to_string_lossy();
                 let text = unsafe { CStr::from_ptr(msg.text) }.to_string_lossy();
-                eprintln!("mpv [{prefix}] {}", text.trim_end());
+                log.print(format!("mpv [{prefix}] {}", text.trim_end()));
             }
             _ => {}
         }
+    }
+}
+
+/// Prints each mpv log line once while it repeats back to back, then a count when
+/// another line arrives; some files make a decoder warn on every frame.
+#[derive(Default)]
+struct LogDedup {
+    last: String,
+    repeats: u32,
+}
+
+impl LogDedup {
+    fn print(&mut self, line: String) {
+        if line == self.last {
+            self.repeats += 1;
+            return;
+        }
+        if self.repeats > 0 {
+            eprintln!("{} (repeated {} more times)", self.last, self.repeats);
+        }
+        eprintln!("{line}");
+        self.last = line;
+        self.repeats = 0;
     }
 }
 
