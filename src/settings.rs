@@ -8,9 +8,10 @@ use gpui_kit::component::setting::{
 use gpui_kit::component::{IconName, h_flex, v_flex};
 use gpui_kit::*;
 
-use crate::config::{LanguagePref, SubtitleStyle};
+use crate::config::{Config, LanguagePref, SubtitleStyle};
 use crate::detail::PAD;
 use crate::nav::Nav;
+use crate::shaders::ShaderProfile;
 
 /// Languages offered in Settings: canonical code (ISO 639-2/B, as most containers
 /// tag tracks), label, and the other codes the same language turns up as.
@@ -50,28 +51,26 @@ pub enum SettingsChanged {
     Language(LanguagePref),
     Subtitles(SubtitleStyle),
     MaxBitrate(Option<u32>),
+    Shaders(ShaderProfile),
 }
 
 pub struct SettingsView {
     language: Entity<LanguagePref>,
     subtitles: Entity<SubtitleStyle>,
     max_bitrate: Entity<Option<u32>>,
-    _observe: [Subscription; 3],
+    shaders: Entity<ShaderProfile>,
+    _observe: [Subscription; 4],
 }
 
 impl EventEmitter<Nav> for SettingsView {}
 impl EventEmitter<SettingsChanged> for SettingsView {}
 
 impl SettingsView {
-    pub fn new(
-        language: LanguagePref,
-        subtitles: SubtitleStyle,
-        max_bitrate: Option<u32>,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let language = cx.new(|_| language);
-        let subtitles = cx.new(|_| subtitles);
-        let max_bitrate = cx.new(|_| max_bitrate);
+    pub fn new(config: &Config, cx: &mut Context<Self>) -> Self {
+        let language = cx.new(|_| config.language.clone());
+        let subtitles = cx.new(|_| config.subtitles.clone());
+        let max_bitrate = cx.new(|_| config.max_bitrate_mbps);
+        let shaders = cx.new(|_| config.shaders);
         let _observe = [
             cx.observe(&language, |_, language, cx| {
                 cx.emit(SettingsChanged::Language(language.read(cx).clone()))
@@ -82,13 +81,45 @@ impl SettingsView {
             cx.observe(&max_bitrate, |_, max_bitrate, cx| {
                 cx.emit(SettingsChanged::MaxBitrate(*max_bitrate.read(cx)))
             }),
+            cx.observe(&shaders, |_, shaders, cx| {
+                cx.emit(SettingsChanged::Shaders(*shaders.read(cx)))
+            }),
         ];
         Self {
             language,
             subtitles,
             max_bitrate,
+            shaders,
             _observe,
         }
+    }
+
+    fn video_group(&self) -> SettingGroup {
+        let (read, write) = (self.shaders.clone(), self.shaders.clone());
+        let upscaling = SettingItem::new(
+            "Upscaling",
+            SettingField::dropdown(
+                ShaderProfile::ALL
+                    .iter()
+                    .map(|p| (SharedString::from(p.label()), SharedString::from(p.label())))
+                    .collect(),
+                move |cx| read.read(cx).label().into(),
+                move |value, cx| {
+                    write.update(cx, |profile, cx| {
+                        *profile = ShaderProfile::ALL
+                            .into_iter()
+                            .find(|p| p.label() == value.as_ref())
+                            .unwrap_or_default();
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description(
+            "Anime4K sharpens and upscales animation; not meant for live action. \
+             Quality needs a strong GPU. Press U in the Player to cycle.",
+        );
+        SettingGroup::new().title("Video").items([upscaling])
     }
 
     fn streaming_group(&self) -> SettingGroup {
@@ -263,6 +294,7 @@ impl SettingsView {
                 .title("Language")
                 .items([audio, subtitles]),
             self.subtitles_group(),
+            self.video_group(),
             self.streaming_group(),
         ])
     }

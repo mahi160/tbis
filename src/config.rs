@@ -8,6 +8,7 @@ use gpui_kit::{Bounds, Pixels, Size, WindowBounds, size};
 use serde::{Deserialize, Serialize};
 
 use crate::jellyfin::{Session, Sort};
+use crate::shaders::ShaderProfile;
 
 /// Remembered audio/subtitle pick for one exact Movie/Episode, by mpv track id --
 /// safe to reuse verbatim since replaying the same file gives the same track layout
@@ -75,6 +76,9 @@ pub struct Config {
     /// Streaming cap in Mbps (Settings); `None` always direct plays.
     #[serde(default)]
     pub max_bitrate_mbps: Option<u32>,
+    /// Upscaling shaders the Player starts with (Settings).
+    #[serde(default)]
+    pub shaders: ShaderProfile,
     /// Last window size/position, restored on launch.
     #[serde(default)]
     pub window: Option<WindowState>,
@@ -192,6 +196,7 @@ pub fn load() -> Config {
             window: None,
             subtitles: SubtitleStyle::default(),
             max_bitrate_mbps: None,
+            shaders: ShaderProfile::Off,
         })
 }
 

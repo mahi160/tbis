@@ -18,6 +18,7 @@ mod player;
 mod search;
 mod series;
 mod settings;
+mod shaders;
 mod shortcuts;
 mod status;
 mod support_dir;

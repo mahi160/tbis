@@ -20,6 +20,7 @@ use crate::jellyfin::{Api, Item, PlaybackItem, Report};
 use crate::mpv::Mpv;
 use crate::now_playing::{NowPlaying, RemoteCommand};
 use crate::pip::Pip;
+use crate::shaders::ShaderProfile;
 use playback::Playback;
 
 actions!(
@@ -49,7 +50,8 @@ actions!(
         PreviousEpisode,
         NextEpisode,
         TogglePlaybackInfo,
-        Screenshot
+        Screenshot,
+        CycleShaders
     ]
 );
 
@@ -85,6 +87,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("shift-n", NextEpisode, Some(CONTEXT)),
         KeyBinding::new("i", TogglePlaybackInfo, Some(CONTEXT)),
         KeyBinding::new("shift-s", Screenshot, Some(CONTEXT)),
+        KeyBinding::new("u", CycleShaders, Some(CONTEXT)),
     ]);
 }
 
@@ -121,6 +124,8 @@ pub struct PlayerView {
     subtitles: SubtitleStyle,
     /// Settings' streaming cap; over it the server may transcode.
     max_bitrate_mbps: Option<u32>,
+    /// Upscaling shaders active in the in-window mpv (and handed to PiP).
+    shaders: ShaderProfile,
     /// Held while video actually plays (here or in PiP); synced in `render`.
     awake: Option<Awake>,
     /// Media keys + Control Center; absent while PiP's own mpv owns them.
@@ -251,6 +256,7 @@ impl PlayerView {
             language: config.language.clone(),
             subtitles: config.subtitles.clone(),
             max_bitrate_mbps: config.max_bitrate_mbps,
+            shaders: ShaderProfile::Off,
             awake: None,
             now_playing: None,
             remote,
@@ -261,6 +267,9 @@ impl PlayerView {
             _tasks: tasks,
             _subscriptions,
         };
+        if config.shaders != ShaderProfile::Off {
+            this.apply_shaders(config.shaders, false, window, cx);
+        }
         this.load(item.id.clone(), cx);
         this.show_controls(window, cx);
         this

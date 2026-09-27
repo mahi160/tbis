@@ -14,14 +14,15 @@ use gpui_kit::*;
 use crate::jellyfin::SegmentKind;
 use crate::mpv::{Track, TrackKind};
 use crate::now_playing::{Info, NowPlaying, RemoteCommand};
+use crate::shaders::ShaderProfile;
 
 use super::clock::{clock, format_time};
 use super::{
     AudioDelayEarlier, AudioDelayLater, CONTEXT, ChapterNext, ChapterPrev, CycleAudio,
-    CycleSubtitle, DELAY_STEP, Escape, HIDE_CONTROLS_AFTER, NextEpisode, PlayNext, PlayerView,
-    PreviousEpisode, SEEK_STEP, Screenshot, SeekBack, SeekForward, SkipSegment, SpeedDown, SpeedUp,
-    SubDelayEarlier, SubDelayLater, ToggleFullscreen, ToggleMute, TogglePause, TogglePip,
-    TogglePlaybackInfo, VOLUME_STEP, VolumeDown, VolumeUp, hide_cursor,
+    CycleShaders, CycleSubtitle, DELAY_STEP, Escape, HIDE_CONTROLS_AFTER, NextEpisode, PlayNext,
+    PlayerView, PreviousEpisode, SEEK_STEP, Screenshot, SeekBack, SeekForward, SkipSegment,
+    SpeedDown, SpeedUp, SubDelayEarlier, SubDelayLater, ToggleFullscreen, ToggleMute, TogglePause,
+    TogglePip, TogglePlaybackInfo, VOLUME_STEP, VolumeDown, VolumeUp, hide_cursor,
 };
 
 const INFO_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
@@ -285,6 +286,41 @@ impl PlayerView {
         }
     }
 
+    fn cycle_shaders(&mut self, _: &CycleShaders, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_shaders(self.shaders.next(), true, window, cx);
+    }
+
+    /// Switches the in-window mpv to `profile`; on failure falls back to no shaders
+    /// with an error toast, playback unaffected. `announce` toasts the new profile.
+    pub(super) fn apply_shaders(
+        &mut self,
+        profile: ShaderProfile,
+        announce: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mpv) = &self.mpv else {
+            return;
+        };
+        let result = profile
+            .mpv_value()
+            .and_then(|value| mpv.set_property("glsl-shaders", &value));
+        let note = match result {
+            Ok(()) => {
+                self.shaders = profile;
+                announce.then(|| Notification::info(format!("Upscaling: {}", profile.label())))
+            }
+            Err(err) => {
+                let _ = mpv.set_property("glsl-shaders", "");
+                self.shaders = ShaderProfile::Off;
+                Some(Notification::error(format!("Upscaling unavailable: {err}")))
+            }
+        };
+        if let Some(note) = note {
+            window.push_notification(note, cx);
+        }
+    }
+
     /// Saves the current frame to `~/Pictures/tbis`, named after the item and position.
     fn screenshot(&mut self, _: &Screenshot, window: &mut Window, cx: &mut Context<Self>) {
         let Some(mpv) = self.active_mpv() else {
@@ -430,7 +466,10 @@ impl PlayerView {
                 .map(|t| t.id)
         };
         let (events_tx, mut events_rx) = futures::channel::mpsc::unbounded();
-        let options = self.subtitles.mpv_options();
+        let mut options = self.subtitles.mpv_options().to_vec();
+        if let Ok(shaders) = self.shaders.mpv_value() {
+            options.push(("glsl-shaders", shaders));
+        }
         let start = crate::pip::PipStart {
             url: &item.stream.url,
             auth_header: &self.api.auth_header(),
@@ -1081,6 +1120,7 @@ impl Render for PlayerView {
             .on_action(cx.listener(Self::next_episode))
             .on_action(cx.listener(Self::toggle_playback_info))
             .on_action(cx.listener(Self::screenshot))
+            .on_action(cx.listener(Self::cycle_shaders))
             .size_full()
             .relative()
             .justify_between()

@@ -332,14 +332,14 @@ impl AppView {
     }
 
     fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (language, subtitles) = (self.config.language.clone(), self.config.subtitles.clone());
-        let max_bitrate = self.config.max_bitrate_mbps;
-        let view = cx.new(|cx| SettingsView::new(language, subtitles, max_bitrate, cx));
+        let config = &self.config;
+        let view = cx.new(|cx| SettingsView::new(config, cx));
         let changed = cx.subscribe(&view, |this, _, changed: &SettingsChanged, _| {
             match changed {
                 SettingsChanged::Language(language) => this.config.language = language.clone(),
                 SettingsChanged::Subtitles(style) => this.config.subtitles = style.clone(),
                 SettingsChanged::MaxBitrate(cap) => this.config.max_bitrate_mbps = *cap,
+                SettingsChanged::Shaders(profile) => this.config.shaders = *profile,
             }
             save_config(&this.config, "settings");
         });

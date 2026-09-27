@@ -37,6 +37,7 @@ const GROUPS: &[(&str, &[Row])] = &[
             (|| Box::new(TogglePip), "Picture-in-Picture"),
             (|| Box::new(TogglePlaybackInfo), "Playback info"),
             (|| Box::new(Screenshot), "Screenshot"),
+            (|| Box::new(CycleShaders), "Cycle upscaling"),
             (|| Box::new(Escape), "Exit fullscreen / cancel"),
         ],
     ),
