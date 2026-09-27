@@ -949,7 +949,7 @@ impl Api {
 
     pub async fn episodes(&self, series_id: &str, season_id: &str) -> Result<Vec<Item>> {
         let path = format!(
-            "/Shows/{series_id}/Episodes?userId={}&seasonId={season_id}&EnableImageTypes=Primary&ImageTypeLimit=1",
+            "/Shows/{series_id}/Episodes?userId={}&seasonId={season_id}&Fields=Overview&EnableImageTypes=Primary&ImageTypeLimit=1",
             self.session.user_id
         );
         Ok(self.get::<ItemsResult>(&path).await?.items)
