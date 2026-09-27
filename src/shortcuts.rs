@@ -1,11 +1,13 @@
 //! Keyboard shortcuts help (`?`): lists each action with the keys the keymap
 //! actually binds it to, so the list follows any rebinding. New shortcuts need a
-//! row in `GROUPS` to be listed.
+//! row in `GROUPS` to be listed. `{short}`/`{long}` in a label become the
+//! configured seek steps.
 
 use gpui_kit::component::kbd::Kbd;
 use gpui_kit::component::{ActiveTheme as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::*;
 
+use crate::config::SeekSteps;
 use crate::player::*;
 
 actions!(tbis, [ShowShortcuts]);
@@ -17,8 +19,10 @@ const GROUPS: &[(&str, &[Row])] = &[
         "Playback",
         &[
             (|| Box::new(TogglePause), "Play / pause"),
-            (|| Box::new(SeekBack), "Back 10 s"),
-            (|| Box::new(SeekForward), "Forward 10 s"),
+            (|| Box::new(SeekBack), "Back {short} s"),
+            (|| Box::new(SeekForward), "Forward {short} s"),
+            (|| Box::new(SeekBackLong), "Back {long} s"),
+            (|| Box::new(SeekForwardLong), "Forward {long} s"),
             (|| Box::new(ChapterPrev), "Previous chapter"),
             (|| Box::new(ChapterNext), "Next chapter"),
             (|| Box::new(SkipSegment), "Skip intro / credits"),
@@ -86,6 +90,11 @@ pub fn open(window: &mut Window, cx: &mut App) {
 
 fn content(cx: &App) -> impl IntoElement {
     let theme = cx.theme();
+    let steps = cx.global::<SeekSteps>();
+    let label = |text: &str| {
+        text.replace("{short}", &steps.short.to_string())
+            .replace("{long}", &steps.long.to_string())
+    };
     let keymap = cx.key_bindings();
     let keymap = keymap.borrow();
     v_flex()
@@ -105,19 +114,23 @@ fn content(cx: &App) -> impl IntoElement {
                         .text_color(theme.muted_foreground)
                         .child(group.to_uppercase()),
                 )
-                .children(rows.iter().filter_map(|(action, label)| {
+                .children(rows.iter().filter_map(|(action, label_text)| {
                     let action = action();
                     // last binding wins, like the keymap itself
                     let binding = keymap.bindings_for_action(action.as_ref()).last()?;
                     Some(
-                        h_flex().justify_between().text_sm().child(*label).child(
-                            h_flex().gap_1().children(
-                                binding
-                                    .keystrokes()
-                                    .iter()
-                                    .map(|k| Kbd::new(k.inner().clone())),
+                        h_flex()
+                            .justify_between()
+                            .text_sm()
+                            .child(label(label_text))
+                            .child(
+                                h_flex().gap_1().children(
+                                    binding
+                                        .keystrokes()
+                                        .iter()
+                                        .map(|k| Kbd::new(k.inner().clone())),
+                                ),
                             ),
-                        ),
                     )
                 }))
         }))

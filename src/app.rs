@@ -110,6 +110,7 @@ pub struct AppView {
 impl AppView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let config = config::load();
+        cx.set_global(config.seek);
         let screen = match config.session.clone() {
             Some(session) => Self::main_screen(session, &config, window, cx),
             None => Self::login_screen(&config, window, cx),
@@ -334,12 +335,16 @@ impl AppView {
     fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let config = &self.config;
         let view = cx.new(|cx| SettingsView::new(config, cx));
-        let changed = cx.subscribe(&view, |this, _, changed: &SettingsChanged, _| {
+        let changed = cx.subscribe(&view, |this, _, changed: &SettingsChanged, cx| {
             match changed {
                 SettingsChanged::Language(language) => this.config.language = language.clone(),
                 SettingsChanged::Subtitles(style) => this.config.subtitles = style.clone(),
                 SettingsChanged::MaxBitrate(cap) => this.config.max_bitrate_mbps = *cap,
                 SettingsChanged::Shaders(profile) => this.config.shaders = *profile,
+                SettingsChanged::Seek(steps) => {
+                    this.config.seek = *steps;
+                    cx.set_global(*steps);
+                }
             }
             save_config(&this.config, "settings");
         });

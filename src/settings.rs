@@ -8,7 +8,7 @@ use gpui_kit::component::setting::{
 use gpui_kit::component::{IconName, h_flex, v_flex};
 use gpui_kit::*;
 
-use crate::config::{Config, LanguagePref, SubtitleStyle};
+use crate::config::{Config, LanguagePref, SeekSteps, SubtitleStyle};
 use crate::detail::PAD;
 use crate::nav::Nav;
 use crate::shaders::ShaderProfile;
@@ -52,6 +52,7 @@ pub enum SettingsChanged {
     Subtitles(SubtitleStyle),
     MaxBitrate(Option<u32>),
     Shaders(ShaderProfile),
+    Seek(SeekSteps),
 }
 
 pub struct SettingsView {
@@ -59,7 +60,8 @@ pub struct SettingsView {
     subtitles: Entity<SubtitleStyle>,
     max_bitrate: Entity<Option<u32>>,
     shaders: Entity<ShaderProfile>,
-    _observe: [Subscription; 4],
+    seek: Entity<SeekSteps>,
+    _observe: [Subscription; 5],
 }
 
 impl EventEmitter<Nav> for SettingsView {}
@@ -71,6 +73,7 @@ impl SettingsView {
         let subtitles = cx.new(|_| config.subtitles.clone());
         let max_bitrate = cx.new(|_| config.max_bitrate_mbps);
         let shaders = cx.new(|_| config.shaders);
+        let seek = cx.new(|_| config.seek);
         let _observe = [
             cx.observe(&language, |_, language, cx| {
                 cx.emit(SettingsChanged::Language(language.read(cx).clone()))
@@ -84,14 +87,60 @@ impl SettingsView {
             cx.observe(&shaders, |_, shaders, cx| {
                 cx.emit(SettingsChanged::Shaders(*shaders.read(cx)))
             }),
+            cx.observe(&seek, |_, seek, cx| {
+                cx.emit(SettingsChanged::Seek(*seek.read(cx)))
+            }),
         ];
         Self {
             language,
             subtitles,
             max_bitrate,
             shaders,
+            seek,
             _observe,
         }
+    }
+
+    /// Seconds dropdown over one `SeekSteps` field.
+    fn seek_item(
+        &self,
+        title: &'static str,
+        choices: &[u32],
+        field: fn(&mut SeekSteps) -> &mut u32,
+    ) -> SettingItem {
+        let (read, write) = (self.seek.clone(), self.seek.clone());
+        SettingItem::new(
+            title,
+            SettingField::dropdown(
+                choices
+                    .iter()
+                    .map(|s| (s.to_string().into(), format!("{s} s").into()))
+                    .collect(),
+                move |cx| field(&mut read.read(cx).clone()).to_string().into(),
+                move |value, cx| {
+                    write.update(cx, |steps, cx| {
+                        if let Ok(seconds) = value.parse() {
+                            *field(steps) = seconds;
+                            cx.notify();
+                        }
+                    })
+                },
+            ),
+        )
+    }
+
+    fn seek_group(&self) -> SettingGroup {
+        SettingGroup::new().title("Seeking").items([
+            self.seek_item("Short seek (\u{2190} \u{2192})", &[5, 10, 15, 30], |s| {
+                &mut s.short
+            })
+            .description("Also used by media keys and Control Center."),
+            self.seek_item(
+                "Long seek (\u{2325}\u{2190} \u{2325}\u{2192})",
+                &[30, 60, 120, 300],
+                |s| &mut s.long,
+            ),
+        ])
     }
 
     fn video_group(&self) -> SettingGroup {
@@ -294,6 +343,7 @@ impl SettingsView {
                 .title("Language")
                 .items([audio, subtitles]),
             self.subtitles_group(),
+            self.seek_group(),
             self.video_group(),
             self.streaming_group(),
         ])

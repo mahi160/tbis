@@ -11,6 +11,7 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::config::SeekSteps;
 use crate::jellyfin::SegmentKind;
 use crate::mpv::{Track, TrackKind};
 use crate::now_playing::{Info, NowPlaying, RemoteCommand};
@@ -20,9 +21,9 @@ use super::clock::{clock, format_time};
 use super::{
     AudioDelayEarlier, AudioDelayLater, CONTEXT, ChapterNext, ChapterPrev, CycleAudio,
     CycleShaders, CycleSubtitle, DELAY_STEP, Escape, HIDE_CONTROLS_AFTER, NextEpisode, PlayNext,
-    PlayerView, PreviousEpisode, SEEK_STEP, Screenshot, SeekBack, SeekForward, SkipSegment,
-    SpeedDown, SpeedUp, SubDelayEarlier, SubDelayLater, ToggleFullscreen, ToggleMute, TogglePause,
-    TogglePip, TogglePlaybackInfo, VOLUME_STEP, VolumeDown, VolumeUp, hide_cursor,
+    PlayerView, PreviousEpisode, Screenshot, SeekBack, SeekBackLong, SeekForward, SeekForwardLong,
+    SkipSegment, SpeedDown, SpeedUp, SubDelayEarlier, SubDelayLater, ToggleFullscreen, ToggleMute,
+    TogglePause, TogglePip, TogglePlaybackInfo, VOLUME_STEP, VolumeDown, VolumeUp, hide_cursor,
 };
 
 const INFO_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
@@ -72,18 +73,41 @@ impl PlayerView {
         self.refocus(window, cx);
     }
 
-    fn seek_back(&mut self, _: &SeekBack, window: &mut Window, cx: &mut Context<Self>) {
+    /// Relative seek by the configured step; `long` picks the Option+arrow one.
+    fn seek_step(
+        &mut self,
+        forward: bool,
+        long: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let steps = cx.global::<SeekSteps>();
+        let seconds = f64::from(if long { steps.long } else { steps.short });
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.seek_by(-SEEK_STEP);
+            let _ = mpv.seek_by(if forward { seconds } else { -seconds });
         }
         self.show_controls(window, cx);
     }
 
+    fn seek_back(&mut self, _: &SeekBack, window: &mut Window, cx: &mut Context<Self>) {
+        self.seek_step(false, false, window, cx);
+    }
+
     fn seek_forward(&mut self, _: &SeekForward, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.seek_by(SEEK_STEP);
-        }
-        self.show_controls(window, cx);
+        self.seek_step(true, false, window, cx);
+    }
+
+    fn seek_back_long(&mut self, _: &SeekBackLong, window: &mut Window, cx: &mut Context<Self>) {
+        self.seek_step(false, true, window, cx);
+    }
+
+    fn seek_forward_long(
+        &mut self,
+        _: &SeekForwardLong,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.seek_step(true, true, window, cx);
     }
 
     fn toggle_mute(&mut self, _: &ToggleMute, window: &mut Window, cx: &mut Context<Self>) {
@@ -234,12 +258,13 @@ impl PlayerView {
     }
 
     /// Keeps Now Playing in step with the Player; called every render.
-    fn sync_now_playing(&mut self) {
+    fn sync_now_playing(&mut self, cx: &App) {
         let wanted =
             self.pip.is_none() && self.playback.item.is_some() && self.playback.error.is_none();
         if wanted != self.now_playing.is_some() {
             self.now_playing = wanted.then(|| {
-                let now_playing = NowPlaying::new(self.remote.clone(), SEEK_STEP);
+                let step = f64::from(cx.global::<SeekSteps>().short);
+                let now_playing = NowPlaying::new(self.remote.clone(), step);
                 if let Some(bytes) = &self.playback.artwork {
                     now_playing.set_artwork(bytes);
                 }
@@ -738,7 +763,7 @@ impl Render for PlayerView {
         if playing != self.awake.is_some() {
             self.awake = playing.then(super::Awake::new);
         }
-        self.sync_now_playing();
+        self.sync_now_playing(cx);
         if let Some(mpv) = &self.mpv {
             let size = window.viewport_size();
             let scale = window.scale_factor();
@@ -1098,6 +1123,8 @@ impl Render for PlayerView {
             .on_action(cx.listener(Self::toggle_pause))
             .on_action(cx.listener(Self::seek_back))
             .on_action(cx.listener(Self::seek_forward))
+            .on_action(cx.listener(Self::seek_back_long))
+            .on_action(cx.listener(Self::seek_forward_long))
             .on_action(cx.listener(Self::toggle_mute))
             .on_action(cx.listener(Self::toggle_fullscreen))
             .on_action(cx.listener(Self::escape))

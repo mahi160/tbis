@@ -4,8 +4,8 @@
 
 **Blocked by:** p1-gaps 06 — Settings screen with default language.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
-- [ ] Short and long seek step settings saved to config
-- [ ] Player seeks use the configured steps; chapter shortcuts keep working
-- [ ] Shortcuts help (p2-gaps 06, if landed) shows the configured values
+- [x] Short and long seek step settings saved to config
+- [x] Player seeks use the configured steps; chapter shortcuts keep working
+- [x] Shortcuts help (p2-gaps 06, if landed) shows the configured values

@@ -79,6 +79,9 @@ pub struct Config {
     /// Upscaling shaders the Player starts with (Settings).
     #[serde(default)]
     pub shaders: ShaderProfile,
+    /// Player seek distances (Settings).
+    #[serde(default)]
+    pub seek: SeekSteps,
     /// Last window size/position, restored on launch.
     #[serde(default)]
     pub window: Option<WindowState>,
@@ -107,6 +110,25 @@ impl Default for SubtitleStyle {
         }
     }
 }
+
+/// Seconds per seek: `short` for arrows (and media keys), `long` for Option+arrows.
+/// Also an app global, so the Player and shortcuts help read the live values.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SeekSteps {
+    pub short: u32,
+    pub long: u32,
+}
+
+impl Default for SeekSteps {
+    fn default() -> Self {
+        Self {
+            short: 10,
+            long: 60,
+        }
+    }
+}
+
+impl gpui_kit::Global for SeekSteps {}
 
 impl SubtitleStyle {
     /// mpv options applying this style, shared by the Player and PiP.
@@ -197,6 +219,7 @@ pub fn load() -> Config {
             subtitles: SubtitleStyle::default(),
             max_bitrate_mbps: None,
             shaders: ShaderProfile::Off,
+            seek: SeekSteps::default(),
         })
 }
 

@@ -29,6 +29,8 @@ actions!(
         TogglePause,
         SeekBack,
         SeekForward,
+        SeekBackLong,
+        SeekForwardLong,
         ToggleFullscreen,
         Escape,
         ToggleMute,
@@ -56,7 +58,6 @@ actions!(
 );
 
 const CONTEXT: &str = "Player";
-const SEEK_STEP: f64 = 10.;
 const VOLUME_STEP: f64 = 5.;
 const DELAY_STEP: f64 = 0.1;
 
@@ -65,6 +66,9 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("space", TogglePause, Some(CONTEXT)),
         KeyBinding::new("left", SeekBack, Some(CONTEXT)),
         KeyBinding::new("right", SeekForward, Some(CONTEXT)),
+        // not ctrl: macOS switches Spaces on ctrl-arrows
+        KeyBinding::new("alt-left", SeekBackLong, Some(CONTEXT)),
+        KeyBinding::new("alt-right", SeekForwardLong, Some(CONTEXT)),
         KeyBinding::new("f", ToggleFullscreen, Some(CONTEXT)),
         KeyBinding::new("escape", Escape, Some(CONTEXT)),
         KeyBinding::new("m", ToggleMute, Some(CONTEXT)),
