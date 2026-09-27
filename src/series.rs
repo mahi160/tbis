@@ -1,10 +1,11 @@
 use gpui_kit::component::button::Button;
 use gpui_kit::component::tab::TabBar;
-use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::card;
+use crate::config::HideSpoilers;
 use crate::detail::{self, PAD, Toggle, UserDataView};
 use crate::jellyfin::{Api, Item, UserData};
 use crate::nav::Nav;
@@ -178,6 +179,7 @@ impl SeriesView {
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let back = Box::new(cx.listener(|_, _, _, cx| cx.emit(Nav::Back)));
         let body = v_flex()
+            .flex_1()
             .min_w_0()
             .gap_2()
             .child(
@@ -192,7 +194,7 @@ impl SeriesView {
                 self.series
                     .overview
                     .clone()
-                    .map(|o| div().text_sm().line_clamp(4).child(o)),
+                    .map(|o| div().text_sm().line_clamp(4).text_ellipsis().child(o)),
             )
             .child(
                 h_flex()
@@ -235,6 +237,25 @@ impl SeriesView {
         let runtime = episode
             .run_time_ticks
             .map(|t| format!("{} min", detail::minutes(t)));
+        let rating = episode.community_rating.map(|score| {
+            h_flex()
+                .gap_1()
+                .child(
+                    Icon::new(IconName::Star)
+                        .small()
+                        .text_color(cx.theme().warning),
+                )
+                .child(format!("{score:.1}"))
+        });
+        let spoiler = cx.global::<HideSpoilers>().0 && !episode.user_data.played;
+        // server-side blur; gpui can't blur an image
+        let still = self.api.poster_url(episode).map(|url| {
+            if spoiler {
+                format!("{url}&blur=30")
+            } else {
+                url
+            }
+        });
 
         h_flex()
             .id(SharedString::from(episode.id.clone()))
@@ -258,7 +279,7 @@ impl SeriesView {
                     .overflow_hidden()
                     .bg(muted)
                     .on_click(play)
-                    .child(card::image(self.api.poster_url(episode), cx))
+                    .child(card::image(still, cx))
                     .child(card::play_scrim("episode-still", cx))
                     .when_some(progress, |this, percent| {
                         this.child(card::progress_bar(percent, cx))
@@ -277,13 +298,22 @@ impl SeriesView {
                             .truncate()
                             .child(format!("{number}{}", episode.display_name())),
                     )
-                    .children(runtime.map(|r| div().text_sm().text_color(muted_fg).child(r)))
-                    .children(
-                        episode
-                            .overview
-                            .clone()
-                            .map(|o| div().text_sm().text_color(muted_fg).line_clamp(2).child(o)),
-                    ),
+                    .child(
+                        h_flex()
+                            .gap_3()
+                            .text_sm()
+                            .text_color(muted_fg)
+                            .children(runtime)
+                            .children(rating),
+                    )
+                    .children(episode.overview.clone().filter(|_| !spoiler).map(|o| {
+                        div()
+                            .text_sm()
+                            .text_color(muted_fg)
+                            .line_clamp(2)
+                            .text_ellipsis()
+                            .child(o)
+                    })),
             )
             .child(self.toggle_button(
                 episode,
