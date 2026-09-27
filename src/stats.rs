@@ -127,8 +127,19 @@ fn today() -> i64 {
 fn hours_label(hours: f64) -> String {
     if hours < 1. {
         format!("{} min", (hours * 60.).round())
-    } else {
+    } else if hours < 100. {
         format!("{hours:.1} h")
+    } else {
+        // "4,423 h": tenths are noise at this scale
+        let digits = (hours.round() as u64).to_string();
+        let mut grouped = String::new();
+        for (i, c) in digits.char_indices() {
+            if i > 0 && (digits.len() - i).is_multiple_of(3) {
+                grouped.push(',');
+            }
+            grouped.push(c);
+        }
+        format!("{grouped} h")
     }
 }
 
@@ -249,7 +260,7 @@ impl Render for StatsView {
 
 #[cfg(test)]
 mod tests {
-    use super::{Item, Kind, WatchStats, civil_from_days, days_from_iso};
+    use super::{Item, Kind, WatchStats, civil_from_days, days_from_iso, hours_label};
 
     #[test]
     fn dates_round_trip() {
@@ -288,5 +299,15 @@ mod tests {
         assert_eq!(stats.weekly.len(), 12);
         assert_eq!(stats.weekly[11].1, 2.);
         assert_eq!(stats.weekly[10].1, 1.);
+    }
+
+    #[test]
+    fn hours_labels() {
+        assert_eq!(hours_label(0.5), "30 min");
+        assert_eq!(hours_label(14.94), "14.9 h");
+        assert_eq!(hours_label(100.), "100 h");
+        assert_eq!(hours_label(999.6), "1,000 h");
+        assert_eq!(hours_label(4423.), "4,423 h");
+        assert_eq!(hours_label(1_234_567.), "1,234,567 h");
     }
 }
