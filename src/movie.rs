@@ -102,6 +102,7 @@ impl Render for MovieView {
         let episode = self.movie.kind == Kind::Episode;
         let back = Box::new(cx.listener(|_, _, _, cx| cx.emit(Nav::Back)));
         let body = v_flex()
+            .flex_1()
             .min_w_0()
             .gap_3()
             .when(episode, |this| this.child(self.episode_kicker(cx)))
@@ -114,12 +115,14 @@ impl Render for MovieView {
             .children(detail::meta_line(&self.movie, runtime, cx))
             .children(detail::genres_line(&self.movie, cx))
             .children(detail::media_tags(&self.movie))
-            .children(
-                self.movie
-                    .overview
-                    .clone()
-                    .map(|o| div().text_sm().max_w(px(560.)).line_clamp(6).child(o)),
-            )
+            .children(self.movie.overview.clone().map(|o| {
+                div()
+                    .text_sm()
+                    .max_w(px(560.))
+                    .line_clamp(6)
+                    .text_ellipsis()
+                    .child(o)
+            }))
             .child(
                 h_flex()
                     .gap_2()
