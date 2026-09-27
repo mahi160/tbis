@@ -115,6 +115,7 @@ impl AppView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let config = config::load();
         cx.set_global(config.seek);
+        cx.set_global(config.hide_spoilers);
         let screen = match config.session.clone() {
             Some(session) => Self::main_screen(session, &config, window, cx),
             None => Self::login_screen(&config, window, cx),
@@ -474,6 +475,10 @@ impl AppView {
                     cx.set_global(*steps);
                 }
                 SettingsChanged::Theme(name) => this.config.theme = Some(name.clone()),
+                SettingsChanged::HideSpoilers(hide) => {
+                    this.config.hide_spoilers = *hide;
+                    cx.set_global(*hide);
+                }
             }
             save_config(&this.config, "settings");
         });
@@ -578,9 +583,10 @@ impl AppView {
         // Search and Settings belong to no tab; Movie/Series details stay under theirs
         let off_tab = main.searching(cx)
             || (main.search_open && main.search.read(cx).has_recent())
-            || main.details.last().is_some_and(|d| {
-                d.view.entity_type() == std::any::TypeId::of::<SettingsView>()
-            });
+            || main
+                .details
+                .last()
+                .is_some_and(|d| d.view.entity_type() == std::any::TypeId::of::<SettingsView>());
         let selected = TABS
             .iter()
             .position(|(t, _)| *t == main.tab)
@@ -650,13 +656,13 @@ impl AppView {
                     .justify_center()
                     .child(
                         TabBar::new("nav")
-                        .pill()
-                        .small()
-                        .children(TABS.map(|(_, label)| label))
-                        .selected_index(selected.unwrap_or(usize::MAX))
-                        .on_click(cx.listener(
-                            |this, index: &usize, window, cx| this.select_tab(*index, window, cx),
-                        )),
+                            .pill()
+                            .small()
+                            .children(TABS.map(|(_, label)| label))
+                            .selected_index(selected.unwrap_or(usize::MAX))
+                            .on_click(cx.listener(|this, index: &usize, window, cx| {
+                                this.select_tab(*index, window, cx)
+                            })),
                     ),
             )
             .child(
