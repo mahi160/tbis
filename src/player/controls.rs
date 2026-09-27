@@ -19,7 +19,7 @@ use super::clock::{clock, format_time};
 use super::{
     AudioDelayEarlier, AudioDelayLater, CONTEXT, ChapterNext, ChapterPrev, CycleAudio,
     CycleSubtitle, DELAY_STEP, Escape, HIDE_CONTROLS_AFTER, NextEpisode, PlayNext, PlayerView,
-    PreviousEpisode, SEEK_STEP, SeekBack, SeekForward, SkipSegment, SpeedDown, SpeedUp,
+    PreviousEpisode, SEEK_STEP, Screenshot, SeekBack, SeekForward, SkipSegment, SpeedDown, SpeedUp,
     SubDelayEarlier, SubDelayLater, ToggleFullscreen, ToggleMute, TogglePause, TogglePip,
     TogglePlaybackInfo, VOLUME_STEP, VolumeDown, VolumeUp, hide_cursor,
 };
@@ -283,6 +283,31 @@ impl PlayerView {
         if let Some(next) = self.playback.next.clone() {
             self.play_next(next, window, cx);
         }
+    }
+
+    /// Saves the current frame to `~/Pictures/tbis`, named after the item and position.
+    fn screenshot(&mut self, _: &Screenshot, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(mpv) = self.active_mpv() else {
+            return;
+        };
+        let name = match &self.playback.subtitle {
+            Some(episode) => format!("{} {episode}", self.playback.title),
+            None => self.playback.title.to_string(),
+        };
+        // position as h-mm-ss: `:` and `/` are not filename-safe on macOS
+        let at = format_time(self.playback.time).replace(':', "-");
+        let file = format!("{name} {at}.png").replace(['/', ':'], "-");
+        let dir = std::path::Path::new(&std::env::var_os("HOME").unwrap_or_default())
+            .join("Pictures")
+            .join("tbis");
+        let result = std::fs::create_dir_all(&dir)
+            .map_err(|err| err.to_string())
+            .and_then(|()| mpv.screenshot(&dir.join(&file).to_string_lossy()));
+        let note = match result {
+            Ok(()) => Notification::success(format!("Screenshot saved to Pictures/tbis/{file}")),
+            Err(err) => Notification::error(format!("Screenshot failed: {err}")),
+        };
+        window.push_notification(note, cx);
     }
 
     fn toggle_playback_info(
@@ -1044,6 +1069,7 @@ impl Render for PlayerView {
             .on_action(cx.listener(Self::previous_episode))
             .on_action(cx.listener(Self::next_episode))
             .on_action(cx.listener(Self::toggle_playback_info))
+            .on_action(cx.listener(Self::screenshot))
             .size_full()
             .relative()
             .justify_between()

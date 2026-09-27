@@ -210,6 +210,12 @@ impl Mpv {
 /// mpv's yes/no spelling for a bool property or CLI flag; shared with `pip.rs`,
 /// which passes the same spelling to the standalone mpv it spawns.
 impl Mpv {
+    /// Current frame with subtitles, at video resolution, to `path` (format from extension).
+    pub fn screenshot(&self, path: &str) -> Result<(), String> {
+        self.handle
+            .command(&["screenshot-to-file", path, "subtitles"])
+    }
+
     /// Any property as mpv formats it (e.g. `video-codec`); `None` while unavailable.
     pub fn property(&self, name: &str) -> Option<String> {
         get_string(self.handle, name)

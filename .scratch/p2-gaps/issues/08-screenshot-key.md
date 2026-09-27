@@ -4,9 +4,9 @@
 
 **Blocked by:** 01 — Toasts for transient messages.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
-- [ ] Shortcut saves a full-resolution frame via mpv
-- [ ] File name includes item title and playback position
-- [ ] Toast confirms success or shows the failure reason
-- [ ] Works in fullscreen and while paused
+- [x] Shortcut saves a full-resolution frame via mpv
+- [x] File name includes item title and playback position
+- [x] Toast confirms success or shows the failure reason
+- [x] Works in fullscreen and while paused

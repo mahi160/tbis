@@ -48,7 +48,8 @@ actions!(
         SkipSegment,
         PreviousEpisode,
         NextEpisode,
-        TogglePlaybackInfo
+        TogglePlaybackInfo,
+        Screenshot
     ]
 );
 
@@ -83,6 +84,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("shift-p", PreviousEpisode, Some(CONTEXT)),
         KeyBinding::new("shift-n", NextEpisode, Some(CONTEXT)),
         KeyBinding::new("i", TogglePlaybackInfo, Some(CONTEXT)),
+        KeyBinding::new("shift-s", Screenshot, Some(CONTEXT)),
     ]);
 }
 
