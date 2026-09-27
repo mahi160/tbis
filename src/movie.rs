@@ -84,7 +84,6 @@ impl MovieView {
             .collect();
         div()
             .text_sm()
-            .font_family(cx.theme().mono_font_family.clone())
             .text_color(cx.theme().muted_foreground)
             .child(parts.join(" \u{b7} "))
     }
@@ -109,7 +108,7 @@ impl Render for MovieView {
             .child(
                 div()
                     .text_2xl()
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .font_weight(FontWeight::BOLD)
                     .child(self.movie.display_name().to_string()),
             )
             .children(detail::meta_line(&self.movie, runtime, cx))
@@ -151,7 +150,7 @@ impl Render for MovieView {
         } else {
             (self.api.poster_url(&self.movie), px(160.), px(240.))
         };
-        let header = detail::detail_header(&self.movie, image, back, body, cx);
+        let header = detail::detail_header(image, back, body, cx);
 
         let status = if let Some(error) = self.error.clone() {
             Some(Status::Error(error))

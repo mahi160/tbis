@@ -6,14 +6,14 @@ use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::*;
 
-use crate::card::{OnClick, RADIUS};
+use crate::card::OnClick;
 
 const SKELETON_CARD_WIDTH: f32 = 150.;
 const SKELETON_COUNT: usize = 12;
 
 /// Poster-shaped placeholders standing in for a grid that hasn't loaded yet, so the
 /// page doesn't jump when real cards replace them.
-fn skeleton_grid() -> AnyElement {
+fn skeleton_grid(radius: Pixels) -> AnyElement {
     div()
         .size_full()
         .flex()
@@ -28,7 +28,7 @@ fn skeleton_grid() -> AnyElement {
                     Skeleton::new()
                         .w(px(SKELETON_CARD_WIDTH))
                         .h(px(SKELETON_CARD_WIDTH * 1.5))
-                        .rounded(px(RADIUS)),
+                        .rounded(radius),
                 )
                 .child(Skeleton::new().h(px(14.)).w(relative(0.75)))
                 .child(Skeleton::new().secondary().h(px(12.)).w(relative(0.4)))
@@ -81,7 +81,7 @@ pub enum Status {
 /// Error shows a Retry button; `loading` puts it in its spinner state while refreshing.
 pub fn full_status(status: Status, retry: OnClick, loading: bool, cx: &App) -> AnyElement {
     if let Status::Loading = status {
-        return skeleton_grid();
+        return skeleton_grid(cx.theme().radius_lg);
     }
     let theme = cx.theme();
     let body = match status {

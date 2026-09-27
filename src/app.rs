@@ -1,4 +1,3 @@
-use gpui_kit::component::avatar::Avatar;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::DialogButtonProps;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -474,6 +473,7 @@ impl AppView {
                     this.config.seek = *steps;
                     cx.set_global(*steps);
                 }
+                SettingsChanged::Theme(name) => this.config.theme = Some(name.clone()),
             }
             save_config(&this.config, "settings");
         });
@@ -575,7 +575,16 @@ impl AppView {
         let Screen::Main(main) = &self.screen else {
             return TitleBar::new();
         };
-        let selected = TABS.iter().position(|(t, _)| *t == main.tab).unwrap_or(0);
+        // Search and Settings belong to no tab; Movie/Series details stay under theirs
+        let off_tab = main.searching(cx)
+            || (main.search_open && main.search.read(cx).has_recent())
+            || main.details.last().is_some_and(|d| {
+                d.view.entity_type() == std::any::TypeId::of::<SettingsView>()
+            });
+        let selected = TABS
+            .iter()
+            .position(|(t, _)| *t == main.tab)
+            .filter(|_| !off_tab);
         let this = cx.entity().downgrade();
 
         let user_name = main.session.user_name.clone();
@@ -615,12 +624,12 @@ impl AppView {
                             .path("icons/tbis-mark.svg")
                             .w(px(19.))
                             .h(px(16.))
-                            .text_color(cx.theme().foreground),
+                            .text_color(cx.theme().primary),
                     )
                     .child(
                         div()
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_base()
+                            .font_weight(FontWeight::BOLD)
                             .child("tbis"),
                     ),
             )
@@ -641,13 +650,13 @@ impl AppView {
                     .justify_center()
                     .child(
                         TabBar::new("nav")
-                            .underline()
-                            .small()
-                            .children(TABS.map(|(_, label)| label))
-                            .selected_index(selected)
-                            .on_click(cx.listener(|this, index: &usize, window, cx| {
-                                this.select_tab(*index, window, cx)
-                            })),
+                        .pill()
+                        .small()
+                        .children(TABS.map(|(_, label)| label))
+                        .selected_index(selected.unwrap_or(usize::MAX))
+                        .on_click(cx.listener(
+                            |this, index: &usize, window, cx| this.select_tab(*index, window, cx),
+                        )),
                     ),
             )
             .child(
@@ -655,7 +664,7 @@ impl AppView {
                     Button::new("user-menu")
                         .ghost()
                         .small()
-                        .child(Avatar::new().name(user_name.clone()).small())
+                        .child(initials(&user_name, cx))
                         .dropdown_caret(true)
                         .dropdown_menu(move |menu, _, _| {
                             let this = this.clone();
@@ -716,6 +725,26 @@ fn set_video_background(video: bool, window: &mut Window, cx: &mut App) {
     }
 }
 
+/// User menu badge: first two letters of the name on the theme's accent.
+fn initials(name: &str, cx: &App) -> Div {
+    div()
+        .size_6()
+        .rounded_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(cx.theme().primary)
+        .text_color(cx.theme().primary_foreground)
+        .text_xs()
+        .font_weight(FontWeight::BOLD)
+        .child(name.chars().take(2).collect::<String>().to_uppercase())
+}
+
+/// Fixed-width digits app-wide, so timecodes and counters don't jitter as they tick.
+fn tabular_figures() -> FontFeatures {
+    FontFeatures(std::sync::Arc::new(vec![("tnum".into(), 1)]))
+}
+
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Screen::Main(Main {
@@ -725,6 +754,7 @@ impl Render for AppView {
         {
             return div()
                 .size_full()
+                .font_features(tabular_figures())
                 .on_action(|_: &ShowShortcuts, window, cx| shortcuts::open(window, cx))
                 .child(player.clone())
                 .children(Root::render_dialog_layer(window, cx))
@@ -759,6 +789,7 @@ impl Render for AppView {
 
         v_flex()
             .size_full()
+            .font_features(tabular_figures())
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::focus_search))
             .on_action(|_: &ShowShortcuts, window, cx| shortcuts::open(window, cx))

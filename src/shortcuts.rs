@@ -4,7 +4,7 @@
 //! configured seek steps.
 
 use gpui_kit::component::kbd::Kbd;
-use gpui_kit::component::{ActiveTheme as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{WindowExt as _, h_flex, v_flex};
 use gpui_kit::*;
 
 use crate::config::SeekSteps;
@@ -89,7 +89,6 @@ pub fn open(window: &mut Window, cx: &mut App) {
 }
 
 fn content(cx: &App) -> impl IntoElement {
-    let theme = cx.theme();
     let steps = cx.global::<SeekSteps>();
     let label = |text: &str| {
         text.replace("{short}", &steps.short.to_string())
@@ -105,15 +104,7 @@ fn content(cx: &App) -> impl IntoElement {
         .children(GROUPS.iter().map(|(group, rows)| {
             v_flex()
                 .gap_1()
-                .child(
-                    div()
-                        .pb_1()
-                        .text_xs()
-                        .font_family(theme.mono_font_family.clone())
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme.muted_foreground)
-                        .child(group.to_uppercase()),
-                )
+                .child(div().pb_1().font_weight(FontWeight::BOLD).child(*group))
                 .children(rows.iter().filter_map(|(action, label_text)| {
                     let action = action();
                     // last binding wins, like the keymap itself

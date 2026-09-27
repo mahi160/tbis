@@ -7,10 +7,10 @@ use gpui_kit::*;
 use crate::card;
 use crate::jellyfin::{Api, Item, Kind};
 use crate::library::LibraryView;
+use crate::detail::PAD;
 use crate::nav::Nav;
 use crate::status::{Status, inline_status};
 
-const PAD: f32 = 24.;
 const CARD_WIDTH: f32 = 150.;
 const MIN_CHARS: usize = 2;
 const DEBOUNCE: Duration = Duration::from_millis(250);
@@ -189,8 +189,8 @@ impl SearchView {
                     .justify_between()
                     .child(
                         div()
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_2xl()
+                            .font_weight(FontWeight::BOLD)
                             .child("Recent searches"),
                     )
                     .child(clear),
@@ -238,7 +238,7 @@ impl SearchView {
                     .id(SharedString::from(item.id.clone()))
                     .gap_3()
                     .p_1()
-                    .rounded_md()
+                    .rounded(cx.theme().radius_lg)
                     .cursor_pointer()
                     .hover(|this| this.bg(cx.theme().muted))
                     .on_click(open)
@@ -247,9 +247,9 @@ impl SearchView {
                             .w(px(160.))
                             .h(px(90.))
                             .flex_shrink_0()
-                            .rounded_md()
+                            .rounded(cx.theme().radius_lg)
                             .overflow_hidden()
-                            .child(card::image(self.api.poster_url(item), "".into(), cx)),
+                            .child(card::image(self.api.poster_url(item), cx)),
                     )
                     .child(
                         v_flex()
@@ -306,8 +306,8 @@ fn section(title: &'static str, body: impl IntoElement) -> AnyElement {
         .gap_3()
         .child(
             div()
-                .text_lg()
-                .font_weight(FontWeight::SEMIBOLD)
+                .text_2xl()
+                .font_weight(FontWeight::BOLD)
                 .child(title),
         )
         .child(body)

@@ -165,7 +165,7 @@ fn tile(label: &'static str, value: String, cx: &App) -> impl IntoElement {
         .min_w(px(120.))
         .gap_1()
         .p_3()
-        .rounded_md()
+        .rounded(cx.theme().radius_lg)
         .border_1()
         .border_color(cx.theme().border)
         .child(

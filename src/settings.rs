@@ -5,7 +5,7 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::setting::{
     SettingField, SettingGroup, SettingItem, SettingPage, Settings,
 };
-use gpui_kit::component::{IconName, h_flex, v_flex};
+use gpui_kit::component::{IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::*;
 
 use crate::config::{Config, LanguagePref, SeekSteps, SubtitleStyle};
@@ -14,6 +14,7 @@ use crate::jellyfin::Api;
 use crate::nav::Nav;
 use crate::shaders::ShaderProfile;
 use crate::stats::StatsView;
+use crate::theme;
 
 /// Languages offered in Settings: canonical code (ISO 639-2/B, as most containers
 /// tag tracks), label, and the other codes the same language turns up as.
@@ -55,6 +56,7 @@ pub enum SettingsChanged {
     MaxBitrate(Option<u32>),
     Shaders(ShaderProfile),
     Seek(SeekSteps),
+    Theme(String),
 }
 
 pub struct SettingsView {
@@ -63,8 +65,9 @@ pub struct SettingsView {
     max_bitrate: Entity<Option<u32>>,
     shaders: Entity<ShaderProfile>,
     seek: Entity<SeekSteps>,
+    theme: Entity<SharedString>,
     stats: Entity<StatsView>,
-    _observe: [Subscription; 5],
+    _observe: [Subscription; 6],
 }
 
 impl EventEmitter<Nav> for SettingsView {}
@@ -78,6 +81,7 @@ impl SettingsView {
         let max_bitrate = cx.new(|_| config.max_bitrate_mbps);
         let shaders = cx.new(|_| config.shaders);
         let seek = cx.new(|_| config.seek);
+        let theme = cx.new(|_| SharedString::from(theme::active(config)));
         let _observe = [
             cx.observe(&language, |_, language, cx| {
                 cx.emit(SettingsChanged::Language(language.read(cx).clone()))
@@ -94,6 +98,11 @@ impl SettingsView {
             cx.observe(&seek, |_, seek, cx| {
                 cx.emit(SettingsChanged::Seek(*seek.read(cx)))
             }),
+            cx.observe(&theme, |_, theme, cx| {
+                let name = theme.read(cx).to_string();
+                theme::apply(&name, cx);
+                cx.emit(SettingsChanged::Theme(name))
+            }),
         ];
         Self {
             language,
@@ -101,6 +110,7 @@ impl SettingsView {
             max_bitrate,
             shaders,
             seek,
+            theme,
             stats,
             _observe,
         }
@@ -146,6 +156,27 @@ impl SettingsView {
                 |s| &mut s.long,
             ),
         ])
+    }
+
+    fn appearance_page(&self) -> SettingPage {
+        let (read, write) = (self.theme.clone(), self.theme.clone());
+        let theme = SettingItem::new(
+            "Theme",
+            SettingField::dropdown(
+                theme::NAMES
+                    .iter()
+                    .map(|n| (SharedString::from(*n), SharedString::from(*n)))
+                    .collect(),
+                move |cx| read.read(cx).clone(),
+                move |value, cx| {
+                    write.update(cx, |theme, cx| {
+                        *theme = value;
+                        cx.notify();
+                    })
+                },
+            ),
+        );
+        SettingPage::new("Appearance").group(SettingGroup::new().items([theme]))
     }
 
     fn stats_page(&self) -> SettingPage {
@@ -383,14 +414,19 @@ impl Render for SettingsView {
                     .child(
                         div()
                             .text_2xl()
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .font_weight(FontWeight::BOLD)
                             .child("Settings"),
                     ),
             )
             .child(
-                div().flex_1().min_h_0().child(
-                    Settings::new("settings").pages([self.playback_page(), self.stats_page()]),
-                ),
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(Settings::new("settings").small().pages([
+                        self.playback_page(),
+                        self.appearance_page(),
+                        self.stats_page(),
+                    ])),
             )
     }
 }

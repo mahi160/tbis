@@ -11,7 +11,7 @@ use gpui_kit::*;
 use crate::card::{self, OnClick};
 use crate::jellyfin::{Api, Item, UserData};
 
-pub const PAD: f32 = 24.;
+pub const PAD: f32 = 32.;
 const TICKS_PER_MINUTE: i64 = 600_000_000;
 
 /// Ticks rounded to the nearest minute; shared rounding for every runtime display.
@@ -27,7 +27,6 @@ pub fn runtime_label(ticks: i64) -> String {
 
 /// Back button, `image` (URL, width, height), then `body` (title/meta/overview/actions).
 pub fn detail_header(
-    item: &Item,
     image: (Option<String>, Pixels, Pixels),
     back: OnClick,
     body: impl IntoElement,
@@ -48,9 +47,9 @@ pub fn detail_header(
                 .w(width)
                 .h(height)
                 .flex_shrink_0()
-                .rounded_md()
+                .rounded(cx.theme().radius_lg)
                 .overflow_hidden()
-                .child(card::image(url, item.name.clone().into(), cx)),
+                .child(card::image(url, cx)),
         )
         .child(body)
 }
@@ -159,12 +158,10 @@ pub fn meta_line(item: &Item, length: Option<String>, cx: &App) -> Option<AnyEle
     }
     if let Some(rating) = item.official_rating.clone() {
         parts.push(
-            div()
-                .px_1p5()
-                .rounded_sm()
-                .border_1()
-                .border_color(theme.border)
-                .text_xs()
+            Tag::secondary()
+                .outline()
+                .small()
+                .rounded_full()
                 .child(rating)
                 .into_any_element(),
         );
@@ -205,7 +202,7 @@ pub fn media_tags(item: &Item) -> Option<AnyElement> {
             .flex_wrap()
             .children(
                 tags.into_iter()
-                    .map(|tag| Tag::secondary().outline().small().child(tag)),
+                    .map(|tag| Tag::secondary().outline().small().rounded_full().child(tag)),
             )
             .into_any_element()
     })
@@ -306,11 +303,9 @@ pub fn cast_row(api: &Api, item: &Item, cx: &App) -> Option<AnyElement> {
             .gap_4()
             .child(
                 div()
-                    .text_xs()
-                    .font_family(theme.mono_font_family.clone())
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme.muted_foreground)
-                    .child("CAST"),
+                    .text_lg()
+                    .font_weight(FontWeight::BOLD)
+                    .child("Cast"),
             )
             .child(
                 div()

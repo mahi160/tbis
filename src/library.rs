@@ -8,12 +8,12 @@ use gpui_kit::*;
 
 use crate::card::{OnClick, poster_card};
 use crate::jellyfin::{Api, Item, Kind, Sort};
+use crate::detail::PAD;
 use crate::nav::Nav;
 use crate::status::{Status, full_status, inline_status};
 
 pub struct SortChanged(pub Sort);
 
-const PAD: f32 = 24.;
 const GAP: f32 = 16.;
 const MIN_CARD_WIDTH: f32 = 150.;
 
@@ -170,7 +170,7 @@ impl Render for LibraryView {
                     .child(
                         div()
                             .text_2xl()
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .font_weight(FontWeight::BOLD)
                             .child(self.title()),
                     )
                     .when(!self.items.is_empty(), |this| {

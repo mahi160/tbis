@@ -169,7 +169,7 @@ impl Render for LoginView {
                     .child(
                         div()
                             .text_2xl()
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .font_weight(FontWeight::BOLD)
                             .child("Sign in to Jellyfin"),
                     )
                     .child(field("Server", &self.server))

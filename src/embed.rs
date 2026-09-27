@@ -11,7 +11,7 @@ macro_rules! embedded_by_path {
 }
 pub(crate) use embedded_by_path;
 
-/// `embedded_by_name!("fonts/inter", ["Inter-Regular.ttf", ...])` keys each entry by
+/// `embedded_by_name!("fonts/onest", ["Onest-Regular.ttf", ...])` keys each entry by
 /// `<name>` alone, the on-disk file name `fonts::extract_dir` writes (`fonts.rs`).
 macro_rules! embedded_by_name {
     ($dir:literal, [$($name:literal),+ $(,)?]) => {

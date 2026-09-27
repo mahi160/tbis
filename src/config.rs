@@ -88,6 +88,9 @@ pub struct Config {
     /// Last window size/position, restored on launch.
     #[serde(default)]
     pub window: Option<WindowState>,
+    /// Theme name (Settings); `None` is the default theme.
+    #[serde(default)]
+    pub theme: Option<String>,
 }
 
 /// Text-subtitle styling; image subtitles (PGS/VobSub) keep their own look.
@@ -224,6 +227,7 @@ pub fn load() -> Config {
             shaders: ShaderProfile::Off,
             seek: SeekSteps::default(),
             recent_searches: Vec::new(),
+            theme: None,
         })
 }
 

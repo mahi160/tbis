@@ -396,8 +396,8 @@ impl PlayerView {
         self.refocus(window, cx);
     }
 
-    /// Live stats rows from mpv; "—" for whatever it can't report right now.
-    fn playback_info(&self) -> Vec<(&'static str, String)> {
+    /// Live stats from mpv, grouped; "—" for whatever it can't report right now.
+    fn playback_info(&self) -> Vec<super::InfoGroup> {
         let mpv = self.active_mpv();
         let get = |name: &str| {
             mpv.and_then(|mpv| mpv.property(name))
@@ -435,24 +435,45 @@ impl PlayerView {
             }
             .into()
         });
+        // "Opus (Opus Interactive Audio Codec)" -> "Opus"
+        let codec = |name: &str| {
+            get(name).map(|c| c.split(" (").next().unwrap_or_default().to_string())
+        };
         vec![
-            ("Play method", or_dash(method)),
-            ("Container", or_dash(get("file-format"))),
-            ("Video", or_dash(get("video-codec"))),
-            ("Resolution", or_dash(resolution)),
-            ("Frame rate", or_dash(fps)),
-            ("Colour", or_dash((!colour.is_empty()).then_some(colour))),
             (
-                "Hardware decoding",
-                or_dash(get("hwdec-current").map(|h| if h == "no" { "off".into() } else { h })),
+                "Stream",
+                vec![
+                    ("Play method", or_dash(method)),
+                    ("Container", or_dash(get("file-format"))),
+                    ("Bitrate", or_dash(bitrate)),
+                    (
+                        "Buffered",
+                        or_dash(num("demuxer-cache-duration").map(|s| format!("{s:.0} s ahead"))),
+                    ),
+                    ("Dropped frames", or_dash(dropped)),
+                ],
             ),
-            ("Audio", or_dash(get("audio-codec"))),
-            ("Channels", or_dash(get("audio-params/hr-channels"))),
-            ("Bitrate", or_dash(bitrate)),
-            ("Dropped frames", or_dash(dropped)),
             (
-                "Buffered",
-                or_dash(num("demuxer-cache-duration").map(|s| format!("{s:.0} s ahead"))),
+                "Video",
+                vec![
+                    ("Codec", or_dash(codec("video-codec"))),
+                    ("Resolution", or_dash(resolution)),
+                    ("Frame rate", or_dash(fps)),
+                    ("Colour", or_dash((!colour.is_empty()).then_some(colour))),
+                    (
+                        "Hardware decoding",
+                        or_dash(
+                            get("hwdec-current").map(|h| if h == "no" { "off".into() } else { h }),
+                        ),
+                    ),
+                ],
+            ),
+            (
+                "Audio",
+                vec![
+                    ("Codec", or_dash(codec("audio-codec"))),
+                    ("Channels", or_dash(get("audio-params/hr-channels"))),
+                ],
             ),
         ]
     }
@@ -824,8 +845,8 @@ impl Render for PlayerView {
                             .flat_map(|item| item.media_tags())
                             .map(|tag| {
                                 div()
-                                    .px_1p5()
-                                    .rounded_sm()
+                                    .px_2()
+                                    .rounded_full()
                                     .border_1()
                                     .border_color(dim(0.35))
                                     .font_family(mono.clone())
@@ -1045,29 +1066,55 @@ impl Render for PlayerView {
                             ),
                     )
             });
-        let info = self.info.as_ref().map(|rows| {
+        let info = self.info.as_ref().map(|groups| {
             v_flex()
                 .absolute()
                 .top(px(96.)) // below the title bar
                 .left_6()
-                .w(px(320.))
+                .w(px(280.))
                 .p_4()
-                .gap_1()
-                .rounded_lg()
-                .bg(overlay_scrim())
-                .font_family(cx.theme().mono_font_family.clone())
+                .gap_4()
+                .rounded(cx.theme().radius_lg)
+                .bg(video_black(0.72))
+                .border_1()
+                .border_color(video_white(0.08))
                 .text_xs()
-                .children(rows.iter().map(|(label, value)| {
-                    h_flex()
-                        .gap_3()
-                        .justify_between()
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::BOLD)
+                        .child("Playback info"),
+                )
+                .children(groups.iter().map(|(heading, rows)| {
+                    v_flex()
+                        .gap_1p5()
                         .child(
                             div()
-                                .flex_none()
-                                .text_color(video_white(0.55))
-                                .child(*label),
+                                .pb_1()
+                                .border_b_1()
+                                .border_color(video_white(0.1))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(cx.theme().primary)
+                                .child(*heading),
                         )
-                        .child(div().min_w_0().truncate().child(value.clone()))
+                        .children(rows.iter().map(|(label, value)| {
+                            h_flex()
+                                .gap_3()
+                                .justify_between()
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .text_color(video_white(0.6))
+                                        .child(*label),
+                                )
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .truncate()
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .child(value.clone()),
+                                )
+                        }))
                 }))
         });
         let up_next = self.up_next().map(|next| {
@@ -1079,8 +1126,10 @@ impl Render for PlayerView {
                 .w(px(320.))
                 .p_4()
                 .gap_3()
-                .rounded_lg()
+                .rounded(cx.theme().radius_lg)
                 .bg(video_black(0.8))
+                .border_1()
+                .border_color(video_white(0.08))
                 .child(
                     div()
                         .font_weight(FontWeight::SEMIBOLD)
@@ -1161,10 +1210,10 @@ impl Render for PlayerView {
             .children(pip_notice)
             .children(up_next)
             .children(skip)
-            .children(info)
+            // info hides with the controls, like the rest of the chrome
             .when(
                 self.controls_visible || self.playback.error.is_some(),
-                |this| this.child(top).child(bottom),
+                |this| this.children(info).child(top).child(bottom),
             )
     }
 }

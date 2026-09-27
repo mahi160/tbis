@@ -1,13 +1,13 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, IconName, InteractiveElementExt as _, Sizable as _, h_flex,
-    v_flex,
+    Disableable as _, IconName, InteractiveElementExt as _, Sizable as _, h_flex, v_flex,
 };
 use gpui_kit::*;
 use std::time::{Duration, Instant};
 
 use crate::card::{self, OnClick};
 use crate::jellyfin::{Api, Item, Kind};
+use crate::detail::PAD;
 use crate::nav::Nav;
 use crate::status::{Status, full_status, inline_status};
 
@@ -16,9 +16,9 @@ const PAGE_ANIMATION: Duration = Duration::from_millis(350);
 // Photon's row card widths (11rem / 18rem).
 const POSTER_WIDTH: f32 = 176.;
 const WIDE_WIDTH: f32 = 288.;
-// Photon's fluid gutter: clamp(1.5rem, 4vw, 3rem).
-fn gutter(window: &Window) -> Pixels {
-    px((f32::from(window.viewport_size().width) * 0.04).clamp(24., 48.))
+/// Page gutter, shared with every other page (`detail::PAD`).
+fn gutter(_: &Window) -> Pixels {
+    px(PAD)
 }
 
 #[derive(Default)]
@@ -209,7 +209,7 @@ impl HomeView {
         }
     }
 
-    /// Row heading: small mono uppercase label, Photon's `.heading`, plus page arrows.
+    /// Row heading: bold title, plus page arrows.
     fn row(
         title: &'static str,
         id: &'static str,
@@ -217,8 +217,6 @@ impl HomeView {
         row: usize,
         scroll: ScrollHandle,
         gutter: Pixels,
-        mono_font: SharedString,
-        muted_fg: Hsla,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         if cards.is_empty() {
@@ -236,11 +234,9 @@ impl HomeView {
                         .justify_between()
                         .child(
                             div()
-                                .text_xs()
-                                .font_family(mono_font)
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(muted_fg)
-                                .child(title.to_uppercase()),
+                                .text_2xl()
+                                .font_weight(FontWeight::BOLD)
+                                .child(title),
                         )
                         .child(
                             h_flex()
@@ -284,9 +280,7 @@ impl HomeView {
 
 impl Render for HomeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let muted_fg = cx.theme().muted_foreground;
         let gutter = gutter(window);
-        let mono_font = cx.theme().mono_font_family.clone();
         if self.rows.is_empty() {
             let status = match self.error.clone() {
                 Some(error) => Status::Error(error),
@@ -325,17 +319,7 @@ impl Render for HomeView {
         self.advance_paging(window, cx);
         let row = |title, id, cards, ix: usize, cx: &mut Context<Self>| {
             let scroll = self.scroll[ix].clone();
-            Self::row(
-                title,
-                id,
-                cards,
-                ix,
-                scroll,
-                gutter,
-                mono_font.clone(),
-                muted_fg,
-                cx,
-            )
+            Self::row(title, id, cards, ix, scroll, gutter, cx)
         };
         // shown while a background refresh fails but the rows still have the old data
         let banner = self.error.clone().map(|error| {

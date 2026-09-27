@@ -106,6 +106,9 @@ const HIDE_CONTROLS_AFTER: Duration = Duration::from_secs(3);
 const PROGRESS_EVERY: Duration = Duration::from_secs(10);
 const CLOCK_EVERY: Duration = Duration::from_secs(30);
 
+/// Playback info section: heading and its (label, value) rows.
+type InfoGroup = (&'static str, Vec<(&'static str, String)>);
+
 pub struct PlayerView {
     api: Api,
     mpv: Option<Mpv>,
@@ -136,7 +139,7 @@ pub struct PlayerView {
     now_playing: Option<NowPlaying>,
     remote: mpsc::UnboundedSender<RemoteCommand>,
     /// Playback Info overlay rows while open; refreshed every second by `_info`.
-    info: Option<Vec<(&'static str, String)>>,
+    info: Option<Vec<InfoGroup>>,
     _info: Task<()>,
     _hide: Task<()>,
     _pip: Task<()>,

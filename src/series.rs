@@ -183,7 +183,7 @@ impl SeriesView {
             .child(
                 div()
                     .text_2xl()
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .font_weight(FontWeight::BOLD)
                     .child(self.series.name.clone()),
             )
             .children(detail::meta_line(&self.series, self.seasons_label(), cx))
@@ -207,7 +207,6 @@ impl SeriesView {
                     })),
             );
         detail::detail_header(
-            &self.series,
             (self.api.poster_url(&self.series), px(120.), px(180.)),
             back,
             body,
@@ -241,7 +240,7 @@ impl SeriesView {
             .id(SharedString::from(episode.id.clone()))
             .gap_4()
             .p_2()
-            .rounded_md()
+            .rounded(cx.theme().radius_lg)
             .cursor_pointer()
             .hover(|this| this.bg(muted))
             .on_click(open)
@@ -255,11 +254,11 @@ impl SeriesView {
                     .w(px(192.))
                     .h(px(108.))
                     .flex_shrink_0()
-                    .rounded_md()
+                    .rounded(cx.theme().radius_lg)
                     .overflow_hidden()
                     .bg(muted)
                     .on_click(play)
-                    .child(card::image(self.api.poster_url(episode), "".into(), cx))
+                    .child(card::image(self.api.poster_url(episode), cx))
                     .child(card::play_scrim("episode-still", cx))
                     .when_some(progress, |this, percent| {
                         this.child(card::progress_bar(percent, cx))
@@ -301,7 +300,7 @@ impl Render for SeriesView {
         let seasons = (!self.seasons.is_empty()).then(|| {
             div().id("season-tabs").overflow_x_scroll().child(
                 TabBar::new("seasons")
-                    .underline()
+                    .pill()
                     .children(self.seasons.iter().map(Self::season_label))
                     .selected_index(self.selected)
                     .on_click(

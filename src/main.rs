@@ -54,6 +54,35 @@ fn raise_open_file_limit() {
     }
 }
 
+/// gpui's Metal layer carries no colorspace, so macOS sends its sRGB values to the
+/// display raw and wide-gamut (P3) screens oversaturate every color and poster.
+/// Tagging it sRGB makes macOS color-match, as browsers do.
+#[cfg(target_os = "macos")]
+fn tag_srgb(window: &Window) {
+    use objc2_app_kit::NSView;
+    use objc2_core_graphics::{CGColorSpace, kCGColorSpaceSRGB};
+    use objc2_quartz_core::CAMetalLayer;
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    // trait method, not gpui's inherent `Window::window_handle`
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
+        return;
+    };
+    // SAFETY: gpui keeps its view alive as long as the window; non-owning borrow
+    let view: &NSView = unsafe { &*(appkit.ns_view.as_ptr() as *const NSView) };
+    let Some(layer) = view.layer() else {
+        return;
+    };
+    let Ok(layer) = layer.downcast::<CAMetalLayer>() else {
+        return;
+    };
+    let srgb = CGColorSpace::with_name(Some(unsafe { kCGColorSpaceSRGB }));
+    layer.setColorspace(srgb.as_deref());
+}
+
 fn main() {
     #[cfg(unix)]
     raise_open_file_limit();
@@ -67,8 +96,8 @@ fn main() {
         .with_assets(assets::Assets)
         .run(|cx| {
             gpui_kit::init(cx);
-            fonts::embed(cx).expect("failed to embed Inter");
-            theme::init(cx);
+            fonts::embed(cx).expect("failed to embed fonts");
+            theme::init(config::load().theme.as_deref(), cx);
 
             cx.bind_keys([
                 KeyBinding::new("cmd-q", Quit, None),
@@ -106,6 +135,8 @@ fn main() {
                     ..TitleBar::window_options()
                 };
                 cx.open_window(options, |window, cx| {
+                    #[cfg(target_os = "macos")]
+                    tag_srgb(window);
                     let view = cx.new(|cx| app::AppView::new(window, cx));
                     cx.new(|cx| Root::new(view, window, cx))
                 })
