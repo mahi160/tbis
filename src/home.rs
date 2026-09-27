@@ -1,5 +1,10 @@
-use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::{
+    ActiveTheme as _, Disableable as _, IconName, InteractiveElementExt as _, Sizable as _, h_flex,
+    v_flex,
+};
 use gpui_kit::*;
+use std::time::{Duration, Instant};
 
 use crate::card::{self, OnClick};
 use crate::jellyfin::{Api, Item, Kind};
@@ -7,6 +12,7 @@ use crate::nav::Nav;
 use crate::status::{Status, full_status, inline_status};
 
 const PER_ROW: usize = 24;
+const PAGE_ANIMATION: Duration = Duration::from_millis(350);
 // Photon's row card widths (11rem / 18rem).
 const POSTER_WIDTH: f32 = 176.;
 const WIDE_WIDTH: f32 = 288.;
@@ -38,7 +44,18 @@ pub struct HomeView {
     rows: Rows,
     loading: bool,
     error: Option<SharedString>,
+    /// Per row, same order as `render`'s rows; drives the heading arrows.
+    scroll: [ScrollHandle; 4],
+    /// Arrow-driven slide in progress; advanced each frame in `render`.
+    paging: Option<Paging>,
     _load: Task<()>,
+}
+
+struct Paging {
+    row: usize,
+    from: Pixels,
+    to: Pixels,
+    start: Instant,
 }
 
 impl EventEmitter<Nav> for HomeView {}
@@ -50,6 +67,8 @@ impl HomeView {
             rows: Rows::default(),
             loading: false,
             error: None,
+            scroll: Default::default(),
+            paging: None,
             _load: Task::ready(()),
         }
     }
@@ -112,34 +131,147 @@ impl HomeView {
         Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Open(item.clone()))))
     }
 
-    /// Row heading: small mono uppercase label, Photon's `.heading`.
+    /// Slides row `row` about one viewport forward (`next`) or back, snapping so a card
+    /// starts at the left gutter: forward brings the first cropped card there.
+    fn page(&mut self, row: usize, next: bool, gutter: Pixels, window: &mut Window) {
+        let scroll = &self.scroll[row];
+        let viewport = scroll.bounds();
+        // card lefts/rights in content coords (child bounds are unscrolled)
+        let cards: Vec<(Pixels, Pixels)> = (0..)
+            .map_while(|ix| scroll.bounds_for_item(ix))
+            .map(|b| (b.left() - viewport.left(), b.right() - viewport.left()))
+            .collect();
+        let from = scroll.offset().x;
+        // content x at viewport's left edge; offset.x runs 0 (start) down to -max (end)
+        let view = -from;
+        let slack = px(1.);
+        let target = if next {
+            cards
+                .iter()
+                .find(|(_, right)| *right > view + viewport.size.width - gutter + slack)
+                .map_or(scroll.max_offset().x, |(left, _)| *left - gutter)
+        } else {
+            let first = cards
+                .iter()
+                .find(|(left, _)| *left >= view + gutter - slack)
+                .map_or(px(0.), |(left, _)| *left);
+            let earliest = first - (viewport.size.width - gutter * 2.);
+            cards
+                .iter()
+                .find(|(left, _)| *left >= earliest - slack)
+                .map_or(px(0.), |(left, _)| *left - gutter)
+        };
+        let to = -target.clamp(px(0.), scroll.max_offset().x);
+        self.paging = Some(Paging {
+            row,
+            from,
+            to,
+            start: Instant::now(),
+        });
+        window.refresh();
+    }
+
+    fn page_button(
+        id: String,
+        icon: IconName,
+        row: usize,
+        next: bool,
+        disabled: bool,
+        gutter: Pixels,
+        cx: &mut Context<Self>,
+    ) -> Button {
+        Button::new(ElementId::Name(id.into()))
+            .ghost()
+            .xsmall()
+            .icon(icon)
+            .disabled(disabled)
+            .on_click(cx.listener(move |this, _, window, _| this.page(row, next, gutter, window)))
+    }
+
+    /// Moves the sliding row one frame along; requests the next frame until done.
+    fn advance_paging(&mut self, window: &mut Window, cx: &App) {
+        let Some(paging) = &self.paging else {
+            return;
+        };
+        let t = if cx.reduce_motion() {
+            1.
+        } else {
+            (paging.start.elapsed().as_secs_f32() / PAGE_ANIMATION.as_secs_f32()).min(1.)
+        };
+        let scroll = &self.scroll[paging.row];
+        let mut offset = scroll.offset();
+        offset.x = paging.from + (paging.to - paging.from) * ease_out_quint()(t);
+        scroll.set_offset(offset);
+        if t < 1. {
+            window.request_animation_frame();
+        } else {
+            self.paging = None;
+        }
+    }
+
+    /// Row heading: small mono uppercase label, Photon's `.heading`, plus page arrows.
     fn row(
         title: &'static str,
         id: &'static str,
         cards: Vec<AnyElement>,
+        row: usize,
+        scroll: ScrollHandle,
         gutter: Pixels,
         mono_font: SharedString,
         muted_fg: Hsla,
+        cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         if cards.is_empty() {
             return None;
         }
+        let (offset, max) = (scroll.offset().x, scroll.max_offset().x);
+        // max is 0 until first layout; keep right arrow live then (click is a clamped no-op)
+        let at_end = max > px(0.) && offset <= -max;
         Some(
             v_flex()
                 .gap_4()
                 .child(
-                    div()
+                    h_flex()
                         .px(gutter)
-                        .text_xs()
-                        .font_family(mono_font)
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(muted_fg)
-                        .child(title.to_uppercase()),
+                        .justify_between()
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_family(mono_font)
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(muted_fg)
+                                .child(title.to_uppercase()),
+                        )
+                        .child(
+                            h_flex()
+                                .gap_1()
+                                .child(Self::page_button(
+                                    format!("{id}-prev"),
+                                    IconName::ChevronLeft,
+                                    row,
+                                    false,
+                                    offset >= px(0.),
+                                    gutter,
+                                    cx,
+                                ))
+                                .child(Self::page_button(
+                                    format!("{id}-next"),
+                                    IconName::ChevronRight,
+                                    row,
+                                    true,
+                                    at_end,
+                                    gutter,
+                                    cx,
+                                )),
+                        ),
                 )
                 .child(
                     h_flex()
                         .id(id)
                         .overflow_x_scroll()
+                        // else vertical swipes with slight x drift scroll the row
+                        .lock_scroll_axis()
+                        .track_scroll(&scroll)
                         .px(gutter)
                         .gap_4()
                         .items_start()
@@ -170,8 +302,9 @@ impl Render for HomeView {
             items
                 .iter()
                 .map(|item| {
-                    let on_click = Self::play_on_click(item, cx);
-                    card::wide_card(&api, item, px(WIDE_WIDTH), on_click, cx)
+                    let on_play = Self::play_on_click(item, cx);
+                    let on_open = Self::open_on_click(&item.detail_target(), cx);
+                    card::wide_card(&api, item, px(WIDE_WIDTH), on_play, on_open, cx)
                 })
                 .collect()
         };
@@ -189,8 +322,21 @@ impl Render for HomeView {
         let movies = posters(&self.rows.movies, cx);
         let series = posters(&self.rows.series, cx);
 
-        let row =
-            |title, id, cards| Self::row(title, id, cards, gutter, mono_font.clone(), muted_fg);
+        self.advance_paging(window, cx);
+        let row = |title, id, cards, ix: usize, cx: &mut Context<Self>| {
+            let scroll = self.scroll[ix].clone();
+            Self::row(
+                title,
+                id,
+                cards,
+                ix,
+                scroll,
+                gutter,
+                mono_font.clone(),
+                muted_fg,
+                cx,
+            )
+        };
         // shown while a background refresh fails but the rows still have the old data
         let banner = self.error.clone().map(|error| {
             div()
@@ -202,14 +348,22 @@ impl Render for HomeView {
             .id("home")
             .size_full()
             .overflow_y_scroll()
+            // else horizontal row swipes leak into page's vertical scroll
+            .lock_scroll_axis()
             .pt(px(24.))
             .pb(px(48.))
             .gap(px(44.))
             .children(banner)
-            .children(row("Continue Watching", "row-continue", continue_watching))
-            .children(row("Next Up", "row-next-up", next_up))
-            .children(row("Movies", "row-movies", movies))
-            .children(row("Series", "row-series", series))
+            .children(row(
+                "Continue Watching",
+                "row-continue",
+                continue_watching,
+                0,
+                cx,
+            ))
+            .children(row("Next Up", "row-next-up", next_up, 1, cx))
+            .children(row("Movies", "row-movies", movies, 2, cx))
+            .children(row("Series", "row-series", series, 3, cx))
             .into_any_element()
     }
 }
