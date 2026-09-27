@@ -3,7 +3,7 @@
 
 use gpui_kit::component::button::Button;
 use gpui_kit::component::skeleton::Skeleton;
-use gpui_kit::component::{ActiveTheme as _, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, h_flex, v_flex};
 use gpui_kit::*;
 
 use crate::card::{OnClick, RADIUS};
@@ -36,6 +36,40 @@ fn skeleton_grid() -> AnyElement {
         .into_any_element()
 }
 
+/// Centered error block: alert icon, `title`, wrapped muted `detail`, then `actions`.
+/// Shared by list screens (`full_status`) and the Player's error overlay.
+pub fn error_panel(
+    title: impl Into<SharedString>,
+    detail: SharedString,
+    actions: impl IntoIterator<Item = AnyElement>,
+    cx: &App,
+) -> Div {
+    let theme = cx.theme();
+    v_flex()
+        .max_w(px(440.))
+        .items_center()
+        .gap_2()
+        .text_center()
+        .child(
+            Icon::new(assets::IconName::CircleAlert)
+                .large()
+                .text_color(theme.danger),
+        )
+        .child(
+            div()
+                .mt_1()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(title.into()),
+        )
+        .child(
+            div()
+                .text_sm()
+                .text_color(theme.muted_foreground)
+                .child(detail),
+        )
+        .child(h_flex().mt_3().gap_2().children(actions))
+}
+
 pub enum Status {
     Loading,
     /// No error and no items.
@@ -56,17 +90,17 @@ pub fn full_status(status: Status, retry: OnClick, loading: bool, cx: &App) -> A
             .text_color(theme.muted_foreground)
             .child(message)
             .into_any_element(),
-        Status::Error(message) => v_flex()
-            .gap_3()
-            .items_center()
-            .child(div().text_color(theme.danger).child(message))
-            .child(
-                Button::new("status-retry")
-                    .label("Retry")
-                    .loading(loading)
-                    .on_click(retry),
-            )
-            .into_any_element(),
+        Status::Error(message) => error_panel(
+            "Something went wrong",
+            message,
+            [Button::new("status-retry")
+                .label("Retry")
+                .loading(loading)
+                .on_click(retry)
+                .into_any_element()],
+            cx,
+        )
+        .into_any_element(),
     };
     div()
         .size_full()
