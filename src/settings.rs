@@ -8,7 +8,7 @@ use gpui_kit::component::setting::{
 use gpui_kit::component::{IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::*;
 
-use crate::config::{Config, LanguagePref, SeekSteps, SubtitleStyle};
+use crate::config::{Config, HideSpoilers, LanguagePref, SeekSteps, SubtitleStyle};
 use crate::detail::PAD;
 use crate::jellyfin::Api;
 use crate::nav::Nav;
@@ -57,6 +57,7 @@ pub enum SettingsChanged {
     Shaders(ShaderProfile),
     Seek(SeekSteps),
     Theme(String),
+    HideSpoilers(HideSpoilers),
 }
 
 pub struct SettingsView {
@@ -66,8 +67,9 @@ pub struct SettingsView {
     shaders: Entity<ShaderProfile>,
     seek: Entity<SeekSteps>,
     theme: Entity<SharedString>,
+    hide_spoilers: Entity<HideSpoilers>,
     stats: Entity<StatsView>,
-    _observe: [Subscription; 6],
+    _observe: [Subscription; 7],
 }
 
 impl EventEmitter<Nav> for SettingsView {}
@@ -82,6 +84,7 @@ impl SettingsView {
         let shaders = cx.new(|_| config.shaders);
         let seek = cx.new(|_| config.seek);
         let theme = cx.new(|_| SharedString::from(theme::active(config)));
+        let hide_spoilers = cx.new(|_| config.hide_spoilers);
         let _observe = [
             cx.observe(&language, |_, language, cx| {
                 cx.emit(SettingsChanged::Language(language.read(cx).clone()))
@@ -103,6 +106,9 @@ impl SettingsView {
                 theme::apply(&name, cx);
                 cx.emit(SettingsChanged::Theme(name))
             }),
+            cx.observe(&hide_spoilers, |_, hide, cx| {
+                cx.emit(SettingsChanged::HideSpoilers(*hide.read(cx)))
+            }),
         ];
         Self {
             language,
@@ -111,6 +117,7 @@ impl SettingsView {
             shaders,
             seek,
             theme,
+            hide_spoilers,
             stats,
             _observe,
         }
@@ -176,7 +183,21 @@ impl SettingsView {
                 },
             ),
         );
-        SettingPage::new("Appearance").group(SettingGroup::new().items([theme]))
+        let (read, write) = (self.hide_spoilers.clone(), self.hide_spoilers.clone());
+        let spoilers = SettingItem::new(
+            "Hide episode spoilers",
+            SettingField::switch(
+                move |cx| read.read(cx).0,
+                move |hide, cx| {
+                    write.update(cx, |value, cx| {
+                        *value = HideSpoilers(hide);
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description("Blur the images and hide the descriptions of episodes you haven't watched.");
+        SettingPage::new("Appearance").group(SettingGroup::new().items([theme, spoilers]))
     }
 
     fn stats_page(&self) -> SettingPage {

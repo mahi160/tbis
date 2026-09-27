@@ -91,7 +91,17 @@ pub struct Config {
     /// Theme name (Settings); `None` is the default theme.
     #[serde(default)]
     pub theme: Option<String>,
+    #[serde(default)]
+    pub hide_spoilers: HideSpoilers,
 }
+
+/// Blur the stills and hide the descriptions of unwatched Episodes (Settings).
+/// Also an app global, so Episode lists read the live value.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct HideSpoilers(pub bool);
+
+impl gpui_kit::Global for HideSpoilers {}
 
 /// Text-subtitle styling; image subtitles (PGS/VobSub) keep their own look.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -228,6 +238,7 @@ pub fn load() -> Config {
             seek: SeekSteps::default(),
             recent_searches: Vec::new(),
             theme: None,
+            hide_spoilers: HideSpoilers::default(),
         })
 }
 
