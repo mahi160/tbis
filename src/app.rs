@@ -1,10 +1,12 @@
 use gpui_kit::component::avatar::Avatar;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::dialog::DialogButtonProps;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::notification::Notification;
 use gpui_kit::component::tab::TabBar;
 use gpui_kit::component::{
-    ActiveTheme as _, Icon, IconName, Root, Sizable as _, TitleBar, h_flex, v_flex,
+    ActiveTheme as _, Icon, IconName, Root, Sizable as _, TitleBar, WindowExt as _, h_flex, v_flex,
 };
 use gpui_kit::*;
 
@@ -20,6 +22,7 @@ use crate::search::{SearchEvent, SearchView};
 use crate::series::SeriesView;
 use crate::settings::{SettingsChanged, SettingsView};
 use crate::shortcuts::{self, ShowShortcuts};
+use crate::update;
 
 actions!(tbis, [FocusSearch]);
 
@@ -105,6 +108,8 @@ pub struct AppView {
     focus: FocusHandle,
     /// Tracks size/position into `config.window`; saved with the rest on quit.
     _window_bounds: Subscription,
+    /// Update check or install in flight; replacing it cancels the old one.
+    _update: Task<()>,
 }
 
 impl AppView {
@@ -143,12 +148,100 @@ impl AppView {
         let _window_bounds = cx.observe_window_bounds(window, |this, window, _| {
             this.config.window = Some(WindowState::from(window.window_bounds()));
         });
-        Self {
+        let mut this = Self {
             config,
             screen,
             focus,
             _window_bounds,
+            _update: Task::ready(()),
+        };
+        this.check_for_updates(false, window, cx);
+        this
+    }
+
+    /// Looks for a newer release; `manual` (menu) also reports "up to date" and errors.
+    pub fn check_for_updates(&mut self, manual: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if update::bundle_path().is_none() {
+            if manual {
+                let note = Notification::info("Updates only work in the installed tbis.app.");
+                window.push_notification(note, cx);
+            }
+            return;
         }
+        let http = cx.http_client();
+        self._update = cx.spawn_in(window, async move |this, cx| {
+            let result = update::check(http).await;
+            this.update_in(cx, |this, window, cx| match result {
+                Ok(Some(update)) => this.offer_update(update, window, cx),
+                Ok(None) if manual => {
+                    let note = format!("tbis {} is the latest version.", update::CURRENT);
+                    window.push_notification(Notification::success(note), cx);
+                }
+                Ok(None) => {}
+                Err(err) if manual => {
+                    let note = Notification::error(format!("Update check failed: {err}"));
+                    window.push_notification(note, cx);
+                }
+                // automatic check: offline or rate-limited is no reason to interrupt
+                Err(err) => eprintln!("update check failed: {err}"),
+            })
+            .ok();
+        });
+    }
+
+    fn offer_update(
+        &mut self,
+        update: update::Update,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let this = cx.entity().downgrade();
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let (this, update) = (this.clone(), update.clone());
+            alert
+                .title(format!("tbis {} is available", update.version))
+                .description(format!(
+                    "You have {}. tbis restarts to finish updating.",
+                    update::CURRENT
+                ))
+                .button_props(
+                    DialogButtonProps::default()
+                        .ok_text("Install and Restart")
+                        .cancel_text("Later"),
+                )
+                .show_cancel(true)
+                .on_ok(move |_, window, cx| {
+                    let update = update.clone();
+                    this.update(cx, |this, cx| this.install_update(update, window, cx))
+                        .ok();
+                    true
+                })
+        });
+    }
+
+    fn install_update(
+        &mut self,
+        update: update::Update,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let note = Notification::info(format!("Downloading tbis {}\u{2026}", update.version));
+        window.push_notification(note, cx);
+        let http = cx.http_client();
+        self._update = cx.spawn_in(window, async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { update::install(http, &update).await })
+                .await
+                .and_then(|()| update::relaunch());
+            this.update_in(cx, |_, window, cx| match result {
+                Ok(()) => cx.quit(),
+                Err(err) => {
+                    let note = Notification::error(format!("Update failed: {err}"));
+                    window.push_notification(note, cx);
+                }
+            })
+            .ok();
+        });
     }
 
     fn login_screen(config: &Config, window: &mut Window, cx: &mut Context<Self>) -> Screen {
@@ -555,12 +648,22 @@ impl AppView {
                         .dropdown_menu(move |menu, _, _| {
                             let this = this.clone();
                             let settings = this.clone();
+                            let updates = this.clone();
                             menu.label(user_name.clone())
                                 .separator()
                                 .item(PopupMenuItem::new("Settings").on_click(
                                     move |_, window, cx| {
                                         settings
                                             .update(cx, |this, cx| this.open_settings(window, cx))
+                                            .ok();
+                                    },
+                                ))
+                                .item(PopupMenuItem::new("Check for Updates\u{2026}").on_click(
+                                    move |_, window, cx| {
+                                        updates
+                                            .update(cx, |this, cx| {
+                                                this.check_for_updates(true, window, cx)
+                                            })
                                             .ok();
                                     },
                                 ))

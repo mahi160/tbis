@@ -10,4 +10,4 @@
 - [ ] If bundling: the app runs on a Mac with no Homebrew mpv installed, including PiP. The bundle is self-contained (the build fails on any leftover Homebrew reference, and the bundled mpv loads all 47 libraries from `Contents/Frameworks`), but it hasn't been run on a Mac without Homebrew yet.
 - [ ] Developer ID signing and notarization (needs an Apple Developer account)
 - [x] Release artifacts include the GPL Corresponding Source for bundled components (scripts/gpl-sources.sh, attached by the release workflow)
-- [ ] Update check finds a newer release and installs it with user confirmation
+- [x] Update check finds a newer release and installs it with user confirmation (built-in GitHub updater in src/update.rs: checks on launch and from the user menu, verifies the zip's GitHub SHA-256 and the app's signature, swaps the bundle, relaunches; the swap and relaunch haven't been run end to end yet)

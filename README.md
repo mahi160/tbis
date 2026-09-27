@@ -16,6 +16,10 @@ A native macOS client for [Jellyfin](https://jellyfin.org), built with [GPUI](ht
 
 You only need to do this once. The app bundles everything it needs, including mpv, so you don't need Homebrew.
 
+## Updates
+
+tbis checks for a newer release each time it starts, and you can check yourself with **Check for Updates…** in the user menu. When you accept an update, tbis downloads it, checks it against the checksum GitHub records for the release, replaces the app, and restarts. Updates installed this way don't need the Gatekeeper step again. If tbis is in a folder you can't write to, the update fails and you can download it from Releases instead.
+
 ## Build from source
 
 You need Rust and Homebrew's mpv (`brew install mpv`).

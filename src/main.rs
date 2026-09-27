@@ -24,6 +24,7 @@ mod stats;
 mod status;
 mod support_dir;
 mod theme;
+mod update;
 
 use std::sync::Arc;
 
