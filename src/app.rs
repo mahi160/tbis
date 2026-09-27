@@ -1,3 +1,4 @@
+use gpui_kit::component::avatar::Avatar;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
@@ -17,6 +18,7 @@ use crate::nav::Nav;
 use crate::player::{Closed, PlayerView};
 use crate::search::SearchView;
 use crate::series::SeriesView;
+use crate::settings::{LanguageChanged, SettingsView};
 
 actions!(tbis, [FocusSearch]);
 
@@ -42,18 +44,22 @@ struct Main {
     series: Entity<LibraryView>,
     search_input: Entity<InputState>,
     search: Entity<SearchView>,
+    /// Search input expanded in title bar; collapses to an icon on blur.
+    search_open: bool,
     /// Movie or Series detail shown over the current tab.
     detail: Option<Detail>,
     player: Option<(Entity<PlayerView>, Subscription)>,
     _subscriptions: [Subscription; 7],
+    /// Waits for `Api`'s 401 signal; dropped with Main so a stale one can't fire later.
+    _expired: Task<()>,
 }
 
 /// Detail page shown over the current tab; opened from a Movie or Series poster.
 struct Detail {
     view: AnyView,
     refresh: Box<dyn Fn(&mut App)>,
-    // kept alive so Nav from the detail view keeps reaching `on_nav`
-    _nav: Subscription,
+    // kept alive so Nav (and e.g. Settings changes) from the detail view keep arriving
+    _subscriptions: Vec<Subscription>,
 }
 
 impl Detail {
@@ -118,6 +124,7 @@ impl AppView {
                 let (volume, muted) = player.read(cx).volume_state();
                 this.config.volume = volume;
                 this.config.muted = muted;
+                this.config.track_prefs = player.read(cx).track_prefs();
                 save_config(&this.config, "volume");
                 report = player.read(cx).quit_report();
             }
@@ -157,7 +164,19 @@ impl AppView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Screen {
-        let api = Api::new(cx.http_client(), session.clone(), config.device_id.clone());
+        let (expired_tx, mut expired_rx) = futures::channel::mpsc::unbounded();
+        let api = Api::new(
+            cx.http_client(),
+            session.clone(),
+            config.device_id.clone(),
+            expired_tx,
+        );
+        let _expired = cx.spawn_in(window, async move |this, cx| {
+            if futures::StreamExt::next(&mut expired_rx).await.is_some() {
+                this.update_in(cx, |this, window, cx| this.session_expired(window, cx))
+                    .ok();
+            }
+        });
         let home = cx.new(|cx| {
             let mut home = HomeView::new(api.clone());
             home.refresh(cx);
@@ -193,11 +212,21 @@ impl AppView {
                 this.on_nav(nav, window, cx)
             }),
             cx.subscribe(&search_input, |this, input, event: &InputEvent, cx| {
-                if let (InputEvent::Change, Screen::Main(main)) = (event, &this.screen) {
-                    let query = input.read(cx).value();
-                    main.search
-                        .update(cx, |search, cx| search.set_query(&query, cx));
-                    cx.notify();
+                let Screen::Main(main) = &mut this.screen else {
+                    return;
+                };
+                match event {
+                    InputEvent::Change => {
+                        let query = input.read(cx).value();
+                        main.search
+                            .update(cx, |search, cx| search.set_query(&query, cx));
+                        cx.notify();
+                    }
+                    InputEvent::Blur => {
+                        main.search_open = false;
+                        cx.notify();
+                    }
+                    _ => {}
                 }
             }),
         ];
@@ -210,9 +239,11 @@ impl AppView {
             series,
             search_input,
             search,
+            search_open: false,
             detail: None,
             player: None,
             _subscriptions,
+            _expired,
         })
     }
 
@@ -271,7 +302,7 @@ impl AppView {
         main.detail = Some(Detail {
             view: view.into(),
             refresh: Box::new(refresh),
-            _nav,
+            _subscriptions: vec![_nav],
         });
         Self::clear_search(main, window, cx);
         cx.notify();
@@ -292,6 +323,23 @@ impl AppView {
         );
     }
 
+    fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let language = self.config.language.clone();
+        let view = cx.new(|cx| SettingsView::new(language, cx));
+        let changed = cx.subscribe(&view, |this, _, LanguageChanged(language), _| {
+            this.config.language = language.clone();
+            save_config(&this.config, "language");
+        });
+        self.set_detail(view, |_| {}, window, cx);
+        if let Screen::Main(Main {
+            detail: Some(detail),
+            ..
+        }) = &mut self.screen
+        {
+            detail._subscriptions.push(changed);
+        }
+    }
+
     fn open_movie(&mut self, movie: &Item, window: &mut Window, cx: &mut Context<Self>) {
         let Screen::Main(main) = &self.screen else {
             return;
@@ -308,9 +356,11 @@ impl AppView {
     }
 
     fn focus_search(&mut self, _: &FocusSearch, window: &mut Window, cx: &mut Context<Self>) {
-        if let Screen::Main(main) = &self.screen
+        if let Screen::Main(main) = &mut self.screen
             && main.player.is_none()
         {
+            main.search_open = true;
+            cx.notify();
             main.search_input
                 .update(cx, |input, cx| input.focus(window, cx));
         }
@@ -322,11 +372,15 @@ impl AppView {
         };
         let api = main.api.clone();
         let volume = (self.config.volume, self.config.muted);
-        let player = cx.new(|cx| PlayerView::new(api, item, volume, window, cx));
+        let track_prefs = self.config.track_prefs.clone();
+        let language = self.config.language.clone();
+        let player =
+            cx.new(|cx| PlayerView::new(api, item, volume, track_prefs, language, window, cx));
         let subscription =
             cx.subscribe_in(&player, window, |this, _, closed: &Closed, window, cx| {
                 this.config.volume = closed.volume;
                 this.config.muted = closed.muted;
+                this.config.track_prefs = closed.track_prefs.clone();
                 save_config(&this.config, "volume");
                 this.close_player(window, cx)
             });
@@ -346,6 +400,28 @@ impl AppView {
         cx.notify();
     }
 
+    /// Server rejected the token: leave the Player (keeping its volume/tracks), then
+    /// sign in again with the server prefilled.
+    fn session_expired(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Screen::Main(main) = &self.screen else {
+            return;
+        };
+        let server = main.session.server.clone();
+        if let Some((player, _)) = &main.player {
+            let player = player.read(cx);
+            (self.config.volume, self.config.muted) = player.volume_state();
+            self.config.track_prefs = player.track_prefs();
+            if window.is_fullscreen() {
+                window.toggle_fullscreen();
+            }
+            set_video_background(false, window, cx);
+        }
+        self.log_out(window, cx);
+        if let Screen::Login { view, .. } = &self.screen {
+            view.update(cx, |login, cx| login.expired(&server, window, cx));
+        }
+    }
+
     fn log_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.config.session = None;
         save_config(&self.config, "session");
@@ -360,44 +436,92 @@ impl AppView {
         let selected = TABS.iter().position(|(t, _)| *t == main.tab).unwrap_or(0);
         let this = cx.entity().downgrade();
 
+        let user_name = main.session.user_name.clone();
+
+        let search = if main.search_open || main.searching(cx) {
+            div()
+                .w(px(200.))
+                .child(
+                    Input::new(&main.search_input)
+                        .small()
+                        .cleanable(true)
+                        .prefix(Icon::new(IconName::Search).small()),
+                )
+                .into_any_element()
+        } else {
+            Button::new("search")
+                .ghost()
+                .small()
+                .icon(IconName::Search)
+                .tooltip_with_action("Search", &FocusSearch, None)
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.focus_search(&FocusSearch, window, cx)),
+                )
+                .into_any_element()
+        };
+
         TitleBar::new()
+            .h(px(40.))
+            .border_b_0()
+            .bg(cx.theme().background)
             .child(
-                TabBar::new("nav")
-                    .segmented()
-                    .small()
-                    .children(TABS.map(|(_, label)| label))
-                    .selected_index(selected)
-                    .on_click(cx.listener(|this, index: &usize, window, cx| {
-                        this.select_tab(*index, window, cx)
-                    })),
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("tbis"),
+            )
+            // spans whole window width so tabs sit at true center; offset cancels TitleBar left padding
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .left(px(if cfg!(target_os = "macos") {
+                        -80.
+                    } else {
+                        -12.
+                    }))
+                    .right_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        TabBar::new("nav")
+                            .underline()
+                            .small()
+                            .children(TABS.map(|(_, label)| label))
+                            .selected_index(selected)
+                            .on_click(cx.listener(|this, index: &usize, window, cx| {
+                                this.select_tab(*index, window, cx)
+                            })),
+                    ),
             )
             .child(
-                h_flex()
-                    .pr_2()
-                    .gap_2()
-                    .child(
-                        div().w(px(220.)).child(
-                            Input::new(&main.search_input)
-                                .small()
-                                .cleanable(true)
-                                .prefix(Icon::new(IconName::Search).small()),
-                        ),
-                    )
-                    .child(
-                        Button::new("user-menu")
-                            .ghost()
-                            .small()
-                            .label(main.session.user_name.clone())
-                            .dropdown_caret(true)
-                            .dropdown_menu(move |menu, _, _| {
-                                let this = this.clone();
-                                menu.item(PopupMenuItem::new("Log out").on_click(
+                h_flex().pr_2().gap_1().child(search).child(
+                    Button::new("user-menu")
+                        .ghost()
+                        .small()
+                        .child(Avatar::new().name(user_name.clone()).small())
+                        .dropdown_caret(true)
+                        .dropdown_menu(move |menu, _, _| {
+                            let this = this.clone();
+                            let settings = this.clone();
+                            menu.label(user_name.clone())
+                                .separator()
+                                .item(PopupMenuItem::new("Settings").on_click(
+                                    move |_, window, cx| {
+                                        settings
+                                            .update(cx, |this, cx| this.open_settings(window, cx))
+                                            .ok();
+                                    },
+                                ))
+                                .item(PopupMenuItem::new("Log out").on_click(
                                     move |_, window, cx| {
                                         this.update(cx, |this, cx| this.log_out(window, cx)).ok();
                                     },
                                 ))
-                            }),
-                    ),
+                        }),
+                ),
             )
     }
 }
