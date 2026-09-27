@@ -19,6 +19,8 @@ pub struct SeriesView {
     episodes: Vec<Item>,
     loading: bool,
     error: Option<SharedString>,
+    /// Kept by the view so Back from an Episode page lands where the user was.
+    scroll: ScrollHandle,
     _load: Task<()>,
 }
 
@@ -57,6 +59,7 @@ impl SeriesView {
             episodes: Vec::new(),
             loading: true,
             error: None,
+            scroll: ScrollHandle::new(),
             _load: Task::ready(()),
         };
         this.load_series(cx);
@@ -204,9 +207,8 @@ impl SeriesView {
                     })),
             );
         detail::detail_header(
-            &self.api,
             &self.series,
-            (px(120.), px(180.)),
+            (self.api.poster_url(&self.series), px(120.), px(180.)),
             back,
             body,
             cx,
@@ -215,9 +217,16 @@ impl SeriesView {
 
     fn render_episode(&self, episode: &Item, cx: &mut Context<Self>) -> AnyElement {
         let (muted, muted_fg) = (cx.theme().muted, cx.theme().muted_foreground);
+        let open = {
+            let episode = episode.clone();
+            cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Open(episode.clone())))
+        };
         let play = {
             let episode = episode.clone();
-            cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Play(episode.clone())))
+            cx.listener(move |_, _: &ClickEvent, _, cx| {
+                cx.stop_propagation(); // row itself opens the Episode page
+                cx.emit(Nav::Play(episode.clone()))
+            })
         };
         let progress = episode.user_data.played_percentage.filter(|p| *p > 0.);
         let number = episode
@@ -235,9 +244,13 @@ impl SeriesView {
             .rounded_md()
             .cursor_pointer()
             .hover(|this| this.bg(muted))
-            .on_click(play)
+            .on_click(open)
             .child(
                 div()
+                    .id(ElementId::Name(
+                        format!("episode-play-{}", episode.id).into(),
+                    ))
+                    .group("episode-still")
                     .relative()
                     .w(px(192.))
                     .h(px(108.))
@@ -245,7 +258,9 @@ impl SeriesView {
                     .rounded_md()
                     .overflow_hidden()
                     .bg(muted)
+                    .on_click(play)
                     .child(card::image(self.api.poster_url(episode), "".into(), cx))
+                    .child(card::play_scrim("episode-still", cx))
                     .when_some(progress, |this, percent| {
                         this.child(card::progress_bar(percent, cx))
                     })
@@ -317,6 +332,7 @@ impl Render for SeriesView {
             .size_full()
             .relative()
             .overflow_y_scroll()
+            .track_scroll(&self.scroll)
             .p(px(PAD))
             .gap_6()
             .children(detail::backdrop(&self.api, &self.series, cx))

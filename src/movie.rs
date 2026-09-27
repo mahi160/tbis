@@ -1,13 +1,15 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{IconName, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, IconName, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::detail::{self, PAD, Toggle, UserDataView};
-use crate::jellyfin::{Api, Item, UserData};
+use crate::jellyfin::{Api, Item, Kind, UserData, episode_code};
 use crate::nav::Nav;
 use crate::status::{Status, inline_status};
 
-/// Movie detail: poster, title, meta, overview, and a Play/Resume button.
+/// Movie or Episode detail: art, title, meta, overview, and a Play/Resume button.
+/// An Episode shows its still instead of a poster, under its Series and code.
 pub struct MovieView {
     api: Api,
     movie: Item,
@@ -64,6 +66,29 @@ impl MovieView {
         });
     }
 
+    /// `Series · S01E03 · Aired 2024-05-01` above an Episode's title.
+    fn episode_kicker(&self, cx: &App) -> impl IntoElement {
+        let code = match (self.movie.parent_index_number, self.movie.index_number) {
+            (Some(season), Some(episode)) => Some(episode_code(season, episode)),
+            _ => None,
+        };
+        let aired = self
+            .movie
+            .premiere_date
+            .as_deref()
+            .and_then(|date| date.get(..10))
+            .map(|day| format!("Aired {day}"));
+        let parts: Vec<String> = [self.movie.series_name.clone(), code, aired]
+            .into_iter()
+            .flatten()
+            .collect();
+        div()
+            .text_sm()
+            .font_family(cx.theme().mono_font_family.clone())
+            .text_color(cx.theme().muted_foreground)
+            .child(parts.join(" \u{b7} "))
+    }
+
     fn runtime_label(&self) -> Option<String> {
         Some(detail::runtime_label(self.movie.run_time_ticks?))
     }
@@ -75,15 +100,17 @@ impl Render for MovieView {
         let runtime = self.runtime_label();
         let movie = self.movie.clone();
 
+        let episode = self.movie.kind == Kind::Episode;
         let back = Box::new(cx.listener(|_, _, _, cx| cx.emit(Nav::Back)));
         let body = v_flex()
             .min_w_0()
             .gap_3()
+            .when(episode, |this| this.child(self.episode_kicker(cx)))
             .child(
                 div()
                     .text_2xl()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(self.movie.name.clone()),
+                    .child(self.movie.display_name().to_string()),
             )
             .children(detail::meta_line(&self.movie, runtime, cx))
             .children(detail::genres_line(&self.movie, cx))
@@ -119,8 +146,12 @@ impl Render for MovieView {
                         }))
                     })),
             );
-        let header =
-            detail::detail_header(&self.api, &self.movie, (px(160.), px(240.)), back, body, cx);
+        let image = if episode {
+            (self.api.wide_image_url(&self.movie), px(320.), px(180.))
+        } else {
+            (self.api.poster_url(&self.movie), px(160.), px(240.))
+        };
+        let header = detail::detail_header(&self.movie, image, back, body, cx);
 
         let status = if let Some(error) = self.error.clone() {
             Some(Status::Error(error))

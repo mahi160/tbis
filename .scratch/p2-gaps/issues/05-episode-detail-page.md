@@ -4,9 +4,9 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
-- [ ] Episode rows and Episode search results open the Episode detail page
-- [ ] Page shows still, labels, air date, runtime, overview, and Play/Resume with progress
-- [ ] Back returns to the previous screen and its scroll position
-- [ ] Home's Continue Watching / Next Up cards still play directly on click
+- [x] Episode rows and Episode search results open the Episode detail page
+- [x] Page shows still, labels, air date, runtime, overview, and Play/Resume with progress
+- [x] Back returns to the previous screen and its scroll position (detail pages now stack; Search itself is cleared on open, as before)
+- [x] Home's Continue Watching / Next Up cards still play directly on click

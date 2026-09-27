@@ -47,8 +47,9 @@ struct Main {
     search: Entity<SearchView>,
     /// Search input expanded in title bar; collapses to an icon on blur.
     search_open: bool,
-    /// Movie or Series detail shown over the current tab.
-    detail: Option<Detail>,
+    /// Detail pages over the current tab, innermost last; Back pops one
+    /// (e.g. Episode back to its Series).
+    details: Vec<Detail>,
     player: Option<(Entity<PlayerView>, Subscription)>,
     _subscriptions: [Subscription; 7],
     /// Waits for `Api`'s 401 signal; dropped with Main so a stale one can't fire later.
@@ -76,7 +77,7 @@ impl Main {
 
     /// Reloads whatever is on screen so played state and progress are fresh.
     fn refresh_visible(&self, cx: &mut App) {
-        if let Some(detail) = &self.detail {
+        if let Some(detail) = self.details.last() {
             detail.refresh(cx);
         } else {
             match self.tab {
@@ -247,7 +248,7 @@ impl AppView {
             search_input,
             search,
             search_open: false,
-            detail: None,
+            details: Vec::new(),
             player: None,
             _subscriptions,
             _expired,
@@ -259,7 +260,7 @@ impl AppView {
             return;
         };
         main.tab = TABS[index].0;
-        main.detail = None;
+        main.details.clear();
         Self::clear_search(main, window, cx);
         main.refresh_visible(cx);
         cx.notify();
@@ -277,7 +278,7 @@ impl AppView {
         match nav {
             Nav::Open(item) => match item.kind {
                 Kind::Series => self.open_series(item, window, cx),
-                // an Episode or Other reaching Nav::Open would be a server data bug
+                // Episode detail shares the Movie page; Other would be a server data bug
                 Kind::Movie | Kind::Episode | Kind::Other => self.open_movie(item, window, cx),
             },
             Nav::Play(item) => self.open_player(item, window, cx),
@@ -285,7 +286,7 @@ impl AppView {
                 let Screen::Main(main) = &mut self.screen else {
                     return;
                 };
-                main.detail = None;
+                main.details.pop();
                 main.refresh_visible(cx);
                 cx.notify();
             }
@@ -306,7 +307,7 @@ impl AppView {
         let Screen::Main(main) = &mut self.screen else {
             return;
         };
-        main.detail = Some(Detail {
+        main.details.push(Detail {
             view: view.into(),
             refresh: Box::new(refresh),
             _subscriptions: vec![_nav],
@@ -338,10 +339,8 @@ impl AppView {
             save_config(&this.config, "language");
         });
         self.set_detail(view, |_| {}, window, cx);
-        if let Screen::Main(Main {
-            detail: Some(detail),
-            ..
-        }) = &mut self.screen
+        if let Screen::Main(main) = &mut self.screen
+            && let Some(detail) = main.details.last_mut()
         {
             detail._subscriptions.push(changed);
         }
@@ -578,10 +577,9 @@ impl Render for AppView {
         let content = match &self.screen {
             Screen::Login { view, .. } => view.clone().into_any_element(),
             Screen::Main(main) if main.searching(cx) => main.search.clone().into_any_element(),
-            Screen::Main(Main {
-                detail: Some(detail),
-                ..
-            }) => detail.view.clone().into_any_element(),
+            Screen::Main(Main { details, .. }) if !details.is_empty() => {
+                details[details.len() - 1].view.clone().into_any_element()
+            }
             Screen::Main(Main {
                 tab: Tab::Movies,
                 movies,

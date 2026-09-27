@@ -25,16 +25,15 @@ pub fn runtime_label(ticks: i64) -> String {
     format!("{}h {:02}m", minutes / 60, minutes % 60)
 }
 
-/// Back button, poster at `poster` size, then `body` (title/meta/overview/actions).
+/// Back button, `image` (URL, width, height), then `body` (title/meta/overview/actions).
 pub fn detail_header(
-    api: &Api,
     item: &Item,
-    poster: (Pixels, Pixels),
+    image: (Option<String>, Pixels, Pixels),
     back: OnClick,
     body: impl IntoElement,
     cx: &App,
 ) -> impl IntoElement {
-    let (width, height) = poster;
+    let (url, width, height) = image;
     h_flex()
         .gap_5()
         .items_start()
@@ -51,11 +50,7 @@ pub fn detail_header(
                 .flex_shrink_0()
                 .rounded_md()
                 .overflow_hidden()
-                .child(card::image(
-                    api.poster_url(item),
-                    item.name.clone().into(),
-                    cx,
-                )),
+                .child(card::image(url, item.name.clone().into(), cx)),
         )
         .child(body)
 }

@@ -155,6 +155,8 @@ pub struct Item {
     /// Episode number, or season number for a season.
     pub index_number: Option<i32>,
     pub run_time_ticks: Option<i64>,
+    /// ISO 8601 air/release date, e.g. `2024-05-01T00:00:00.0000000Z`.
+    pub premiere_date: Option<String>,
     pub overview: Option<String>,
     /// Detail-page metadata; single-item requests carry them, list requests mostly don't.
     pub community_rating: Option<f32>,
@@ -903,11 +905,18 @@ impl Api {
     }
 
     /// Full-width backdrop art for detail pages.
+    /// Own backdrop, else (an Episode's) its Series' one.
     pub fn backdrop_url(&self, item: &Item) -> Option<String> {
-        let tag = item.backdrop_image_tags.first()?;
+        let (id, tag) = match item.backdrop_image_tags.first() {
+            Some(tag) => (&item.id, tag),
+            None => (
+                item.parent_backdrop_item_id.as_ref()?,
+                item.parent_backdrop_image_tags.first()?,
+            ),
+        };
         Some(format!(
-            "{}/Items/{}/Images/Backdrop/0?fillWidth=1920&quality=85&tag={tag}",
-            self.session.server, item.id
+            "{}/Items/{id}/Images/Backdrop/0?fillWidth=1920&quality=85&tag={tag}",
+            self.session.server
         ))
     }
 

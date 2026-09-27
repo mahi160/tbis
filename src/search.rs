@@ -124,9 +124,9 @@ impl SearchView {
     fn episode_section(&self, cx: &mut Context<Self>) -> AnyElement {
         let mut rows = Vec::with_capacity(self.results.episodes.len());
         for item in &self.results.episodes {
-            let play = {
+            let open = {
                 let item = item.clone();
-                cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Play(item.clone())))
+                cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Open(item.clone())))
             };
             let muted_fg = cx.theme().muted_foreground;
             rows.push(
@@ -137,7 +137,7 @@ impl SearchView {
                     .rounded_md()
                     .cursor_pointer()
                     .hover(|this| this.bg(cx.theme().muted))
-                    .on_click(play)
+                    .on_click(open)
                     .child(
                         div()
                             .w(px(160.))

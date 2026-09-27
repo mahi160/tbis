@@ -42,8 +42,9 @@ fn art_tile(width: Pixels, height: Pixels, muted: Hsla) -> Div {
         .group_hover("card", |this| this.shadow(shadow_hover()))
 }
 
-/// Centered play button that fades in over the art on hover (Photon's play scrim).
-fn play_scrim(cx: &App) -> AnyElement {
+/// Centered play button that fades in over the art while `group` is hovered
+/// (Photon's play scrim).
+pub fn play_scrim(group: &'static str, cx: &App) -> AnyElement {
     div()
         .absolute()
         .inset_0()
@@ -53,7 +54,7 @@ fn play_scrim(cx: &App) -> AnyElement {
         .justify_center()
         .bg(hsla(0., 0., 0., 0.35))
         .opacity(0.)
-        .group_hover("card", |this| this.opacity(1.))
+        .group_hover(group, |this| this.opacity(1.))
         .child(
             div()
                 .size_11()
@@ -145,7 +146,7 @@ pub fn wide_card(
                 .cursor_pointer()
                 .on_click(on_play)
                 .child(image(api.wide_image_url(item), title.clone().into(), cx))
-                .child(play_scrim(cx))
+                .child(play_scrim("card", cx))
                 .when_some(
                     item.user_data.played_percentage.filter(|p| *p > 0.),
                     |this, p| this.child(progress_bar(p, cx)),
