@@ -66,6 +66,15 @@ impl LoginView {
         }
     }
 
+    /// Shown after the server rejected the saved token: server kept, expiry explained.
+    pub fn expired(&mut self, server: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.server.update(cx, |input, cx| {
+            input.set_value(server.to_string(), window, cx)
+        });
+        self.error = Some(jellyfin::SessionExpired.to_string().into());
+        cx.notify();
+    }
+
     /// Silent: failures just mean no picker; Sign in reports real errors.
     fn load_users(&mut self, cx: &mut Context<Self>) {
         let server = self.server.read(cx).value().trim().to_string();
