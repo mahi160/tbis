@@ -1,6 +1,6 @@
 [package]
 name = "tbis"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2024"
 # GPL: the .app bundles Homebrew's GPLv3 libmpv/FFmpeg (ADR-0004)
 license = "GPL-3.0-or-later"
