@@ -499,6 +499,7 @@ struct MediaSource {
 struct MediaStream {
     #[serde(rename = "Type")]
     kind: String,
+    index: i64,
     #[serde(default)]
     is_external: bool,
     #[serde(default)]
@@ -835,9 +836,18 @@ impl Api {
             .iter()
             .filter(|s| s.kind == "Subtitle" && s.is_external)
             .filter_map(|s| {
-                let url = s.delivery_url.as_ref()?;
+                s.delivery_url.as_ref()?; // server offers it externally; built fresh below, not from this
                 Some(ExternalSubtitle {
-                    url: format!("{}{url}", self.session.server),
+                    // Not `delivery_url`: it bakes in the resume position as the subtitle's
+                    // own zero point, so on a resumed item every cue lands before mpv's real
+                    // (absolute-timeline) seek target and none of them ever show.
+                    url: format!(
+                        "{}/Videos/{}/{}/Subtitles/{}/Stream.srt",
+                        self.session.server,
+                        item.id,
+                        item.media_source_id(),
+                        s.index
+                    ),
                     title: s.display_title.clone().unwrap_or_default(),
                     lang: s.language.clone().unwrap_or_default(),
                     is_default: s.is_default,
