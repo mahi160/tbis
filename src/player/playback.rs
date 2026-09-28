@@ -156,7 +156,19 @@ impl PlayerView {
             MpvEvent::Mute(muted) => self.muted = muted,
             MpvEvent::Tracks(tracks) => {
                 self.playback.tracks = tracks;
-                if !self.playback.tracks_applied && !self.playback.tracks.is_empty() {
+                // The embedded track list can turn up before `FileLoaded`'s sub-add for
+                // this item's external subtitles lands; applying now would pick a
+                // language/remembered subtitle from a list that's still missing them.
+                let subs_pending = !self.playback.subs_added
+                    && self
+                        .playback
+                        .item
+                        .as_ref()
+                        .is_some_and(|item| !self.api.external_subtitles(item).is_empty());
+                if !self.playback.tracks_applied
+                    && !self.playback.tracks.is_empty()
+                    && !subs_pending
+                {
                     self.playback.tracks_applied = true;
                     self.apply_remembered_tracks();
                 }
