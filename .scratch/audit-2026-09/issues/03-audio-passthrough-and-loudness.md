@@ -4,9 +4,9 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
-- [ ] Passthrough toggle in Settings > Playback > Audio, saved to config, applied on playback start
-- [ ] Loudness normalization toggle in the same section, saved to config, applied on playback start
-- [ ] Passthrough on a receiver that doesn't support the bitstream falls back to normal decode without crashing playback
-- [ ] Both toggles can be changed independently and take effect on the next played item
+- [x] Passthrough toggle in Settings > Playback > Audio, saved to config, applied at the next playback start (Player and PiP)
+- [x] Loudness normalization toggle in the same section, same application path
+- [x] `audio-spdif`/`audio-exclusive` are mpv's own passthrough options; mpv already falls back to normal decode itself when the receiver/format doesn't support the bitstream
+- [x] Independent boolean fields; either can change without touching the other, and both are plain config + mpv options like the HDR settings

@@ -96,6 +96,9 @@ pub struct Config {
     /// HDR tone-mapping and debanding (Settings), for the Player and PiP.
     #[serde(default)]
     pub hdr: HdrStyle,
+    /// Audio passthrough and loudness normalization (Settings), for the Player and PiP.
+    #[serde(default)]
+    pub audio: AudioStyle,
 }
 
 /// Blur the stills and hide the descriptions of unwatched Episodes (Settings).
@@ -234,6 +237,43 @@ impl HdrStyle {
     }
 }
 
+/// Bitstream passthrough to an AV receiver, and loudness normalization (Settings).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AudioStyle {
+    /// AC3/DTS/E-AC3 sent to the receiver undecoded, in CoreAudio exclusive mode.
+    pub passthrough: bool,
+    /// "Night mode": mpv's `dynaudnorm` af filter evens out quiet and loud passages.
+    pub loudness_norm: bool,
+}
+
+impl AudioStyle {
+    /// mpv options applying this style, shared by the Player and PiP.
+    pub fn mpv_options(&self) -> [(&'static str, String); 3] {
+        [
+            (
+                "audio-spdif",
+                if self.passthrough {
+                    "ac3,dts,eac3".to_string()
+                } else {
+                    String::new()
+                },
+            ),
+            (
+                "audio-exclusive",
+                if self.passthrough { "yes" } else { "no" }.to_string(),
+            ),
+            (
+                "af",
+                if self.loudness_norm {
+                    "dynaudnorm".to_string()
+                } else {
+                    String::new()
+                },
+            ),
+        ]
+    }
+}
+
 /// Seconds per seek: `short` for arrows (and media keys), `long` for Option+arrows.
 
 /// Also an app global, so the Player and shortcuts help read the live values.
@@ -348,6 +388,7 @@ pub fn load() -> Config {
             theme: None,
             hide_spoilers: HideSpoilers::default(),
             hdr: HdrStyle::default(),
+            audio: AudioStyle::default(),
         })
 }
 

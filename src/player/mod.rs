@@ -15,7 +15,7 @@ use futures::channel::mpsc;
 use gpui_kit::component::slider::{SliderEvent, SliderState};
 use gpui_kit::*;
 
-use crate::config::{Config, HdrStyle, LanguagePref, SubtitleStyle, TrackPrefs};
+use crate::config::{AudioStyle, Config, HdrStyle, LanguagePref, SubtitleStyle, TrackPrefs};
 use crate::jellyfin::{Api, Item, PlaybackItem, Report};
 use crate::mpv::Mpv;
 use crate::now_playing::{NowPlaying, RemoteCommand};
@@ -131,6 +131,8 @@ pub struct PlayerView {
     subtitles: SubtitleStyle,
     /// Settings' HDR tone-mapping/deband look; PiP gets it too.
     hdr: HdrStyle,
+    /// Settings' audio passthrough/loudness look; PiP gets it too.
+    audio: AudioStyle,
     /// Settings' streaming cap; over it the server may transcode.
     max_bitrate_mbps: Option<u32>,
     /// Upscaling shaders active in the in-window mpv (and handed to PiP).
@@ -192,6 +194,9 @@ impl PlayerView {
                     let _ = mpv.set_property(name, &value);
                 }
                 for (name, value) in config.hdr.mpv_options() {
+                    let _ = mpv.set_property(name, &value);
+                }
+                for (name, value) in config.audio.mpv_options() {
                     let _ = mpv.set_property(name, &value);
                 }
                 (Some(mpv), None)
@@ -268,6 +273,7 @@ impl PlayerView {
             language: config.language.clone(),
             subtitles: config.subtitles.clone(),
             hdr: config.hdr,
+            audio: config.audio,
             max_bitrate_mbps: config.max_bitrate_mbps,
             shaders: ShaderProfile::Off,
             awake: None,

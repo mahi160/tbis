@@ -9,8 +9,8 @@ use gpui_kit::component::{IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::*;
 
 use crate::config::{
-    Config, DebandLevel, HdrStyle, HideSpoilers, LanguagePref, SeekSteps, SubtitleStyle,
-    ToneMapCurve,
+    AudioStyle, Config, DebandLevel, HdrStyle, HideSpoilers, LanguagePref, SeekSteps,
+    SubtitleStyle, ToneMapCurve,
 };
 use crate::detail::PAD;
 use crate::jellyfin::Api;
@@ -62,6 +62,7 @@ pub enum SettingsChanged {
     Theme(String),
     HideSpoilers(HideSpoilers),
     Hdr(HdrStyle),
+    Audio(AudioStyle),
 }
 
 pub struct SettingsView {
@@ -73,8 +74,9 @@ pub struct SettingsView {
     theme: Entity<SharedString>,
     hide_spoilers: Entity<HideSpoilers>,
     hdr: Entity<HdrStyle>,
+    audio: Entity<AudioStyle>,
     stats: Entity<StatsView>,
-    _observe: [Subscription; 8],
+    _observe: [Subscription; 9],
 }
 
 impl EventEmitter<Nav> for SettingsView {}
@@ -91,6 +93,7 @@ impl SettingsView {
         let theme = cx.new(|_| SharedString::from(theme::active(config)));
         let hide_spoilers = cx.new(|_| config.hide_spoilers);
         let hdr = cx.new(|_| config.hdr);
+        let audio = cx.new(|_| config.audio);
         let _observe = [
             cx.observe(&language, |_, language, cx| {
                 cx.emit(SettingsChanged::Language(language.read(cx).clone()))
@@ -118,6 +121,9 @@ impl SettingsView {
             cx.observe(&hdr, |_, hdr, cx| {
                 cx.emit(SettingsChanged::Hdr(*hdr.read(cx)))
             }),
+            cx.observe(&audio, |_, audio, cx| {
+                cx.emit(SettingsChanged::Audio(*audio.read(cx)))
+            }),
         ];
         Self {
             language,
@@ -128,6 +134,7 @@ impl SettingsView {
             theme,
             hide_spoilers,
             hdr,
+            audio,
             stats,
             _observe,
         }
@@ -295,6 +302,41 @@ impl SettingsView {
             .title("HDR")
             .description("Applies from the next playback.")
             .items([tone_map, deband])
+    }
+
+    fn audio_group(&self) -> SettingGroup {
+        let (read, write) = (self.audio.clone(), self.audio.clone());
+        let passthrough = SettingItem::new(
+            "Bitstream passthrough",
+            SettingField::switch(
+                move |cx| read.read(cx).passthrough,
+                move |on, cx| {
+                    write.update(cx, |style, cx| {
+                        style.passthrough = on;
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description("Send AC3/DTS/E-AC3 straight to an AV receiver instead of decoding it here.");
+        let (read, write) = (self.audio.clone(), self.audio.clone());
+        let loudness = SettingItem::new(
+            "Loudness normalization",
+            SettingField::switch(
+                move |cx| read.read(cx).loudness_norm,
+                move |on, cx| {
+                    write.update(cx, |style, cx| {
+                        style.loudness_norm = on;
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description("Evens out quiet dialogue and loud effects (\"night mode\").");
+        SettingGroup::new()
+            .title("Audio")
+            .description("Applies from the next playback.")
+            .items([passthrough, loudness])
     }
 
     fn streaming_group(&self) -> SettingGroup {
@@ -472,6 +514,7 @@ impl SettingsView {
             self.seek_group(),
             self.video_group(),
             self.hdr_group(),
+            self.audio_group(),
             self.streaming_group(),
         ])
     }

@@ -514,6 +514,7 @@ impl AppView {
                     cx.set_global(*hide);
                 }
                 SettingsChanged::Hdr(style) => this.config.hdr = *style,
+                SettingsChanged::Audio(style) => this.config.audio = *style,
             }
             save_config(&this.config, "settings");
         });
