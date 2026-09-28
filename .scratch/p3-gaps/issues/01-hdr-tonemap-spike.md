@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** superseded — investigation completed by `docs/audit-2026-09.html` §4; the ADR and follow-on work continue as `.scratch/audit-2026-09/issues/06-edr-output-adr.md` and `10-edr-output-implementation.md`.
 
 - [ ] Side-by-side comparison against gpu-next on one HDR10 and one HLG file
 - [ ] If needed, tone-mapping applied only to HDR content; SDR playback unchanged
