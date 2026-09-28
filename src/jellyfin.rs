@@ -1222,6 +1222,111 @@ pub async fn login(
     })
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct QuickConnectResult {
+    authenticated: bool,
+    secret: String,
+    code: String,
+}
+
+/// Requests a fresh Quick Connect code; `(server, secret, code)`, `server` normalized
+/// so callers don't redo it for the poll/login calls that follow.
+pub async fn quick_connect_initiate(
+    http: Arc<dyn HttpClient>,
+    server_input: &str,
+    device_id: &str,
+) -> Result<(String, String, String), String> {
+    let server = normalize_server(server_input);
+    if Url::parse(&server).is_err() {
+        return Err(format!("Invalid server URL: {server}"));
+    }
+    let unreachable = |_| format!("Cannot reach server at {server}.");
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri(format!("{server}/QuickConnect/Initiate"))
+        .header("Authorization", auth_header(device_id, None))
+        .body(AsyncBody::empty())
+        .map_err(|_| "Quick Connect request failed.".to_string())?;
+    let response = http.send(request).await.map_err(unreachable)?;
+    let status = response.status();
+    if status.as_u16() == 401 {
+        return Err("Quick Connect is turned off on this server.".into());
+    }
+    if !status.is_success() {
+        return Err(format!("Quick Connect failed (HTTP {}).", status.as_u16()));
+    }
+    let result: QuickConnectResult = read_json(response)
+        .await
+        .map_err(|_| "Quick Connect failed: unexpected response from server.".to_string())?;
+    Ok((server, result.secret, result.code))
+}
+
+/// Polls once; `Ok(true)` once the user approved it on another device, `Err` once the
+/// code expires or the server otherwise rejects it.
+pub async fn quick_connect_poll(
+    http: Arc<dyn HttpClient>,
+    server: &str,
+    secret: &str,
+) -> Result<bool, String> {
+    let request = Request::builder()
+        .uri(format!("{server}/QuickConnect/Connect?secret={secret}"))
+        .body(AsyncBody::empty())
+        .map_err(|_| "Quick Connect request failed.".to_string())?;
+    let response = http
+        .send(request)
+        .await
+        .map_err(|_| "Cannot reach server.".to_string())?;
+    let status = response.status();
+    if status.as_u16() == 404 {
+        return Err("Quick Connect code expired.".into());
+    }
+    if !status.is_success() {
+        return Err(format!("Quick Connect failed (HTTP {}).", status.as_u16()));
+    }
+    let result: QuickConnectResult = read_json(response)
+        .await
+        .map_err(|_| "Quick Connect failed: unexpected response from server.".to_string())?;
+    Ok(result.authenticated)
+}
+
+/// Completes sign-in once `quick_connect_poll` reports approval.
+pub async fn quick_connect_login(
+    http: Arc<dyn HttpClient>,
+    server: &str,
+    secret: &str,
+    device_id: &str,
+) -> Result<Session, String> {
+    let body = serde_json::json!({ "Secret": secret }).to_string();
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri(format!("{server}/Users/AuthenticateWithQuickConnect"))
+        .header("Content-Type", "application/json")
+        .header("Authorization", auth_header(device_id, None))
+        .body(AsyncBody::from(body))
+        .map_err(|_| "Quick Connect failed.".to_string())?;
+    let response = http
+        .send(request)
+        .await
+        .map_err(|_| "Cannot reach server.".to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!(
+            "Quick Connect sign-in failed (HTTP {}).",
+            status.as_u16()
+        ));
+    }
+    let auth: AuthResult = read_json(response)
+        .await
+        .map_err(|_| "Quick Connect failed: unexpected response from server.".to_string())?;
+    Ok(Session {
+        server: server.to_string(),
+        user_id: auth.user.id,
+        user_name: auth.user.name,
+        token: auth.access_token,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

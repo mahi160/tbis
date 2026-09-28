@@ -4,10 +4,10 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
-- [ ] Login screen has a Quick Connect option next to username/password
-- [ ] A code is requested and shown to the user, with polling until approved or the code expires
-- [ ] Approval completes login and session setup identically to the existing username/password path
-- [ ] Server with Quick Connect disabled: the option doesn't appear, or fails with a clear message
-- [ ] Expired/cancelled code returns the user to the login screen without a stuck spinner
+- [x] "Sign in with Quick Connect" button next to Sign in, on the same panel
+- [x] `/QuickConnect/Initiate` requested; the returned code is shown, then `/QuickConnect/Connect` is polled every 2s until `Authenticated`
+- [x] Approval calls `/Users/AuthenticateWithQuickConnect` and builds the same `Session` shape as `login()`, going through the same `LoggedIn` event
+- [x] A 401 from Initiate (Quick Connect disabled) surfaces as "Quick Connect is turned off on this server."
+- [x] A 404 from polling (expired/invalid code) or Cancel both drop `quick_connect` state and return to the normal form; cancelling replaces the polling task, same cancel-by-replace pattern as `load_users`

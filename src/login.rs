@@ -10,8 +10,16 @@ use crate::jellyfin::{self, PublicUser, Session};
 
 /// Wait after typing in Server before asking it for users.
 const USERS_DEBOUNCE: Duration = Duration::from_millis(400);
+/// How often to ask the server whether the Quick Connect code was approved.
+const QUICK_CONNECT_POLL_EVERY: Duration = Duration::from_secs(2);
 
 pub struct LoggedIn(pub Session);
+
+/// A Quick Connect code shown to the user while `LoginView::_quick_connect` polls
+/// for approval.
+struct QuickConnect {
+    code: String,
+}
 
 pub struct LoginView {
     server: Entity<InputState>,
@@ -21,7 +29,9 @@ pub struct LoginView {
     error: Option<SharedString>,
     busy: bool,
     users: Vec<PublicUser>,
+    quick_connect: Option<QuickConnect>,
     _users: Task<()>,
+    _quick_connect: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -61,7 +71,9 @@ impl LoginView {
             error: None,
             busy: false,
             users: Vec::new(),
+            quick_connect: None,
             _users: Task::ready(()),
+            _quick_connect: Task::ready(()),
             _subscriptions,
         }
     }
@@ -111,6 +123,78 @@ impl LoginView {
         } else {
             self.submit(window, cx);
         }
+    }
+
+    /// Requests a code, shows it, then polls until approved or the server rejects it.
+    fn quick_connect_start(&mut self, cx: &mut Context<Self>) {
+        if self.busy || self.quick_connect.is_some() {
+            return;
+        }
+        let server_input = self.server.read(cx).value().to_string();
+        let device_id = self.device_id.clone();
+        let http = cx.http_client();
+
+        self.busy = true;
+        self.error = None;
+        cx.notify();
+
+        self._quick_connect = cx.spawn(async move |this, cx| {
+            let initiated =
+                jellyfin::quick_connect_initiate(http.clone(), &server_input, &device_id).await;
+            let (server, secret, code) = match initiated {
+                Ok(v) => v,
+                Err(message) => {
+                    this.update(cx, |this, cx| {
+                        this.busy = false;
+                        this.error = Some(message.into());
+                        cx.notify();
+                    })
+                    .ok();
+                    return;
+                }
+            };
+            let shown = this.update(cx, |this, cx| {
+                this.busy = false;
+                this.quick_connect = Some(QuickConnect { code });
+                cx.notify();
+            });
+            if shown.is_err() {
+                return;
+            }
+            loop {
+                cx.background_executor().timer(QUICK_CONNECT_POLL_EVERY).await;
+                match jellyfin::quick_connect_poll(http.clone(), &server, &secret).await {
+                    Ok(true) => break,
+                    Ok(false) => continue,
+                    Err(message) => {
+                        this.update(cx, |this, cx| {
+                            this.quick_connect = None;
+                            this.error = Some(message.into());
+                            cx.notify();
+                        })
+                        .ok();
+                        return;
+                    }
+                }
+            }
+            let result = jellyfin::quick_connect_login(http, &server, &secret, &device_id).await;
+            this.update(cx, |this, cx| {
+                this.quick_connect = None;
+                match result {
+                    Ok(session) => cx.emit(LoggedIn(session)),
+                    Err(message) => this.error = Some(message.into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+    }
+
+    /// Replacing the task cancels the in-flight request/poll, same as `load_users`.
+    fn quick_connect_cancel(&mut self, cx: &mut Context<Self>) {
+        self._quick_connect = Task::ready(());
+        self.quick_connect = None;
+        cx.notify();
     }
 
     fn submit(&mut self, _: &mut Window, cx: &mut Context<Self>) {
@@ -194,39 +278,85 @@ impl Render for LoginView {
                             .bg(cx.theme().secondary)
                             .border_1()
                             .border_color(cx.theme().border)
-                            .child(field("Server address", &self.server))
-                            .when(!self.users.is_empty(), |this| {
-                                this.child(h_flex().flex_wrap().gap_2().children(
-                                    self.users.iter().enumerate().map(|(i, user)| {
-                                        let picked = user.clone();
-                                        Button::new(("user", i))
+                            .map(|this| match &self.quick_connect {
+                                Some(quick_connect) => this
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child("Enter this code on a device you're signed in on"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_3xl()
+                                            .font_weight(FontWeight::BOLD)
+                                            .child(quick_connect.code.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child("Waiting for approval\u{2026}"),
+                                    )
+                                    .children(self.error.clone().map(|error| {
+                                        div().text_sm().text_color(cx.theme().danger).child(error)
+                                    }))
+                                    .child(
+                                        Button::new("quick-connect-cancel")
                                             .outline()
-                                            .small()
-                                            .label(user.name.clone())
-                                            .disabled(self.busy)
-                                            .on_click(cx.listener(move |this, _, window, cx| {
-                                                this.pick_user(&picked, window, cx)
-                                            }))
-                                    }),
-                                ))
-                            })
-                            .child(field("Username", &self.username))
-                            .child(field("Password", &self.password))
-                            .children(self.error.clone().map(|error| {
-                                div().text_sm().text_color(cx.theme().danger).child(error)
-                            }))
-                            .child(
-                                Button::new("sign-in")
-                                    .primary()
-                                    .large()
-                                    .mt_2()
-                                    .label("Sign in")
-                                    .loading(self.busy)
-                                    .disabled(self.busy)
-                                    .on_click(
-                                        cx.listener(|this, _, window, cx| this.submit(window, cx)),
+                                            .mt_2()
+                                            .label("Cancel")
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.quick_connect_cancel(cx)
+                                            })),
                                     ),
-                            ),
+                                None => this
+                                    .child(field("Server address", &self.server))
+                                    .when(!self.users.is_empty(), |this| {
+                                        this.child(h_flex().flex_wrap().gap_2().children(
+                                            self.users.iter().enumerate().map(|(i, user)| {
+                                                let picked = user.clone();
+                                                Button::new(("user", i))
+                                                    .outline()
+                                                    .small()
+                                                    .label(user.name.clone())
+                                                    .disabled(self.busy)
+                                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                                        this.pick_user(&picked, window, cx)
+                                                    }))
+                                            }),
+                                        ))
+                                    })
+                                    .child(field("Username", &self.username))
+                                    .child(field("Password", &self.password))
+                                    .children(self.error.clone().map(|error| {
+                                        div().text_sm().text_color(cx.theme().danger).child(error)
+                                    }))
+                                    .child(
+                                        Button::new("sign-in")
+                                            .primary()
+                                            .large()
+                                            .mt_2()
+                                            .label("Sign in")
+                                            .loading(self.busy)
+                                            .disabled(self.busy)
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.submit(window, cx)
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("quick-connect")
+                                            .outline()
+                                            .large()
+                                            .label("Sign in with Quick Connect")
+                                            .disabled(self.busy)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.quick_connect_start(cx)
+                                            })),
+                                    ),
+                            }),
                     ),
             )
     }
