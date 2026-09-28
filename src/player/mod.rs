@@ -103,6 +103,7 @@ pub struct Closed {
 }
 
 const HIDE_CONTROLS_AFTER: Duration = Duration::from_secs(3);
+const VOLUME_HUD_AFTER: Duration = Duration::from_millis(1200);
 const PROGRESS_EVERY: Duration = Duration::from_secs(10);
 const CLOCK_EVERY: Duration = Duration::from_secs(30);
 
@@ -123,6 +124,8 @@ pub struct PlayerView {
     volume_slider: Entity<SliderState>,
     focus: FocusHandle,
     controls_visible: bool,
+    /// Volume slider forced open by VolumeUp/VolumeDown, independent of mute-button hover.
+    volume_hud: bool,
     menu_open: bool,
     track_prefs: TrackPrefs,
     /// Settings' preferred languages (read-only here).
@@ -146,6 +149,7 @@ pub struct PlayerView {
     info: Option<Vec<InfoGroup>>,
     _info: Task<()>,
     _hide: Task<()>,
+    _volume_hud: Task<()>,
     _pip: Task<()>,
     _tasks: Vec<Task<()>>,
     _subscriptions: [Subscription; 2],
@@ -268,6 +272,7 @@ impl PlayerView {
             volume_slider,
             focus,
             controls_visible: true,
+            volume_hud: false,
             menu_open: false,
             track_prefs: config.track_prefs.clone(),
             language: config.language.clone(),
@@ -282,6 +287,7 @@ impl PlayerView {
             info: None,
             _info: Task::ready(()),
             _hide: Task::ready(()),
+            _volume_hud: Task::ready(()),
             _pip: Task::ready(()),
             _tasks: tasks,
             _subscriptions,

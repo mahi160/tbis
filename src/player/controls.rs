@@ -124,6 +124,7 @@ impl PlayerView {
             let _ = mpv.set_volume((self.volume + VOLUME_STEP).min(100.));
         }
         self.show_controls(window, cx);
+        self.show_volume_hud(window, cx);
     }
 
     fn volume_down(&mut self, _: &VolumeDown, window: &mut Window, cx: &mut Context<Self>) {
@@ -131,6 +132,7 @@ impl PlayerView {
             let _ = mpv.set_volume((self.volume - VOLUME_STEP).max(0.));
         }
         self.show_controls(window, cx);
+        self.show_volume_hud(window, cx);
     }
 
     fn cycle_audio(&mut self, _: &CycleAudio, window: &mut Window, cx: &mut Context<Self>) {
@@ -559,6 +561,23 @@ impl PlayerView {
         self.refocus(window, cx);
     }
 
+    /// Pops the volume slider open (normally hidden behind a hover on the mute button)
+    /// so VolumeUp/VolumeDown give visible feedback, then folds it back after a beat.
+    fn show_volume_hud(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.volume_hud = true;
+        self._volume_hud = cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor()
+                .timer(super::VOLUME_HUD_AFTER)
+                .await;
+            this.update(cx, |this, cx| {
+                this.volume_hud = false;
+                cx.notify();
+            })
+            .ok();
+        });
+        cx.notify();
+    }
+
     pub(super) fn show_controls(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.controls_visible = true;
         self._hide = cx.spawn_in(window, async move |this, cx| {
@@ -983,6 +1002,7 @@ impl Render for PlayerView {
                             .w_0()
                             .overflow_hidden()
                             .group_hover("player-volume", |s| s.w(px(96.)))
+                            .when(self.volume_hud, |s| s.w(px(96.)))
                             .child(
                                 div()
                                     .w(px(96.))
