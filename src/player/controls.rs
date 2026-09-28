@@ -621,7 +621,9 @@ impl PlayerView {
         let this = cx.entity().downgrade();
         Some(
             icon_button(id, icon, cx)
-                .dropdown_menu(move |mut menu, _, _| {
+                .dropdown_menu(move |menu, _, _| {
+                    // long track lists overflow the window otherwise
+                    let mut menu = menu.scrollable(true);
                     if kind == TrackKind::Subtitle {
                         let this = this.clone();
                         menu = menu.item(
@@ -663,7 +665,8 @@ impl PlayerView {
         let this = cx.entity().downgrade();
         Some(
             icon_button("player-chapters", "icons/chapters.svg", cx)
-                .dropdown_menu(move |mut menu, _, _| {
+                .dropdown_menu(move |menu, _, _| {
+                    let mut menu = menu.scrollable(true);
                     for (i, chapter) in chapters.iter().enumerate() {
                         let (this, seconds) = (this.clone(), chapter.start_seconds());
                         let label = chapter
