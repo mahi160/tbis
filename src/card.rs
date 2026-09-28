@@ -66,12 +66,46 @@ pub fn play_scrim(group: &'static str, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
+/// Art tile shared by `poster_card` and `poster_card_playable`; `on_play` wires the art's own
+/// click (and play scrim) when the poster itself should start playback.
+fn poster_art(
+    api: &Api,
+    item: &Item,
+    width: Pixels,
+    on_play: Option<OnClick>,
+    cx: &App,
+) -> AnyElement {
+    art_tile(width, width * 1.5, cx)
+        .id(ElementId::Name(format!("poster-art-{}", item.id).into()))
+        .child(image(api.poster_url(item), cx))
+        .when_some(on_play, |this, on_play| {
+            this.on_click(on_play).child(play_scrim("card", cx))
+        })
+        .when(item.user_data.played, |this| this.child(check_badge(cx)))
+        .into_any_element()
+}
+
+/// Year row shared by `poster_card` and `poster_card_playable`.
+fn poster_meta(item: &Item, cx: &App) -> AnyElement {
+    div()
+        .h(px(META_HEIGHT))
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
+        .child(
+            item.production_year
+                .map(|y| y.to_string())
+                .unwrap_or_default(),
+        )
+        .into_any_element()
+}
+
 /// 2:3 poster, title, year; check badge when played. Fixed height so grid rows stay uniform.
+/// The whole card opens the detail page.
 pub fn poster_card(
     api: &Api,
     item: &Item,
     width: Pixels,
-    on_click: OnClick,
+    on_open: OnClick,
     cx: &App,
 ) -> AnyElement {
     let theme = cx.theme();
@@ -81,12 +115,8 @@ pub fn poster_card(
         .w(width)
         .gap_2()
         .cursor_pointer()
-        .on_click(on_click)
-        .child(
-            art_tile(width, width * 1.5, cx)
-                .child(image(api.poster_url(item), cx))
-                .when(item.user_data.played, |this| this.child(check_badge(cx))),
-        )
+        .on_click(on_open)
+        .child(poster_art(api, item, width, None, cx))
         .child(
             div()
                 .h(px(TITLE_HEIGHT))
@@ -95,17 +125,39 @@ pub fn poster_card(
                 .group_hover("card", |this| this.text_color(theme.primary))
                 .child(name),
         )
+        .child(poster_meta(item, cx))
+        .into_any_element()
+}
+
+/// As `poster_card`, but the art plays (`on_play`) and only the title opens (`on_open`) — for
+/// rows where clicking the poster itself should start playback (Home's Movies/Series rows).
+pub fn poster_card_playable(
+    api: &Api,
+    item: &Item,
+    width: Pixels,
+    on_play: OnClick,
+    on_open: OnClick,
+    cx: &App,
+) -> AnyElement {
+    let theme = cx.theme();
+    let name: SharedString = item.name.clone().into();
+    v_flex()
+        .id(SharedString::from(item.id.clone()))
+        .w(width)
+        .gap_2()
+        .cursor_pointer()
+        .child(poster_art(api, item, width, Some(on_play), cx))
         .child(
             div()
-                .h(px(META_HEIGHT))
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .child(
-                    item.production_year
-                        .map(|y| y.to_string())
-                        .unwrap_or_default(),
-                ),
+                .id(ElementId::Name(format!("poster-title-{}", item.id).into()))
+                .h(px(TITLE_HEIGHT))
+                .text_sm()
+                .truncate()
+                .hover(|this| this.text_color(theme.primary))
+                .on_click(on_open)
+                .child(name),
         )
+        .child(poster_meta(item, cx))
         .into_any_element()
 }
 
