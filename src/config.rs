@@ -213,10 +213,21 @@ impl DebandLevel {
 }
 
 /// HDR tone-mapping curve and debanding (Settings), for the Player and PiP.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HdrStyle {
     pub tone_map: ToneMapCurve,
     pub deband: DebandLevel,
+}
+
+impl Default for HdrStyle {
+    /// `Weak` deband out of the box: smooths gradient banding on typical streamed video,
+    /// mpv's own default (`Off`) is tuned for lossless local files instead.
+    fn default() -> Self {
+        Self {
+            tone_map: ToneMapCurve::Auto,
+            deband: DebandLevel::Weak,
+        }
+    }
 }
 
 impl HdrStyle {
