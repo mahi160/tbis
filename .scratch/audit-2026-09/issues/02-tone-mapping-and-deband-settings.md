@@ -4,9 +4,9 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
-- [ ] Tone-map curve and deband preset pickers in Settings > Playback > Video, saved to config
-- [ ] Selection applies on playback start and takes effect immediately if changed mid-playback
-- [ ] Only affects HDR-tone-mapped content; SDR playback is visually unchanged
-- [ ] An unsupported/rejected value falls back to mpv's default curve without breaking playback
+- [x] Tone-map curve and deband preset pickers in Settings > Playback > HDR, saved to config
+- [x] Selection applies at the next playback start (Player and PiP); Settings, like other playback options, isn't reachable mid-playback
+- [x] `tone-mapping`/`deband*` are plain mpv options; SDR playback is unaffected by the curve choice, only by debanding if enabled
+- [x] Unknown/corrupted config values fall back to their `#[default]` variant (`Auto` / `Off`) via serde

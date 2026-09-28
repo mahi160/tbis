@@ -521,6 +521,7 @@ impl PlayerView {
         };
         let (events_tx, mut events_rx) = futures::channel::mpsc::unbounded();
         let mut options = self.subtitles.mpv_options().to_vec();
+        options.extend(self.hdr.mpv_options());
         if let Ok(shaders) = self.shaders.mpv_value() {
             options.push(("glsl-shaders", shaders));
         }

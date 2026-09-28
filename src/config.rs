@@ -93,6 +93,9 @@ pub struct Config {
     pub theme: Option<String>,
     #[serde(default)]
     pub hide_spoilers: HideSpoilers,
+    /// HDR tone-mapping and debanding (Settings), for the Player and PiP.
+    #[serde(default)]
+    pub hdr: HdrStyle,
 }
 
 /// Blur the stills and hide the descriptions of unwatched Episodes (Settings).
@@ -127,7 +130,112 @@ impl Default for SubtitleStyle {
     }
 }
 
+/// HDR tone-mapping curve mpv falls back to for HDR\u2192SDR display.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum ToneMapCurve {
+    #[default]
+    Auto,
+    Hable,
+    Spline,
+    Mobius,
+    Reinhard,
+    Bt2390,
+}
+
+impl ToneMapCurve {
+    pub const ALL: [Self; 6] = [
+        Self::Auto,
+        Self::Hable,
+        Self::Spline,
+        Self::Mobius,
+        Self::Reinhard,
+        Self::Bt2390,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto (mpv default)",
+            Self::Hable => "Hable",
+            Self::Spline => "Spline",
+            Self::Mobius => "Mobius",
+            Self::Reinhard => "Reinhard",
+            Self::Bt2390 => "BT.2390",
+        }
+    }
+
+    fn mpv_value(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Hable => "hable",
+            Self::Spline => "spline",
+            Self::Mobius => "mobius",
+            Self::Reinhard => "reinhard",
+            Self::Bt2390 => "bt.2390",
+        }
+    }
+}
+
+/// Debanding strength for the banding tone-mapped HDR gradients can show; `Off` matches
+/// mpv's own default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum DebandLevel {
+    #[default]
+    Off,
+    Weak,
+    Medium,
+    Strong,
+}
+
+impl DebandLevel {
+    pub const ALL: [Self; 4] = [Self::Off, Self::Weak, Self::Medium, Self::Strong];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Weak => "Weak",
+            Self::Medium => "Medium",
+            Self::Strong => "Strong",
+        }
+    }
+
+    /// `(iterations, threshold, range, grain)`; `None` for Off.
+    fn params(self) -> Option<(u8, u16, u8, u16)> {
+        match self {
+            Self::Off => None,
+            Self::Weak => Some((1, 32, 12, 24)),
+            Self::Medium => Some((2, 48, 16, 32)),
+            Self::Strong => Some((4, 64, 24, 48)),
+        }
+    }
+}
+
+/// HDR tone-mapping curve and debanding (Settings), for the Player and PiP.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct HdrStyle {
+    pub tone_map: ToneMapCurve,
+    pub deband: DebandLevel,
+}
+
+impl HdrStyle {
+    /// mpv options applying this style, shared by the Player and PiP.
+    pub fn mpv_options(&self) -> Vec<(&'static str, String)> {
+        let mut options = vec![("tone-mapping", self.tone_map.mpv_value().to_string())];
+        match self.deband.params() {
+            Some((iterations, threshold, range, grain)) => {
+                options.push(("deband", "yes".to_string()));
+                options.push(("deband-iterations", iterations.to_string()));
+                options.push(("deband-threshold", threshold.to_string()));
+                options.push(("deband-range", range.to_string()));
+                options.push(("deband-grain", grain.to_string()));
+            }
+            None => options.push(("deband", "no".to_string())),
+        }
+        options
+    }
+}
+
 /// Seconds per seek: `short` for arrows (and media keys), `long` for Option+arrows.
+
 /// Also an app global, so the Player and shortcuts help read the live values.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SeekSteps {
@@ -239,6 +347,7 @@ pub fn load() -> Config {
             recent_searches: Vec::new(),
             theme: None,
             hide_spoilers: HideSpoilers::default(),
+            hdr: HdrStyle::default(),
         })
 }
 

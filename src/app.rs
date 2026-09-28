@@ -513,6 +513,7 @@ impl AppView {
                     this.config.hide_spoilers = *hide;
                     cx.set_global(*hide);
                 }
+                SettingsChanged::Hdr(style) => this.config.hdr = *style,
             }
             save_config(&this.config, "settings");
         });

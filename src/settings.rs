@@ -8,7 +8,10 @@ use gpui_kit::component::setting::{
 use gpui_kit::component::{IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::*;
 
-use crate::config::{Config, HideSpoilers, LanguagePref, SeekSteps, SubtitleStyle};
+use crate::config::{
+    Config, DebandLevel, HdrStyle, HideSpoilers, LanguagePref, SeekSteps, SubtitleStyle,
+    ToneMapCurve,
+};
 use crate::detail::PAD;
 use crate::jellyfin::Api;
 use crate::nav::Nav;
@@ -58,6 +61,7 @@ pub enum SettingsChanged {
     Seek(SeekSteps),
     Theme(String),
     HideSpoilers(HideSpoilers),
+    Hdr(HdrStyle),
 }
 
 pub struct SettingsView {
@@ -68,8 +72,9 @@ pub struct SettingsView {
     seek: Entity<SeekSteps>,
     theme: Entity<SharedString>,
     hide_spoilers: Entity<HideSpoilers>,
+    hdr: Entity<HdrStyle>,
     stats: Entity<StatsView>,
-    _observe: [Subscription; 7],
+    _observe: [Subscription; 8],
 }
 
 impl EventEmitter<Nav> for SettingsView {}
@@ -85,6 +90,7 @@ impl SettingsView {
         let seek = cx.new(|_| config.seek);
         let theme = cx.new(|_| SharedString::from(theme::active(config)));
         let hide_spoilers = cx.new(|_| config.hide_spoilers);
+        let hdr = cx.new(|_| config.hdr);
         let _observe = [
             cx.observe(&language, |_, language, cx| {
                 cx.emit(SettingsChanged::Language(language.read(cx).clone()))
@@ -109,6 +115,9 @@ impl SettingsView {
             cx.observe(&hide_spoilers, |_, hide, cx| {
                 cx.emit(SettingsChanged::HideSpoilers(*hide.read(cx)))
             }),
+            cx.observe(&hdr, |_, hdr, cx| {
+                cx.emit(SettingsChanged::Hdr(*hdr.read(cx)))
+            }),
         ];
         Self {
             language,
@@ -118,6 +127,7 @@ impl SettingsView {
             seek,
             theme,
             hide_spoilers,
+            hdr,
             stats,
             _observe,
         }
@@ -236,6 +246,55 @@ impl SettingsView {
              Quality needs a strong GPU. Press U in the Player to cycle.",
         );
         SettingGroup::new().title("Video").items([upscaling])
+    }
+
+    fn hdr_group(&self) -> SettingGroup {
+        let (read, write) = (self.hdr.clone(), self.hdr.clone());
+        let tone_map = SettingItem::new(
+            "Tone-mapping curve",
+            SettingField::dropdown(
+                ToneMapCurve::ALL
+                    .iter()
+                    .map(|c| (SharedString::from(c.label()), SharedString::from(c.label())))
+                    .collect(),
+                move |cx| read.read(cx).tone_map.label().into(),
+                move |value, cx| {
+                    write.update(cx, |style, cx| {
+                        style.tone_map = ToneMapCurve::ALL
+                            .into_iter()
+                            .find(|c| c.label() == value.as_ref())
+                            .unwrap_or_default();
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description("How HDR video is mapped down to this display's SDR range.");
+        let (read, write) = (self.hdr.clone(), self.hdr.clone());
+        let deband = SettingItem::new(
+            "Debanding",
+            SettingField::dropdown(
+                DebandLevel::ALL
+                    .iter()
+                    .map(|d| (SharedString::from(d.label()), SharedString::from(d.label())))
+                    .collect(),
+                move |cx| read.read(cx).deband.label().into(),
+                move |value, cx| {
+                    write.update(cx, |style, cx| {
+                        style.deband = DebandLevel::ALL
+                            .into_iter()
+                            .find(|d| d.label() == value.as_ref())
+                            .unwrap_or_default();
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description("Smooths banding that can show up in tone-mapped gradients.");
+        SettingGroup::new()
+            .title("HDR")
+            .description("Applies from the next playback.")
+            .items([tone_map, deband])
     }
 
     fn streaming_group(&self) -> SettingGroup {
@@ -412,6 +471,7 @@ impl SettingsView {
             self.subtitles_group(),
             self.seek_group(),
             self.video_group(),
+            self.hdr_group(),
             self.streaming_group(),
         ])
     }
