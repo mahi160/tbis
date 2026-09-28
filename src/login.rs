@@ -162,7 +162,9 @@ impl LoginView {
                 return;
             }
             loop {
-                cx.background_executor().timer(QUICK_CONNECT_POLL_EVERY).await;
+                cx.background_executor()
+                    .timer(QUICK_CONNECT_POLL_EVERY)
+                    .await;
                 match jellyfin::quick_connect_poll(http.clone(), &server, &secret).await {
                     Ok(true) => break,
                     Ok(false) => continue,
@@ -286,7 +288,9 @@ impl Render for LoginView {
                                         div()
                                             .text_sm()
                                             .text_color(cx.theme().muted_foreground)
-                                            .child("Enter this code on a device you're signed in on"),
+                                            .child(
+                                                "Enter this code on a device you're signed in on",
+                                            ),
                                     )
                                     .child(
                                         div()
@@ -323,9 +327,11 @@ impl Render for LoginView {
                                                     .small()
                                                     .label(user.name.clone())
                                                     .disabled(self.busy)
-                                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                                        this.pick_user(&picked, window, cx)
-                                                    }))
+                                                    .on_click(cx.listener(
+                                                        move |this, _, window, cx| {
+                                                            this.pick_user(&picked, window, cx)
+                                                        },
+                                                    ))
                                             }),
                                         ))
                                     })
