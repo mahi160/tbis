@@ -72,6 +72,26 @@ impl Detail {
     }
 }
 
+impl AppView {
+    /// Saves volume/track prefs and snapshots a final playback report, if any Player is
+    /// open. Called from both quit paths (see the two `on_app_quit`/`on_window_should_close`
+    /// registrations in `new`) since either one may run while the other silently no-ops.
+    fn prepare_quit(&mut self, cx: &mut Context<Self>) -> Option<impl Future<Output = ()> + use<>> {
+        let mut report = None;
+        if let Screen::Main(main) = &self.screen
+            && let Some((player, _)) = &main.player
+        {
+            let (volume, muted) = player.read(cx).volume_state();
+            self.config.volume = volume;
+            self.config.muted = muted;
+            self.config.track_prefs = player.read(cx).track_prefs();
+            report = player.read(cx).quit_report();
+        }
+        save_config(&self.config, "volume/window");
+        report
+    }
+}
+
 impl Main {
     fn searching(&self, cx: &App) -> bool {
         !self.search_input.read(cx).value().trim().is_empty()
@@ -124,20 +144,10 @@ impl AppView {
         if matches!(screen, Screen::Main(_)) {
             focus.focus(window, cx);
         }
+        // cmd-Q: entity's still alive when this runs (shutdown() awaits quit_observers
+        // before dropping windows), so the weak-entity update below succeeds directly.
         cx.on_app_quit(|this, cx| {
-            // cmd-Q/window close skip Player::close, so its report never fires and the
-            // volume never gets saved; do both here with the shutdown budget instead
-            let mut report = None;
-            if let Screen::Main(main) = &this.screen
-                && let Some((player, _)) = &main.player
-            {
-                let (volume, muted) = player.read(cx).volume_state();
-                this.config.volume = volume;
-                this.config.muted = muted;
-                this.config.track_prefs = player.read(cx).track_prefs();
-                report = player.read(cx).quit_report();
-            }
-            save_config(&this.config, "volume/window");
+            let report = this.prepare_quit(cx);
             async move {
                 if let Some(report) = report {
                     report.await;
@@ -145,6 +155,30 @@ impl AppView {
             }
         })
         .detach();
+        // Window close (red button): the window (and this view) is torn down *before*
+        // `on_app_quit` runs, so the callback above silently no-ops there. Snapshot the
+        // report now, while still alive, and hand it to a plain, entity-free `on_app_quit`
+        // so it still gets the shutdown budget regardless of teardown order.
+        let weak = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |_window, cx| {
+            if let Some(report) = weak
+                .update(cx, |this, cx| this.prepare_quit(cx))
+                .ok()
+                .flatten()
+            {
+                let mut report = Some(report);
+                cx.on_app_quit(move |_cx| {
+                    let report = report.take();
+                    async move {
+                        if let Some(report) = report {
+                            report.await;
+                        }
+                    }
+                })
+                .detach();
+            }
+            true
+        });
         let _window_bounds = cx.observe_window_bounds(window, |this, window, _| {
             this.config.window = Some(WindowState::from(window.window_bounds()));
         });
