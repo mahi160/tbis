@@ -409,11 +409,20 @@ impl PlayerView {
             .zip(get("video-params/h"))
             .map(|(w, h)| format!("{w}\u{d7}{h}"));
         let fps = num("container-fps").map(|fps| format!("{fps:.3} fps"));
-        let colour = [get("video-params/primaries"), get("video-params/gamma")]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" / ");
+        let gamma = get("video-params/gamma");
+        let hdr = gamma.as_deref().and_then(|g| match g {
+            "pq" => Some("PQ"),
+            "hlg" => Some("HLG"),
+            _ => None,
+        });
+        let colour = match hdr {
+            Some(kind) => format!("HDR ({kind}) \u{2192} tone-mapped to SDR"),
+            None => [get("video-params/primaries"), gamma]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" / "),
+        };
         let bitrate = match (num("video-bitrate"), num("audio-bitrate")) {
             (None, None) => None,
             (video, audio) => Some(format!(
