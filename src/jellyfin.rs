@@ -504,7 +504,6 @@ struct MediaStream {
     is_external: bool,
     #[serde(default)]
     is_default: bool,
-    delivery_url: Option<String>,
     display_title: Option<String>,
     language: Option<String>,
 }
@@ -835,23 +834,21 @@ impl Api {
             .media_streams
             .iter()
             .filter(|s| s.kind == "Subtitle" && s.is_external)
-            .filter_map(|s| {
-                s.delivery_url.as_ref()?; // server offers it externally; built fresh below, not from this
-                Some(ExternalSubtitle {
-                    // Not `delivery_url`: it bakes in the resume position as the subtitle's
-                    // own zero point, so on a resumed item every cue lands before mpv's real
-                    // (absolute-timeline) seek target and none of them ever show.
-                    url: format!(
-                        "{}/Videos/{}/{}/Subtitles/{}/Stream.srt",
-                        self.session.server,
-                        item.id,
-                        item.media_source_id(),
-                        s.index
-                    ),
-                    title: s.display_title.clone().unwrap_or_default(),
-                    lang: s.language.clone().unwrap_or_default(),
-                    is_default: s.is_default,
-                })
+            .map(|s| ExternalSubtitle {
+                // Not the item's `DeliveryUrl` (often absent outright on this generic
+                // detail endpoint, unlike PlaybackInfo): it also bakes in the resume
+                // position as the subtitle's own zero point, so on a resumed item every
+                // cue would land before mpv's real (absolute-timeline) seek target.
+                url: format!(
+                    "{}/Videos/{}/{}/Subtitles/{}/Stream.srt",
+                    self.session.server,
+                    item.id,
+                    item.media_source_id(),
+                    s.index
+                ),
+                title: s.display_title.clone().unwrap_or_default(),
+                lang: s.language.clone().unwrap_or_default(),
+                is_default: s.is_default,
             })
             .collect()
     }
