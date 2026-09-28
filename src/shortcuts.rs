@@ -4,7 +4,8 @@
 //! configured seek steps.
 
 use gpui_kit::component::kbd::Kbd;
-use gpui_kit::component::{WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::config::SeekSteps;
@@ -94,6 +95,7 @@ fn content(cx: &App) -> impl IntoElement {
         text.replace("{short}", &steps.short.to_string())
             .replace("{long}", &steps.long.to_string())
     };
+    let (stripe, radius) = (cx.theme().muted, cx.theme().radius);
     let keymap = cx.key_bindings();
     let keymap = keymap.borrow();
     v_flex()
@@ -102,27 +104,29 @@ fn content(cx: &App) -> impl IntoElement {
         .overflow_y_scroll()
         .gap_5()
         .children(GROUPS.iter().map(|(group, rows)| {
+            let bound = rows.iter().filter_map(|(action, label_text)| {
+                // last binding wins, like the keymap itself
+                let action = action();
+                let binding = keymap.bindings_for_action(action.as_ref()).last()?;
+                let keys: Vec<Kbd> = binding
+                    .keystrokes()
+                    .iter()
+                    .map(|k| Kbd::new(k.inner().clone()))
+                    .collect();
+                Some((label_text, keys))
+            });
             v_flex()
-                .gap_1()
-                .child(div().pb_1().font_weight(FontWeight::BOLD).child(*group))
-                .children(rows.iter().filter_map(|(action, label_text)| {
-                    let action = action();
-                    // last binding wins, like the keymap itself
-                    let binding = keymap.bindings_for_action(action.as_ref()).last()?;
-                    Some(
-                        h_flex()
-                            .justify_between()
-                            .text_sm()
-                            .child(label(label_text))
-                            .child(
-                                h_flex().gap_1().children(
-                                    binding
-                                        .keystrokes()
-                                        .iter()
-                                        .map(|k| Kbd::new(k.inner().clone())),
-                                ),
-                            ),
-                    )
+                .child(div().pb_2().font_weight(FontWeight::BOLD).child(*group))
+                .children(bound.enumerate().map(|(i, (label_text, keys))| {
+                    h_flex()
+                        .justify_between()
+                        .px_2()
+                        .py_1()
+                        .rounded(radius)
+                        .when(i % 2 == 0, |this| this.bg(stripe))
+                        .text_sm()
+                        .child(label(label_text))
+                        .child(h_flex().gap_1().children(keys))
                 }))
         }))
 }
