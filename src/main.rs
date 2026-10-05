@@ -1,7 +1,8 @@
 mod app;
 mod assets;
-mod card;
+mod components;
 mod config;
+mod design;
 mod detail;
 mod embed;
 mod fonts;
@@ -21,7 +22,6 @@ mod settings;
 mod shaders;
 mod shortcuts;
 mod stats;
-mod status;
 mod support_dir;
 mod theme;
 mod update;
@@ -110,7 +110,7 @@ fn main() {
             cx.on_window_closed(|cx, _| cx.quit()).detach();
 
             cx.spawn(async move |cx| {
-                let min = size(px(800.), px(560.));
+                let min = design::window::MIN;
                 let saved = config::load().window;
                 let window_bounds = cx.update(|cx| {
                     let displays: Vec<_> = cx.displays().iter().map(|d| d.bounds()).collect();
@@ -119,7 +119,7 @@ fn main() {
                         .unwrap_or_else(|| {
                             WindowBounds::Windowed(Bounds::centered(
                                 None,
-                                size(px(1200.), px(800.)),
+                                design::window::DEFAULT,
                                 cx,
                             ))
                         })
@@ -129,7 +129,7 @@ fn main() {
                     window_min_size: Some(min),
                     // recentre traffic lights in 40px title bar (app.rs)
                     titlebar: Some(TitlebarOptions {
-                        traffic_light_position: Some(point(px(13.), px(13.))),
+                        traffic_light_position: Some(design::window::TRAFFIC_LIGHTS),
                         ..TitleBar::title_bar_options()
                     }),
                     ..TitleBar::window_options()

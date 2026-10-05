@@ -1,12 +1,16 @@
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{ActiveTheme as _, IconName, h_flex, v_flex};
+use gpui_kit::component::{IconName, h_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::detail::{self, PAD, Toggle, UserDataView};
+use crate::components::button::primary_button;
+use crate::components::layout::scroll_page;
+use crate::components::status::{Status, inline_status};
+use crate::components::toggle_button::toggle_button;
+use crate::components::typography::{caption, paragraph, title};
+use crate::detail::{self, Toggle, UserDataView};
 use crate::jellyfin::{Api, Item, Kind, UserData, episode_code};
+use crate::design::{size, sp};
 use crate::nav::Nav;
-use crate::status::{Status, inline_status};
 
 /// Movie or Episode detail: art, title, meta, overview, and a Play/Resume button.
 /// An Episode shows its still instead of a poster, under its Series and code.
@@ -82,10 +86,7 @@ impl MovieView {
             .into_iter()
             .flatten()
             .collect();
-        div()
-            .text_sm()
-            .text_color(cx.theme().muted_foreground)
-            .child(parts.join(" \u{b7} "))
+        caption(parts.join(" \u{b7} "), cx)
     }
 
     fn runtime_label(&self) -> Option<String> {
@@ -101,43 +102,32 @@ impl Render for MovieView {
 
         let episode = self.movie.kind == Kind::Episode;
         let back = Box::new(cx.listener(|_, _, _, cx| cx.emit(Nav::Back)));
-        let body = v_flex()
-            .flex_1()
-            .min_w_0()
-            .gap_3()
+        let body = detail::header_body()
+            .gap(sp(3.))
             .when(episode, |this| this.child(self.episode_kicker(cx)))
-            .child(
-                div()
-                    .text_2xl()
-                    .font_weight(FontWeight::BOLD)
-                    .child(self.movie.display_name().to_string()),
-            )
+            .child(title(self.movie.display_name().to_string()))
             .children(detail::meta_line(&self.movie, runtime, cx))
             .children(detail::genres_line(&self.movie, cx))
-            .children(detail::media_tags(&self.movie))
-            .children(self.movie.overview.clone().map(|o| {
-                div()
-                    .text_sm()
-                    .max_w(px(560.))
-                    .line_clamp(6)
-                    .text_ellipsis()
-                    .child(o)
-            }))
+            .children(detail::media_tags(&self.movie, cx))
+            .children(
+                self.movie
+                    .overview
+                    .clone()
+                    .map(|o| paragraph(o, 6).max_w(size::prose_max_w())),
+            )
             .child(
                 h_flex()
-                    .gap_2()
+                    .gap(sp(2.))
                     .child(
-                        Button::new("movie-play")
-                            .primary()
+                        primary_button("movie-play", if resumed { "Resume" } else { "Play" })
                             .icon(IconName::Play)
-                            .label(if resumed { "Resume" } else { "Play" })
                             .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                                 cx.emit(Nav::Play(movie.clone()))
                             })),
                     )
                     .children([Toggle::Played, Toggle::Favorite].map(|toggle| {
                         let id = self.movie.id.clone();
-                        detail::toggle_button(
+                        toggle_button(
                             ("movie-toggle", toggle as usize),
                             toggle,
                             &self.movie.user_data,
@@ -149,9 +139,17 @@ impl Render for MovieView {
                     })),
             );
         let image = if episode {
-            (self.api.wide_image_url(&self.movie), px(320.), px(180.))
+            (
+                self.api.wide_image_url(&self.movie),
+                size::header_still_w(),
+                size::header_still_h(),
+            )
         } else {
-            (self.api.poster_url(&self.movie), px(160.), px(240.))
+            (
+                self.api.poster_url(&self.movie),
+                size::header_poster_w(),
+                size::header_poster_h(),
+            )
         };
         let header = detail::detail_header(image, back, body, cx);
 
@@ -163,13 +161,9 @@ impl Render for MovieView {
             None
         };
 
-        v_flex()
-            .id("movie-detail")
-            .size_full()
+        scroll_page("movie-detail")
             .relative()
-            .overflow_y_scroll()
-            .p(px(PAD))
-            .gap_6()
+            .gap(sp(6.))
             .children(detail::backdrop(&self.api, &self.movie, cx))
             .child(header)
             .children(inline_status(status, cx))

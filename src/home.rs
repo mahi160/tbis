@@ -1,24 +1,21 @@
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{
-    Disableable as _, IconName, InteractiveElementExt as _, Sizable as _, h_flex, v_flex,
-};
+use gpui_kit::component::button::Button;
+use gpui_kit::component::{Disableable as _, IconName, h_flex, v_flex};
 use gpui_kit::*;
 use std::time::{Duration, Instant};
 
-use crate::card::{self, OnClick};
-use crate::detail::PAD;
+use crate::components::button::{VegaSize as _, icon_button};
+use crate::components::layout::{header_row, rows_page, scroll_row};
+use crate::components::status::{Status, error_banner, full_status};
+use crate::components::{OnClick, card, typography};
+use crate::design::{size, sp, page};
 use crate::jellyfin::{Api, Item, Kind};
 use crate::nav::Nav;
-use crate::status::{Status, full_status, inline_status};
 
 const PER_ROW: usize = 24;
 const PAGE_ANIMATION: Duration = Duration::from_millis(350);
-// Photon's row card widths (11rem / 18rem).
-const POSTER_WIDTH: f32 = 176.;
-const WIDE_WIDTH: f32 = 288.;
-/// Page gutter, shared with every other page (`detail::PAD`).
+/// Page gutter, shared with every other page.
 fn gutter(_: &Window) -> Pixels {
-    px(PAD)
+    page()
 }
 
 #[derive(Default)]
@@ -204,10 +201,8 @@ impl HomeView {
         gutter: Pixels,
         cx: &mut Context<Self>,
     ) -> Button {
-        Button::new(ElementId::Name(id.into()))
-            .ghost()
-            .xsmall()
-            .icon(icon)
+        icon_button(ElementId::Name(id.into()), icon)
+            .icon_xs()
             .disabled(disabled)
             .on_click(cx.listener(move |this, _, window, _| this.page(row, next, gutter, window)))
     }
@@ -251,47 +246,34 @@ impl HomeView {
         let at_end = max > px(0.) && offset <= -max;
         Some(
             v_flex()
-                .gap_4()
+                .gap(sp(4.))
                 .child(
-                    h_flex()
-                        .px(gutter)
-                        .justify_between()
-                        .child(div().text_2xl().font_weight(FontWeight::BOLD).child(title))
-                        .child(
-                            h_flex()
-                                .gap_1()
-                                .child(Self::page_button(
-                                    format!("{id}-prev"),
-                                    IconName::ChevronLeft,
-                                    row,
-                                    false,
-                                    offset >= px(0.),
-                                    gutter,
-                                    cx,
-                                ))
-                                .child(Self::page_button(
-                                    format!("{id}-next"),
-                                    IconName::ChevronRight,
-                                    row,
-                                    true,
-                                    at_end,
-                                    gutter,
-                                    cx,
-                                )),
-                        ),
+                    header_row(
+                        typography::title(title),
+                        h_flex()
+                            .gap(sp(1.))
+                            .child(Self::page_button(
+                                format!("{id}-prev"),
+                                IconName::ChevronLeft,
+                                row,
+                                false,
+                                offset >= px(0.),
+                                gutter,
+                                cx,
+                            ))
+                            .child(Self::page_button(
+                                format!("{id}-next"),
+                                IconName::ChevronRight,
+                                row,
+                                true,
+                                at_end,
+                                gutter,
+                                cx,
+                            )),
+                    )
+                    .px(gutter),
                 )
-                .child(
-                    h_flex()
-                        .id(id)
-                        .overflow_x_scroll()
-                        // else vertical swipes with slight x drift scroll the row
-                        .lock_scroll_axis()
-                        .track_scroll(&scroll)
-                        .px(gutter)
-                        .gap_4()
-                        .items_start()
-                        .children(cards),
-                )
+                .child(scroll_row(id, &scroll, gutter, cards))
                 .into_any_element(),
         )
     }
@@ -317,7 +299,7 @@ impl Render for HomeView {
                 .map(|item| {
                     let on_play = Self::play_on_click(item, cx);
                     let on_open = Self::open_on_click(&item.detail_target(), cx);
-                    card::wide_card(&api, item, px(WIDE_WIDTH), on_play, on_open, cx)
+                    card::wide_card(&api, item, size::wide_w(), on_play, on_open, cx)
                 })
                 .collect()
         };
@@ -327,7 +309,7 @@ impl Render for HomeView {
                 .map(|item| {
                     let on_play = self.poster_play_on_click(item, cx);
                     let on_open = Self::open_on_click(item, cx);
-                    card::poster_card_playable(&api, item, px(POSTER_WIDTH), on_play, on_open, cx)
+                    card::poster_card_playable(&api, item, size::poster_w(), on_play, on_open, cx)
                 })
                 .collect()
         };
@@ -342,21 +324,11 @@ impl Render for HomeView {
             Self::row(title, id, cards, ix, scroll, gutter, cx)
         };
         // shown while a background refresh fails but the rows still have the old data
-        let banner = self.error.clone().map(|error| {
-            div()
-                .px(gutter)
-                .children(inline_status(Some(Status::Error(error)), cx))
-        });
-        // Photon's `.page { padding-block: 1.5rem 3rem }` + `.section` gap (2.75rem).
-        v_flex()
-            .id("home")
-            .size_full()
-            .overflow_y_scroll()
-            // else horizontal row swipes leak into page's vertical scroll
-            .lock_scroll_axis()
-            .pt(px(24.))
-            .pb(px(48.))
-            .gap(px(44.))
+        let banner = self
+            .error
+            .clone()
+            .map(|error| error_banner(error, cx).px(gutter));
+        rows_page("home")
             .children(banner)
             .children(row(
                 "Continue Watching",

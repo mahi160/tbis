@@ -1,0 +1,145 @@
+//! Detail-page building blocks shared by Movie and Series pages: header, meta line,
+//! genres, media tags, backdrop, cast.
+
+use gpui_kit::component::{IconName, h_flex, v_flex};
+use gpui_kit::*;
+
+use super::avatar::avatar;
+use super::button::icon_button;
+use super::typography::caption;
+use super::{OnClick, art, tag, typography};
+use crate::design::{color, sp, text};
+use crate::jellyfin::{Api, Item};
+
+/// Back button, `image` (URL, width, height), then `body` (title/meta/overview/actions).
+pub fn detail_header(
+    image: (Option<String>, Pixels, Pixels),
+    back: OnClick,
+    body: impl IntoElement,
+    cx: &App,
+) -> impl IntoElement {
+    let (url, width, height) = image;
+    h_flex()
+        .gap(sp(5.))
+        .items_start()
+        .child(icon_button("detail-back", IconName::ArrowLeft).on_click(back))
+        .child(art::thumb(url, width, height, cx))
+        .child(body)
+}
+
+/// Column beside the header image holding title, meta and actions.
+pub fn header_body() -> Div {
+    v_flex().flex_1().min_w_0()
+}
+
+/// Year · runtime-or-counts · age rating · ★ community · critics %, skipping missing parts.
+pub fn meta_line(item: &Item, length: Option<String>, cx: &App) -> Option<AnyElement> {
+    let muted_fg = color::muted_foreground(cx);
+    let mut parts: Vec<AnyElement> = Vec::new();
+    if let Some(year) = item.production_year {
+        parts.push(year.to_string().into_any_element());
+    }
+    if let Some(length) = length {
+        parts.push(length.into_any_element());
+    }
+    if let Some(rating) = item.official_rating.clone() {
+        parts.push(tag::pill(rating, cx).into_any_element());
+    }
+    if let Some(score) = item.community_rating {
+        parts.push(tag::star_rating(score, cx).into_any_element());
+    }
+    if let Some(score) = item.critic_rating {
+        parts.push(format!("Critics {}%", score.round()).into_any_element());
+    }
+    (!parts.is_empty()).then(|| {
+        h_flex()
+            .gap(sp(3.))
+            .items_center()
+            .text_size(text::sm())
+            .text_color(muted_fg)
+            .children(parts)
+            .into_any_element()
+    })
+}
+
+/// Resolution/HDR/audio format badges; `None` when the item has no stream info.
+pub fn media_tags(item: &Item, cx: &App) -> Option<AnyElement> {
+    let tags = item.media_tags();
+    (!tags.is_empty()).then(|| {
+        h_flex()
+            .gap(sp(1.5))
+            .flex_wrap()
+            .children(tags.into_iter().map(|t| tag::pill(t, cx)))
+            .into_any_element()
+    })
+}
+
+/// Dimmed backdrop art behind the top of a detail page; `None` without art.
+pub fn backdrop(api: &Api, item: &Item, cx: &App) -> Option<AnyElement> {
+    Some(super::backdrop::backdrop(api.backdrop_url(item)?, cx))
+}
+
+pub fn genres_line(item: &Item, cx: &App) -> Option<AnyElement> {
+    (!item.genres.is_empty()).then(|| caption(item.genres.join(", "), cx).into_any_element())
+}
+
+const CAST_LIMIT: usize = 12;
+
+/// Top billed actors as a wrapping grid of compact tiles: round portrait (initials
+/// when none), name, character.
+pub fn cast_row(api: &Api, item: &Item, cx: &App) -> Option<AnyElement> {
+    let muted_fg = color::muted_foreground(cx);
+    let actors: Vec<AnyElement> = item
+        .people
+        .iter()
+        .filter(|p| p.kind.as_deref() == Some("Actor"))
+        .take(CAST_LIMIT)
+        .map(|person| {
+            h_flex()
+                .w(sp(54.))
+                .gap(sp(3.))
+                .child(avatar(
+                    api.person_image_url(person),
+                    person.name.clone(),
+                    sp(crate::design::tokens().avatar.lg),
+                    cx,
+                ))
+                .child(
+                    v_flex()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .text_size(text::sm())
+                                .font_weight(FontWeight::MEDIUM)
+                                .truncate()
+                                .child(person.name.clone()),
+                        )
+                        .children(person.role.clone().filter(|r| !r.is_empty()).map(|role| {
+                            div()
+                                .text_size(text::xs())
+                                .truncate()
+                                .text_color(muted_fg)
+                                .child(role)
+                        })),
+                )
+                .into_any_element()
+        })
+        .collect();
+    if actors.is_empty() {
+        return None;
+    }
+    Some(
+        v_flex()
+            .gap(sp(4.))
+            .child(typography::heading("Cast"))
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap_x(sp(6.))
+                    .gap_y(sp(4.))
+                    .children(actors),
+            )
+            .into_any_element(),
+    )
+}

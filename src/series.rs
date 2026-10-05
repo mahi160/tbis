@@ -1,15 +1,18 @@
 use gpui_kit::component::button::Button;
-use gpui_kit::component::tab::TabBar;
-use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::*;
 
-use crate::card;
+use crate::components::episode::{EpisodeRow, episode_row};
+use crate::components::layout::scroll_page;
+use crate::components::status::{Status, inline_status};
+use crate::components::tabs::scrolling_tabs;
+use crate::components::toggle_button::toggle_button;
+use crate::components::typography::{paragraph, title};
 use crate::config::HideSpoilers;
-use crate::detail::{self, PAD, Toggle, UserDataView};
+use crate::design::{size, sp};
+use crate::detail::{self, Toggle, UserDataView};
 use crate::jellyfin::{Api, Item, UserData};
 use crate::nav::Nav;
-use crate::status::{Status, inline_status};
 
 /// Series detail: header, season tabs, and the Episodes of the selected season.
 pub struct SeriesView {
@@ -166,7 +169,7 @@ impl SeriesView {
         cx: &mut Context<Self>,
     ) -> Button {
         let id = item.id.clone();
-        detail::toggle_button(element_id, toggle, &item.user_data).on_click(cx.listener(
+        toggle_button(element_id, toggle, &item.user_data).on_click(cx.listener(
             move |this, _, _, cx| {
                 // gpui-kit Button doesn't stop the click; Episode row would play
                 cx.stop_propagation();
@@ -178,27 +181,15 @@ impl SeriesView {
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let back = Box::new(cx.listener(|_, _, _, cx| cx.emit(Nav::Back)));
-        let body = v_flex()
-            .flex_1()
-            .min_w_0()
-            .gap_2()
-            .child(
-                div()
-                    .text_2xl()
-                    .font_weight(FontWeight::BOLD)
-                    .child(self.series.name.clone()),
-            )
+        let body = detail::header_body()
+            .gap(sp(2.))
+            .child(title(self.series.name.clone()))
             .children(detail::meta_line(&self.series, self.seasons_label(), cx))
             .children(detail::genres_line(&self.series, cx))
-            .children(
-                self.series
-                    .overview
-                    .clone()
-                    .map(|o| div().text_sm().line_clamp(4).text_ellipsis().child(o)),
-            )
+            .children(self.series.overview.clone().map(|o| paragraph(o, 4)))
             .child(
                 h_flex()
-                    .gap_2()
+                    .gap(sp(2.))
                     .children([Toggle::Played, Toggle::Favorite].map(|toggle| {
                         self.toggle_button(
                             &self.series,
@@ -209,7 +200,11 @@ impl SeriesView {
                     })),
             );
         detail::detail_header(
-            (self.api.poster_url(&self.series), px(120.), px(180.)),
+            (
+                self.api.poster_url(&self.series),
+                size::header_poster_sm_w(),
+                size::header_poster_sm_h(),
+            ),
             back,
             body,
             cx,
@@ -217,7 +212,6 @@ impl SeriesView {
     }
 
     fn render_episode(&self, episode: &Item, cx: &mut Context<Self>) -> AnyElement {
-        let (muted, muted_fg) = (cx.theme().muted, cx.theme().muted_foreground);
         let open = {
             let episode = episode.clone();
             cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Open(episode.clone())))
@@ -237,16 +231,6 @@ impl SeriesView {
         let runtime = episode
             .run_time_ticks
             .map(|t| format!("{} min", detail::minutes(t)));
-        let rating = episode.community_rating.map(|score| {
-            h_flex()
-                .gap_1()
-                .child(
-                    Icon::new(IconName::Star)
-                        .small()
-                        .text_color(cx.theme().warning),
-                )
-                .child(format!("{score:.1}"))
-        });
         let spoiler = cx.global::<HideSpoilers>().0 && !episode.user_data.played;
         // server-side blur; gpui can't blur an image
         let still = self.api.poster_url(episode).map(|url| {
@@ -257,85 +241,34 @@ impl SeriesView {
             }
         });
 
-        h_flex()
-            .id(SharedString::from(episode.id.clone()))
-            .gap_4()
-            .p_2()
-            .rounded(cx.theme().radius_lg)
-            .cursor_pointer()
-            .hover(|this| this.bg(muted))
-            .on_click(open)
-            .child(
-                div()
-                    .id(ElementId::Name(
-                        format!("episode-play-{}", episode.id).into(),
-                    ))
-                    .group("episode-still")
-                    .relative()
-                    .w(px(192.))
-                    .h(px(108.))
-                    .flex_shrink_0()
-                    .rounded(cx.theme().radius_lg)
-                    .overflow_hidden()
-                    .bg(muted)
-                    .on_click(play)
-                    .child(card::image(still, cx))
-                    .child(card::play_scrim("episode-still", cx))
-                    .when_some(progress, |this, percent| {
-                        this.child(card::progress_bar(percent, cx))
-                    })
-                    .when(episode.user_data.played, |this| {
-                        this.child(card::check_badge(cx))
-                    }),
-            )
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_1()
-                    .child(
-                        div()
-                            .truncate()
-                            .child(format!("{number}{}", episode.display_name())),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_3()
-                            .text_sm()
-                            .text_color(muted_fg)
-                            .children(runtime)
-                            .children(rating),
-                    )
-                    .children(episode.overview.clone().filter(|_| !spoiler).map(|o| {
-                        div()
-                            .text_sm()
-                            .text_color(muted_fg)
-                            .line_clamp(2)
-                            .text_ellipsis()
-                            .child(o)
-                    })),
-            )
-            .child(self.toggle_button(
-                episode,
-                ElementId::Name(format!("episode-played-{}", episode.id).into()),
-                Toggle::Played,
-                cx,
-            ))
-            .into_any_element()
+        let row = EpisodeRow {
+            id: episode.id.clone().into(),
+            still,
+            title: format!("{number}{}", episode.display_name()),
+            runtime,
+            rating: episode.community_rating,
+            overview: episode.overview.clone().filter(|_| !spoiler),
+            progress,
+            played: episode.user_data.played,
+        };
+        let toggle = self.toggle_button(
+            episode,
+            ElementId::Name(format!("episode-played-{}", episode.id).into()),
+            Toggle::Played,
+            cx,
+        );
+        episode_row(row, Box::new(open), Box::new(play), toggle, cx)
     }
 }
 
 impl Render for SeriesView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let seasons = (!self.seasons.is_empty()).then(|| {
-            div().id("season-tabs").overflow_x_scroll().child(
-                TabBar::new("seasons")
-                    .pill()
-                    .children(self.seasons.iter().map(Self::season_label))
-                    .selected_index(self.selected)
-                    .on_click(
-                        cx.listener(|this, index: &usize, _, cx| this.select_season(*index, cx)),
-                    ),
+            scrolling_tabs(
+                "seasons",
+                self.seasons.iter().map(Self::season_label),
+                self.selected,
+                cx.listener(|this, index: &usize, _, cx| this.select_season(*index, cx)),
             )
         });
 
@@ -356,19 +289,15 @@ impl Render for SeriesView {
             episodes.push(self.render_episode(episode, cx));
         }
 
-        v_flex()
-            .id("series-detail")
-            .size_full()
+        scroll_page("series-detail")
             .relative()
-            .overflow_y_scroll()
             .track_scroll(&self.scroll)
-            .p(px(PAD))
-            .gap_6()
+            .gap(sp(6.))
             .children(detail::backdrop(&self.api, &self.series, cx))
             .child(self.render_header(cx))
             .children(detail::cast_row(&self.api, &self.series, cx))
             .children(seasons)
             .children(inline_status(status, cx))
-            .child(v_flex().gap_1().children(episodes))
+            .child(v_flex().gap(sp(1.)).children(episodes))
     }
 }

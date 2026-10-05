@@ -5,13 +5,16 @@
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use gpui_kit::component::chart::BarChart;
-use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
+use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::components::chart::bar_chart;
+use crate::components::panel::stat_tile;
+use crate::components::status::{Status, inline_status};
+use crate::components::typography::{key_value, subheading};
+use crate::design::{size, sp};
 use crate::jellyfin::{Api, Item, Kind};
-use crate::status::{Status, inline_status};
 
 const WEEKS: i64 = 12;
 const TOP_SERIES: usize = 5;
@@ -170,29 +173,6 @@ impl StatsView {
     }
 }
 
-fn tile(label: &'static str, value: String, cx: &App) -> impl IntoElement {
-    v_flex()
-        .flex_1()
-        .min_w(px(120.))
-        .gap_1()
-        .p_3()
-        .rounded(cx.theme().radius_lg)
-        .border_1()
-        .border_color(cx.theme().border)
-        .child(
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(label),
-        )
-        .child(
-            div()
-                .text_xl()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(value),
-        )
-}
-
 impl Render for StatsView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let status = match (&self.error, &self.stats) {
@@ -206,19 +186,14 @@ impl Render for StatsView {
         let Some(stats) = self.stats.as_ref().filter(|_| status.is_none()) else {
             return v_flex().children(inline_status(status, cx));
         };
-        let muted_fg = cx.theme().muted_foreground;
-        let heading = |text: &'static str| {
-            div()
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(text)
-        };
+        let tile = stat_tile;
+        let heading = subheading;
         v_flex()
-            .gap_5()
+            .gap(sp(5.))
             .child(
                 h_flex()
                     .flex_wrap()
-                    .gap_3()
+                    .gap(sp(3.))
                     .child(tile("Last 7 days", hours_label(stats.last_7_days), cx))
                     .child(tile("Last 30 days", hours_label(stats.last_30_days), cx))
                     .child(tile("All time", hours_label(stats.all_time), cx))
@@ -226,32 +201,23 @@ impl Render for StatsView {
                     .child(tile("Episodes", stats.episodes.to_string(), cx)),
             )
             .child(
-                v_flex().gap_2().child(heading("Hours per week")).child(
-                    div().h(px(180.)).child(
-                        BarChart::new(stats.weekly.clone())
-                            .id("weekly-hours")
-                            .name("Hours")
-                            .band(|(week, _)| SharedString::from(week.clone()))
-                            .value(|(_, hours)| (hours * 10.).round() / 10.),
-                    ),
-                ),
+                v_flex()
+                    .gap(sp(2.))
+                    .child(heading("Hours per week"))
+                    .child(bar_chart(
+                        "weekly-hours",
+                        "Hours",
+                        stats.weekly.clone(),
+                        size::chart_h(),
+                    )),
             )
             .when(!stats.top_series.is_empty(), |this| {
                 this.child(
                     v_flex()
-                        .gap_2()
+                        .gap(sp(2.))
                         .child(heading("Most-watched Series"))
                         .children(stats.top_series.iter().map(|(name, count)| {
-                            h_flex()
-                                .justify_between()
-                                .text_sm()
-                                .child(div().truncate().child(name.clone()))
-                                .child(
-                                    div()
-                                        .flex_shrink_0()
-                                        .text_color(muted_fg)
-                                        .child(format!("{count} episodes")),
-                                )
+                            key_value(name.clone(), format!("{count} episodes"), cx)
                         })),
                 )
             })

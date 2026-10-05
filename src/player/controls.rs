@@ -1,17 +1,28 @@
 //! Bars, menus, the up-next card, and the `Render` impl.
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::slider::{Slider, SliderEvent};
 use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _, WindowExt as _,
+    Disableable as _, Icon, Selectable as _, WindowExt as _,
     h_flex, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::components::button::{
+    VegaSize as _, button, ghost_button, primary_button, round_ghost_button, round_icon,
+    round_icon_button as icon_button,
+};
+use crate::components::layout::spacer;
+use crate::components::menu::choice_menu;
+use crate::components::status::error_panel;
+use crate::components::typography::{caption, strong};
+use crate::components::video::{
+    bottom_bar, hover_reveal, info_panel, overlay_banner, overlay_card, overlay_corner,
+    sprite_thumb, timeline, top_bar, video_meta, video_tag, video_title,
+};
 use crate::config::SeekSteps;
+use crate::design::{self, color, font, overlay, sp, text};
 use crate::jellyfin::SegmentKind;
 use crate::mpv::{Track, TrackKind};
 use crate::now_playing::{Info, NowPlaying, RemoteCommand};
@@ -29,7 +40,6 @@ use super::{
 const INFO_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 const SPEEDS: [f64; 7] = [0.5, 0.75, 1., 1.25, 1.5, 1.75, 2.];
 /// Displayed width of the scrub-preview thumbnail; the sprite sheet scales to fit.
-const TRICKPLAY_WIDTH: f32 = 160.;
 
 impl PlayerView {
     pub(super) fn sync_seek_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -603,30 +613,18 @@ impl PlayerView {
             .trickplay(item)
             .filter(|i| i.width > 0 && i.height > 0)?;
         let (tile, x, y) = info.thumbnail_at(seconds);
-        let scale = TRICKPLAY_WIDTH / info.width as f32;
-        let (tile_w, tile_h) = (TRICKPLAY_WIDTH, info.height as f32 * scale);
+        let scale = design::size::trickplay_w() / info.width as f32;
+        let (tile_w, tile_h) = (design::size::trickplay_w(), info.height as f32 * scale);
         let sprite_w = tile_w * info.tile_width as f32;
         let sprite_h = tile_h * info.tile_height as f32;
         let url = self.api.trickplay_tile_url(item, &info, tile);
         Some(
-            div()
-                .w(px(tile_w))
-                .h(px(tile_h))
-                .rounded(px(8.))
-                .overflow_hidden()
-                .relative()
-                .shadow(vec![
-                    BoxShadow::new(px(0.), px(4.), video_black(0.5)).blur_radius(px(12.)),
-                ])
-                .child(
-                    img(url)
-                        .absolute()
-                        .top(px(-(y as f32) * scale))
-                        .left(px(-(x as f32) * scale))
-                        .w(px(sprite_w))
-                        .h(px(sprite_h)),
-                )
-                .into_any_element(),
+            sprite_thumb(
+                url,
+                size(tile_w, tile_h),
+                size(sprite_w, sprite_h),
+                point(x as f32 * scale, y as f32 * scale))
+            .into_any_element(),
         )
     }
 
@@ -649,40 +647,29 @@ impl PlayerView {
             TrackKind::Subtitle => ("player-subtitles", "icons/cc.svg"),
         };
         let this = cx.entity().downgrade();
-        Some(
-            icon_button(id, icon, cx)
-                .dropdown_menu(move |menu, _, _| {
-                    // long track lists overflow the window otherwise
-                    let mut menu = menu.scrollable(true);
-                    if kind == TrackKind::Subtitle {
-                        let this = this.clone();
-                        menu = menu.item(
-                            PopupMenuItem::new("Off")
-                                .checked(!tracks.iter().any(|t| t.selected))
-                                .on_click(move |_, _, cx| {
-                                    this.update(cx, |this, _| this.select_track(kind, None))
-                                        .ok();
-                                }),
-                        );
-                    }
-                    for track in &tracks {
-                        let (this, track_id) = (this.clone(), track.id);
-                        menu = menu.item(
-                            PopupMenuItem::new(track.label.clone())
-                                .checked(track.selected)
-                                .on_click(move |_, _, cx| {
-                                    this.update(cx, |this, _| {
-                                        this.select_track(kind, Some(track_id))
-                                    })
-                                    .ok();
-                                }),
-                        );
-                    }
-                    menu
-                })
-                .on_open_change(self.on_menu_open(cx))
-                .into_any_element(),
-        )
+        // subtitles lead with "Off" (id None)
+        let mut choices: Vec<(Option<_>, SharedString, bool)> = Vec::new();
+        if kind == TrackKind::Subtitle {
+            choices.push((None, "Off".into(), !tracks.iter().any(|t| t.selected)));
+        }
+        choices.extend(
+            tracks
+                .iter()
+                .map(|t| (Some(t.id), t.label.clone().into(), t.selected)),
+        );
+        let options = choices.iter().map(|(_, l, c)| (l.clone(), *c)).collect();
+        Some(choice_menu(
+            icon_button(id, icon),
+            options,
+            // long track lists overflow the window otherwise
+            true,
+            move |ix, cx| {
+                let track_id = choices[ix].0;
+                this.update(cx, |this, _| this.select_track(kind, track_id))
+                    .ok();
+            },
+            self.on_menu_open(cx),
+        ))
     }
 
     /// Jellyfin's own chapter markers, not mpv's embedded ones (see `chapter_index`).
@@ -693,64 +680,54 @@ impl PlayerView {
         }
         let current = self.chapter_index();
         let this = cx.entity().downgrade();
-        Some(
-            icon_button("player-chapters", "icons/chapters.svg", cx)
-                .dropdown_menu(move |menu, _, _| {
-                    let mut menu = menu.scrollable(true);
-                    for (i, chapter) in chapters.iter().enumerate() {
-                        let (this, seconds) = (this.clone(), chapter.start_seconds());
-                        let label = chapter
-                            .name
-                            .clone()
-                            .filter(|n| !n.is_empty())
-                            .unwrap_or_else(|| format!("Chapter {}", i + 1));
-                        menu = menu.item(
-                            PopupMenuItem::new(label)
-                                .checked(current == Some(i))
-                                .on_click(move |_, _, cx| {
-                                    this.update(cx, |this, _| {
-                                        if let Some(mpv) = this.active_mpv() {
-                                            let _ = mpv.seek(seconds);
-                                        }
-                                    })
-                                    .ok();
-                                }),
-                        );
+        let options = chapters
+            .iter()
+            .enumerate()
+            .map(|(i, chapter)| {
+                let label = chapter
+                    .name
+                    .clone()
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| format!("Chapter {}", i + 1));
+                (label.into(), current == Some(i))
+            })
+            .collect();
+        Some(choice_menu(
+            icon_button("player-chapters", "icons/chapters.svg"),
+            options,
+            true,
+            move |ix, cx| {
+                let seconds = chapters[ix].start_seconds();
+                this.update(cx, |this, _| {
+                    if let Some(mpv) = this.active_mpv() {
+                        let _ = mpv.seek(seconds);
                     }
-                    menu
                 })
-                .on_open_change(self.on_menu_open(cx))
-                .into_any_element(),
-        )
+                .ok();
+            },
+            self.on_menu_open(cx),
+        ))
     }
 
     fn speed_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity().downgrade();
         let speed = self.speed;
-        Button::new("player-speed")
-            .ghost()
-            .rounded(cx.theme().radius_full())
-            .label(format!("{speed}\u{d7}"))
-            .font_family(cx.theme().mono_font_family.clone())
-            .text_xs()
-            .dropdown_menu(move |mut menu, _, _| {
-                for s in SPEEDS {
-                    let this = this.clone();
-                    menu = menu.item(
-                        PopupMenuItem::new(format!("{s}\u{d7}"))
-                            .checked(s == speed)
-                            .on_click(move |_, _, cx| {
-                                this.update(cx, |this, cx| {
-                                    this.set_speed(s);
-                                    cx.notify();
-                                })
-                                .ok();
-                            }),
-                    );
-                }
-                menu
-            })
-            .on_open_change(self.on_menu_open(cx))
+        choice_menu(
+            round_ghost_button("player-speed", format!("{speed}\u{d7}"), cx),
+            SPEEDS
+                .iter()
+                .map(|s| (format!("{s}\u{d7}").into(), *s == speed))
+                .collect(),
+            false,
+            move |ix, cx| {
+                this.update(cx, |this, cx| {
+                    this.set_speed(SPEEDS[ix]);
+                    cx.notify();
+                })
+                .ok();
+            },
+            self.on_menu_open(cx),
+        )
     }
 
     /// Keeps controls up while a menu is open; refocuses the Player on close.
@@ -765,46 +742,6 @@ impl PlayerView {
             }
         })
     }
-}
-
-/// Round ghost icon button shared by the Player's bars.
-fn icon_button(id: &'static str, icon: &'static str, cx: &App) -> Button {
-    Button::new(id)
-        .ghost()
-        .rounded(cx.theme().radius_full())
-        .icon(Icon::empty().path(icon))
-}
-
-/// One overlay banner centered on the video, shared by the fatal error and the
-/// "playing in PiP" notice.
-fn overlay_banner(content: impl IntoElement) -> AnyElement {
-    let label = div().p_4().rounded_md().bg(overlay_scrim());
-    div()
-        .absolute()
-        .inset_0()
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(label.child(content))
-        .into_any_element()
-}
-
-/// Video overlays sit on top of mpv's own layer, so they need their own dark scrim
-/// rather than the theme's `overlay` (meant for panels over the app's own background).
-fn overlay_scrim() -> Hsla {
-    video_black(0.6)
-}
-
-/// Black tint at `alpha` over the video, for gradients and scrims that must stay black
-/// regardless of theme -- the controls sit over live video, not the app's own background.
-fn video_black(alpha: f32) -> Hsla {
-    hsla(0., 0., 0., alpha)
-}
-
-/// White tint at `alpha` over the video, for text/icons that must stay legible on
-/// any frame; same theme-independence reasoning as `video_black`.
-fn video_white(alpha: f32) -> Hsla {
-    hsla(0., 0., 1., alpha)
 }
 
 impl Render for PlayerView {
@@ -826,73 +763,34 @@ impl Render for PlayerView {
             );
         }
 
-        let clear = video_black(0.);
         let time = self.playback.scrubbing.unwrap_or(self.playback.time);
 
-        let mono = cx.theme().mono_font_family.clone();
-        let dim = video_white;
+        let mono = font::mono(cx);
 
-        let top = h_flex()
-            .pt(px(36.)) // below traffic lights
-            .px_6()
-            .pb_5()
-            .gap_3()
-            .bg(linear_gradient(
-                180.,
-                linear_color_stop(video_black(0.65), 0.),
-                linear_color_stop(clear, 1.),
-            ))
+        let top = top_bar()
             .child(
-                icon_button("player-back", "icons/caret-left.svg", cx)
+                icon_button("player-back", "icons/caret-left.svg")
                     .on_click(cx.listener(|this, _, window, cx| this.close(window, cx))),
             )
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        div()
-                            .text_size(px(17.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .truncate()
-                            .child(self.playback.title.clone()),
-                    )
-                    .children(self.playback.subtitle.clone().map(|subtitle| {
-                        div()
-                            .font_family(mono.clone())
-                            .text_xs()
-                            .text_color(dim(0.55))
-                            .truncate()
-                            .child(subtitle)
-                    })),
-            )
+            .child(video_title(
+                self.playback.title.clone(),
+                self.playback.subtitle.clone(),
+                mono.clone(),
+            ))
             .child(
                 h_flex()
                     .flex_none()
-                    .gap_3()
+                    .gap(sp(3.))
                     .children(
                         self.playback
                             .item
                             .iter()
                             .flat_map(|item| item.media_tags())
-                            .map(|tag| {
-                                div()
-                                    .px_2()
-                                    .rounded_full()
-                                    .border_1()
-                                    .border_color(dim(0.35))
-                                    .font_family(mono.clone())
-                                    .text_xs()
-                                    .text_color(dim(0.75))
-                                    .child(tag)
-                            }),
+                            .map(|tag| video_tag(tag, mono.clone())),
                     )
                     .child(
-                        div()
-                            .font_family(mono.clone())
-                            .text_sm()
-                            .text_color(dim(0.75))
-                            .child(clock(0.)),
+                        video_meta(clock(0.), mono.clone(), overlay::TEXT_MUTED)
+                            .text_size(text::sm()),
                     ),
             );
 
@@ -900,35 +798,18 @@ impl Render for PlayerView {
             .playback
             .scrubbing
             .and_then(|seconds| self.trickplay_preview(seconds))
-            .map(|preview| {
-                let fraction = (time / self.playback.duration.max(1.)) as f32;
-                div()
-                    .absolute()
-                    .bottom(px(28.))
-                    .left(relative(fraction))
-                    .ml(px(-TRICKPLAY_WIDTH / 2.))
-                    .child(preview)
-            });
+            .map(|preview| ((time / self.playback.duration.max(1.)) as f32, preview));
 
-        let timeline = h_flex()
-            .gap_3()
-            .font_family(mono.clone())
-            .text_sm()
-            .text_color(dim(0.85))
-            .child(format_time(time))
-            .child(
-                div()
-                    .relative()
-                    .flex_1()
-                    .child(
-                        Slider::new(&self.seek)
-                            .bg(cx.theme().primary)
-                            .text_color(white())
-                            .disabled(self.playback.duration <= 0. || self.pip.is_some()),
-                    )
-                    .children(scrub_preview),
-            )
-            .child(format_time(self.playback.duration));
+        let timeline = timeline(
+            format_time(time),
+            Slider::new(&self.seek)
+                .bg(color::primary(cx))
+                .text_color(overlay::WHITE)
+                .disabled(self.playback.duration <= 0. || self.pip.is_some()),
+            scrub_preview,
+            format_time(self.playback.duration),
+            mono.clone(),
+        );
 
         let volume_icon = if self.muted || self.volume <= 0. {
             "icons/mute.svg"
@@ -936,16 +817,16 @@ impl Render for PlayerView {
             "icons/volume.svg"
         };
         let ends_at = (self.playback.duration > 0.).then(|| {
-            div()
-                .ml_2p5()
-                .font_family(mono.clone())
-                .text_size(px(13.))
-                .text_color(dim(0.5))
-                .whitespace_nowrap()
-                .child(format!(
+            video_meta(
+                format!(
                     "ends at {}",
                     clock((self.playback.duration - time) / self.speed)
-                ))
+                ),
+                mono.clone(),
+                overlay::TEXT_FAINT,
+            )
+            .ml(sp(2.5))
+            .text_size(text::xs())
         });
         let is_episode = self
             .playback
@@ -953,8 +834,8 @@ impl Render for PlayerView {
             .as_ref()
             .is_some_and(|item| item.series_id.is_some());
         let controls = h_flex()
-            .mt(px(14.))
-            .gap_0p5()
+            .mt(sp(3.))
+            .gap(sp(0.5))
             .child(
                 icon_button(
                     "player-play",
@@ -962,9 +843,7 @@ impl Render for PlayerView {
                         "icons/play.svg"
                     } else {
                         "icons/pause.svg"
-                    },
-                    cx,
-                )
+                    })
                 .on_click(
                     cx.listener(|this, _, window, cx| this.toggle_pause(&TogglePause, window, cx)),
                 ),
@@ -972,7 +851,7 @@ impl Render for PlayerView {
             // Episodes only; disabled at the Series' first/last Episode
             .when(is_episode, |this| {
                 this.child(
-                    icon_button("player-previous", "icons/backward-step.svg", cx)
+                    icon_button("player-previous", "icons/backward-step.svg")
                         .disabled(self.playback.previous.is_none())
                         .tooltip_with_action("Previous Episode", &PreviousEpisode, Some(CONTEXT))
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -980,7 +859,7 @@ impl Render for PlayerView {
                         })),
                 )
                 .child(
-                    icon_button("player-next", "icons/forward-step.svg", cx)
+                    icon_button("player-next", "icons/forward-step.svg")
                         .disabled(self.playback.next.is_none())
                         .tooltip_with_action("Next Episode", &NextEpisode, Some(CONTEXT))
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -990,45 +869,32 @@ impl Render for PlayerView {
             })
             .child(
                 // slider unfolds from the mute button on hover
-                h_flex()
-                    .group("player-volume")
-                    .child(icon_button("player-mute", volume_icon, cx).on_click(
+                hover_reveal(
+                    "player-volume",
+                    icon_button("player-mute", volume_icon).on_click(
                         cx.listener(|this, _, window, cx| {
                             this.toggle_mute(&ToggleMute, window, cx)
                         }),
-                    ))
-                    .child(
-                        div()
-                            .w_0()
-                            .overflow_hidden()
-                            .group_hover("player-volume", |s| s.w(px(96.)))
-                            .when(self.volume_hud, |s| s.w(px(96.)))
-                            .child(
-                                div()
-                                    .w(px(96.))
-                                    .px_2()
-                                    .child(Slider::new(&self.volume_slider).text_color(white())),
-                            ),
                     ),
+                    Slider::new(&self.volume_slider).text_color(overlay::WHITE),
+                    self.volume_hud,
+                ),
             )
             .children(ends_at)
-            .child(div().flex_1())
+            .child(spacer())
             .child(self.speed_menu(cx))
             .children(self.chapter_menu(cx))
             .children(self.track_menu(TrackKind::Audio, cx))
             .children(self.track_menu(TrackKind::Subtitle, cx))
             .child(
-                Button::new("player-info")
-                    .ghost()
-                    .rounded(cx.theme().radius_full())
-                    .icon(Icon::new(assets::IconName::Info))
+                round_icon("player-info", Icon::new(assets::IconName::Info))
                     .selected(self.info.is_some())
                     .tooltip_with_action("Playback info", &TogglePlaybackInfo, Some(CONTEXT))
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.toggle_playback_info(&TogglePlaybackInfo, window, cx)
                     })),
             )
-            .child(icon_button("player-pip", "icons/pip.svg", cx).on_click(
+            .child(icon_button("player-pip", "icons/pip.svg").on_click(
                 cx.listener(|this, _, window, cx| this.toggle_pip(&TogglePip, window, cx)),
             ))
             .child(
@@ -1038,38 +904,19 @@ impl Render for PlayerView {
                         "icons/minimize.svg"
                     } else {
                         "icons/maximize.svg"
-                    },
-                    cx,
-                )
+                    })
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.toggle_fullscreen(&ToggleFullscreen, window, cx)
                 })),
             );
 
-        let bottom = div()
-            .pt(px(56.))
-            .px_6()
-            .pb_5()
-            .bg(linear_gradient(
-                0.,
-                linear_color_stop(video_black(0.78), 0.),
-                linear_color_stop(clear, 1.),
-            ))
-            .child(
-                v_flex()
-                    .w_full()
-                    .max_w(px(1088.))
-                    .mx_auto()
-                    .child(timeline)
-                    .child(controls),
-            );
+        let bottom = bottom_bar(v_flex().w_full().child(timeline).child(controls));
 
         let error = self.playback.error.clone().map(|error| {
-            let back = Button::new("error-back")
-                .label("Go back")
+            let back = button("error-back", "Go back")
                 .on_click(cx.listener(|this, _, window, cx| this.close(window, cx)))
                 .into_any_element();
-            overlay_banner(crate::status::error_panel("Can't play this", error, [back], cx).p_4())
+            overlay_banner(error_panel("Can't play this", error, [back], cx).p(sp(4.)))
         });
 
         let pip_notice = self
@@ -1085,112 +932,40 @@ impl Render for PlayerView {
                     SegmentKind::Intro => "Skip Intro",
                     SegmentKind::Outro => "Skip Credits",
                 };
-                div()
-                    .absolute()
-                    .right_6()
-                    .bottom(px(112.)) // above timeline, where up-next sits
-                    .child(
-                        Button::new("skip-segment")
-                            .large()
-                            .label(label)
-                            .tooltip_with_action(label, &SkipSegment, Some(CONTEXT))
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.skip_segment(window, cx)),
-                            ),
-                    )
-            });
-        let info = self.info.as_ref().map(|groups| {
-            v_flex()
-                .absolute()
-                .top(px(96.)) // below the title bar
-                .left_6()
-                .w(px(280.))
-                .p_4()
-                .gap_4()
-                .rounded(cx.theme().radius_lg)
-                .bg(video_black(0.72))
-                .border_1()
-                .border_color(video_white(0.08))
-                .text_xs()
-                .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::BOLD)
-                        .child("Playback info"),
+                overlay_corner(
+                    button("skip-segment", label)
+                        .lg()
+                        .tooltip_with_action(label, &SkipSegment, Some(CONTEXT))
+                        .on_click(cx.listener(|this, _, window, cx| this.skip_segment(window, cx))),
                 )
-                .children(groups.iter().map(|(heading, rows)| {
-                    v_flex()
-                        .gap_1p5()
-                        .child(
-                            div()
-                                .pb_1()
-                                .border_b_1()
-                                .border_color(video_white(0.1))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(cx.theme().primary)
-                                .child(*heading),
-                        )
-                        .children(rows.iter().map(|(label, value)| {
-                            h_flex()
-                                .gap_3()
-                                .justify_between()
-                                .child(div().flex_none().text_color(video_white(0.6)).child(*label))
-                                .child(
-                                    div()
-                                        .min_w_0()
-                                        .truncate()
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .child(value.clone()),
-                                )
-                        }))
-                }))
-        });
+            });
+        let info = self.info.as_ref().map(|groups| info_panel(groups, cx));
         let up_next = self.up_next().map(|next| {
             let left = (self.playback.duration - self.playback.time).max(0.).ceil() as u64;
-            v_flex()
-                .absolute()
-                .right_6()
-                .bottom(px(112.)) // above timeline
-                .w(px(320.))
-                .p_4()
-                .gap_3()
-                .rounded(cx.theme().radius_lg)
-                .bg(video_black(0.8))
-                .border_1()
-                .border_color(video_white(0.08))
-                .child(
-                    div()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .truncate()
-                        .child(format!("Next: {}", next.episode_label())),
-                )
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(format!("Playing in {left}s")),
-                )
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .child(
-                            Button::new("up-next-play")
-                                .primary()
-                                .label("Play now")
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.play_next_now(&PlayNext, window, cx)
-                                })),
-                        )
-                        .child(
-                            Button::new("up-next-cancel")
-                                .ghost()
-                                .label("Cancel")
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.playback.next_cancelled = true;
-                                    this.refocus(window, cx);
-                                })),
-                        ),
-                )
+            overlay_corner(
+                overlay_card(overlay::CARD)
+                    .w(design::size::up_next_w())
+                    .gap(sp(3.))
+                    .child(strong(format!("Next: {}", next.episode_label())))
+                    .child(caption(format!("Playing in {left}s"), cx))
+                    .child(
+                        h_flex()
+                            .gap(sp(2.))
+                            .child(
+                                primary_button("up-next-play", "Play now")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.play_next_now(&PlayNext, window, cx)
+                                    })),
+                            )
+                            .child(
+                                ghost_button("up-next-cancel", "Cancel")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.playback.next_cancelled = true;
+                                        this.refocus(window, cx);
+                                    })),
+                            ),
+                    ),
+            )
         });
 
         v_flex()
@@ -1228,7 +1003,7 @@ impl Render for PlayerView {
             .size_full()
             .relative()
             .justify_between()
-            .text_color(white())
+            .text_color(overlay::WHITE)
             .on_mouse_move(cx.listener(|this, _, window, cx| {
                 if !this.controls_visible {
                     this.show_controls(window, cx);

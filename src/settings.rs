@@ -1,18 +1,19 @@
 //! Settings screen: opened from the title-bar user menu as a detail page. One
 //! `SettingPage` per area; add a setting by adding a `SettingItem` to a group.
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::setting::{
-    SettingField, SettingGroup, SettingItem, SettingPage, Settings,
+    SettingField, SettingGroup, SettingItem, SettingPage,
 };
-use gpui_kit::component::{IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{IconName, v_flex};
 use gpui_kit::*;
 
+use crate::components::button::icon_button;
+use crate::components::layout::{grow, page_header};
+use crate::components::settings::settings;
 use crate::config::{
     AudioStyle, Config, DebandLevel, HdrStyle, HideSpoilers, LanguagePref, SeekSteps,
     SubtitleStyle, ToneMapCurve,
 };
-use crate::detail::PAD;
 use crate::jellyfin::Api;
 use crate::nav::Nav;
 use crate::shaders::ShaderProfile;
@@ -524,34 +525,18 @@ impl Render for SettingsView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .size_full()
-            .child(
-                h_flex()
-                    .p(px(PAD))
-                    .pb_2()
-                    .gap_3()
-                    .child(
-                        Button::new("settings-back")
-                            .ghost()
-                            .icon(IconName::ArrowLeft)
-                            .on_click(cx.listener(|_, _, _, cx| cx.emit(Nav::Back))),
-                    )
-                    .child(
-                        div()
-                            .text_2xl()
-                            .font_weight(FontWeight::BOLD)
-                            .child("Settings"),
-                    ),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(Settings::new("settings").small().pages([
-                        self.playback_page(),
-                        self.appearance_page(),
-                        self.stats_page(),
-                    ])),
-            )
+            .child(page_header(
+                Some(
+                    icon_button("settings-back", IconName::ArrowLeft)
+                        .on_click(cx.listener(|_, _, _, cx| cx.emit(Nav::Back))),
+                ),
+                "Settings",
+            ))
+            .child(grow().child(settings("settings").pages([
+                self.playback_page(),
+                self.appearance_page(),
+                self.stats_page(),
+            ])))
     }
 }
 

@@ -1,14 +1,17 @@
-use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::DialogButtonProps;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
-use gpui_kit::component::tab::TabBar;
-use gpui_kit::component::{
-    ActiveTheme as _, Icon, IconName, Root, Sizable as _, TitleBar, WindowExt as _, h_flex, v_flex,
-};
+use gpui_kit::component::{IconName, Root, TitleBar, WindowExt as _};
 use gpui_kit::*;
 
+use crate::design;
+use crate::components::button::{VegaSize as _, avatar_button, icon_button};
+use crate::components::dialog::vega_dialog;
+use crate::components::input::search_input;
+use crate::components::layout::{grow, screen};
+use crate::components::tabs::tabs;
+use crate::components::title_bar::app_title_bar;
 use crate::config::{self, Config, WindowState};
 use crate::home::HomeView;
 use crate::jellyfin::{Api, Item, Kind, Session};
@@ -232,7 +235,7 @@ impl AppView {
         let this = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |alert, _, _| {
             let (this, update) = (this.clone(), update.clone());
-            alert
+            vega_dialog(alert)
                 .title(format!("tbis {} is available", update.version))
                 .description(format!(
                     "You have {}. tbis restarts to finish updating.",
@@ -632,20 +635,10 @@ impl AppView {
         let user_name = main.session.user_name.clone();
 
         let search = if main.search_open || main.searching(cx) {
-            div()
-                .w(px(200.))
-                .child(
-                    Input::new(&main.search_input)
-                        .small()
-                        .cleanable(true)
-                        .prefix(Icon::new(IconName::Search).small()),
-                )
-                .into_any_element()
+            search_input(&main.search_input, cx).into_any_element()
         } else {
-            Button::new("search")
-                .ghost()
-                .small()
-                .icon(IconName::Search)
+            icon_button("search", IconName::Search)
+                .icon_sm()
                 .tooltip_with_action("Search", &FocusSearch, None)
                 .on_click(
                     cx.listener(|this, _, window, cx| this.focus_search(&FocusSearch, window, cx)),
@@ -653,95 +646,44 @@ impl AppView {
                 .into_any_element()
         };
 
-        TitleBar::new()
-            .h(px(40.))
-            .border_b_0()
-            .bg(cx.theme().background)
-            .child(
-                h_flex()
-                    .gap_1p5()
-                    .child(
-                        // mark's own aspect ratio (1707x1440), so it isn't squashed
-                        svg()
-                            .path("icons/tbis-mark.svg")
-                            .w(px(19.))
-                            .h(px(16.))
-                            .text_color(cx.theme().primary),
-                    )
-                    .child(
-                        div()
-                            .text_base()
-                            .font_weight(FontWeight::BOLD)
-                            .child("tbis"),
-                    ),
-            )
-            // spans whole window width so tabs sit at true center; offset cancels TitleBar left padding
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .left(px(if cfg!(target_os = "macos") {
-                        -80.
-                    } else {
-                        -12.
-                    }))
-                    .right_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        TabBar::new("nav")
-                            .pill()
-                            .small()
-                            .children(TABS.map(|(_, label)| label))
-                            .selected_index(selected.unwrap_or(usize::MAX))
-                            .on_click(cx.listener(|this, index: &usize, window, cx| {
-                                this.select_tab(*index, window, cx)
-                            })),
-                    ),
-            )
-            .child(
-                h_flex().pr_2().gap_1().child(search).child(
-                    Button::new("user-menu")
-                        .ghost()
-                        .small()
-                        .child(initials(&user_name, cx))
-                        .dropdown_caret(true)
-                        .dropdown_menu(move |menu, _, _| {
-                            let this = this.clone();
-                            let settings = this.clone();
-                            let updates = this.clone();
-                            menu.label(user_name.clone())
-                                .separator()
-                                .item(PopupMenuItem::new("Settings").on_click(
-                                    move |_, window, cx| {
-                                        settings
-                                            .update(cx, |this, cx| this.open_settings(window, cx))
-                                            .ok();
-                                    },
-                                ))
-                                .item(PopupMenuItem::new("Check for Updates\u{2026}").on_click(
-                                    move |_, window, cx| {
-                                        updates
-                                            .update(cx, |this, cx| {
-                                                this.check_for_updates(true, window, cx)
-                                            })
-                                            .ok();
-                                    },
-                                ))
-                                .item(
-                                    PopupMenuItem::new("Keyboard shortcuts")
-                                        .on_click(|_, window, cx| shortcuts::open(window, cx)),
-                                )
-                                .item(PopupMenuItem::new("Log out").on_click(
-                                    move |_, window, cx| {
-                                        this.update(cx, |this, cx| this.log_out(window, cx)).ok();
-                                    },
-                                ))
+        let nav = tabs(
+            "nav",
+            TABS.map(|(_, label)| label),
+            selected.unwrap_or(usize::MAX),
+            cx.listener(|this, index: &usize, window, cx| this.select_tab(*index, window, cx)),
+        );
+        let user_menu = avatar_button("user-menu", user_name.clone(), cx)
+            .dropdown_menu(move |menu, _, _| {
+                let this = this.clone();
+                let settings = this.clone();
+                let updates = this.clone();
+                menu.label(user_name.clone())
+                    .separator()
+                    .item(
+                        PopupMenuItem::new("Settings").on_click(move |_, window, cx| {
+                            settings
+                                .update(cx, |this, cx| this.open_settings(window, cx))
+                                .ok();
                         }),
-                ),
-            )
+                    )
+                    .item(PopupMenuItem::new("Check for Updates\u{2026}").on_click(
+                        move |_, window, cx| {
+                            updates
+                                .update(cx, |this, cx| this.check_for_updates(true, window, cx))
+                                .ok();
+                        },
+                    ))
+                    .item(
+                        PopupMenuItem::new("Keyboard shortcuts")
+                            .on_click(|_, window, cx| shortcuts::open(window, cx)),
+                    )
+                    .item(
+                        PopupMenuItem::new("Log out").on_click(move |_, window, cx| {
+                            this.update(cx, |this, cx| this.log_out(window, cx)).ok();
+                        }),
+                    )
+            });
+        app_title_bar(nav, [search, user_menu.into_any_element()], cx)
     }
 }
 
@@ -761,25 +703,10 @@ fn set_video_background(video: bool, window: &mut Window, cx: &mut App) {
     });
     if let Some(Some(root)) = window.root::<Root>() {
         root.update(cx, |root, cx| {
-            root.style().background = video.then(|| hsla(0., 0., 0., 0.).into());
+            root.style().background = video.then(|| design::overlay::CLEAR.into());
             cx.notify();
         });
     }
-}
-
-/// User menu badge: first two letters of the name on the theme's accent.
-fn initials(name: &str, cx: &App) -> Div {
-    div()
-        .size_6()
-        .rounded_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .bg(cx.theme().primary)
-        .text_color(cx.theme().primary_foreground)
-        .text_xs()
-        .font_weight(FontWeight::BOLD)
-        .child(name.chars().take(2).collect::<String>().to_uppercase())
 }
 
 /// Fixed-width digits app-wide, so timecodes and counters don't jitter as they tick.
@@ -788,7 +715,7 @@ fn tabular_figures() -> FontFeatures {
 }
 
 impl Render for AppView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Screen::Main(Main {
             player: Some((player, _)),
             ..
@@ -799,8 +726,6 @@ impl Render for AppView {
                 .font_features(tabular_figures())
                 .on_action(|_: &ShowShortcuts, window, cx| shortcuts::open(window, cx))
                 .child(player.clone())
-                .children(Root::render_dialog_layer(window, cx))
-                .children(Root::render_notification_layer(window, cx))
                 .into_any_element();
         }
 
@@ -829,18 +754,13 @@ impl Render for AppView {
             Screen::Main(Main { home, .. }) => home.clone().into_any_element(),
         };
 
-        v_flex()
-            .size_full()
+        screen(cx)
             .font_features(tabular_figures())
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::focus_search))
             .on_action(|_: &ShowShortcuts, window, cx| shortcuts::open(window, cx))
-            .bg(cx.theme().background)
-            .text_color(cx.theme().foreground)
             .child(self.render_title_bar(cx))
-            .child(div().flex_1().min_h_0().child(content))
-            .children(Root::render_dialog_layer(window, cx))
-            .children(Root::render_notification_layer(window, cx))
+            .child(grow().child(content))
             .into_any_element()
     }
 }

@@ -1,18 +1,21 @@
 use std::time::Duration;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::v_flex;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::card;
-use crate::detail::PAD;
+use crate::components::button::{VegaSize as _, ghost_button};
+use crate::components::episode::{episode_result, recent_query};
+use crate::components::layout::{centered, header_row, scroll_page, wrap_grid};
+use crate::components::section::section;
+use crate::components::status::{Status, empty_panel, inline_status};
+use crate::components::typography::title;
+use crate::components::{OnClick, card};
 use crate::jellyfin::{Api, Item, Kind};
 use crate::library::LibraryView;
 use crate::nav::Nav;
-use crate::status::{Status, empty_panel, inline_status};
+use crate::design::{size, sp};
 
-const CARD_WIDTH: f32 = 150.;
 const MIN_CHARS: usize = 2;
 const DEBOUNCE: Duration = Duration::from_millis(250);
 const PER_KIND: usize = 24;
@@ -153,28 +156,15 @@ impl SearchView {
     }
 
     fn recent_section(&self, cx: &mut Context<Self>) -> AnyElement {
-        let clear = Button::new("clear-recent")
-            .ghost()
-            .xsmall()
-            .label("Clear")
+        let clear = ghost_button("clear-recent", "Clear").xs()
             .on_click(cx.listener(|this, _, _, cx| {
                 this.recent.clear();
                 cx.emit(SearchEvent::RecentChanged(Vec::new()));
                 cx.notify();
             }));
-        let muted_fg = cx.theme().muted_foreground;
         let rows = self.recent.iter().enumerate().map(|(ix, query)| {
             let query = query.clone();
-            h_flex()
-                .id(("recent", ix))
-                .gap_2()
-                .px_2()
-                .py_1p5()
-                .rounded_md()
-                .cursor_pointer()
-                .hover(|this| this.bg(cx.theme().muted))
-                .child(Icon::new(IconName::Search).small().text_color(muted_fg))
-                .child(query.clone())
+            recent_query(("recent", ix), query.clone().into(), cx)
                 // mouse down, not click: focus leaving the search field on press
                 // hides this list before a click could complete
                 .on_mouse_down(
@@ -183,19 +173,9 @@ impl SearchView {
                 )
         });
         v_flex()
-            .max_w(px(480.))
-            .gap_2()
-            .child(
-                h_flex()
-                    .justify_between()
-                    .child(
-                        div()
-                            .text_2xl()
-                            .font_weight(FontWeight::BOLD)
-                            .child("Recent searches"),
-                    )
-                    .child(clear),
-            )
+            .max_w(size::list_max_w())
+            .gap(sp(2.))
+            .child(header_row(title("Recent searches"), clear))
             .children(rows)
             .into_any_element()
     }
@@ -209,21 +189,18 @@ impl SearchView {
         let mut cards = Vec::with_capacity(items.len());
         for item in items {
             let item_ = item.clone();
-            let on_click: card::OnClick = Box::new(
+            let on_click: OnClick = Box::new(
                 cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Open(item_.clone()))),
             );
             cards.push(card::poster_card(
                 &self.api,
                 item,
-                px(CARD_WIDTH),
+                size::poster_min_w(),
                 on_click,
                 cx,
             ));
         }
-        section(
-            title,
-            h_flex().flex_wrap().gap_4().items_start().children(cards),
-        )
+        section(title, wrap_grid(cards))
     }
 
     fn episode_section(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -233,41 +210,16 @@ impl SearchView {
                 let item = item.clone();
                 cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Open(item.clone())))
             };
-            let muted_fg = cx.theme().muted_foreground;
-            rows.push(
-                h_flex()
-                    .id(SharedString::from(item.id.clone()))
-                    .gap_3()
-                    .p_1()
-                    .rounded(cx.theme().radius_lg)
-                    .cursor_pointer()
-                    .hover(|this| this.bg(cx.theme().muted))
-                    .on_click(open)
-                    .child(
-                        div()
-                            .w(px(160.))
-                            .h(px(90.))
-                            .flex_shrink_0()
-                            .rounded(cx.theme().radius_lg)
-                            .overflow_hidden()
-                            .child(card::image(self.api.poster_url(item), cx)),
-                    )
-                    .child(
-                        v_flex()
-                            .min_w_0()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(muted_fg)
-                                    .truncate()
-                                    .child(item.series_name.clone().unwrap_or_default()),
-                            )
-                            .child(div().truncate().child(item.episode_label())),
-                    ),
-            );
+            rows.push(episode_result(
+                item.id.clone(),
+                self.api.poster_url(item),
+                item.series_name.clone().unwrap_or_default(),
+                item.episode_label(),
+                Box::new(open),
+                cx,
+            ));
         }
-        section("Episodes", v_flex().gap_2().children(rows))
+        section("Episodes", v_flex().gap(sp(2.)).children(rows))
     }
 }
 
@@ -302,14 +254,6 @@ mod tests {
     }
 }
 
-fn section(title: &'static str, body: impl IntoElement) -> AnyElement {
-    v_flex()
-        .gap_3()
-        .child(div().text_2xl().font_weight(FontWeight::BOLD).child(title))
-        .child(body)
-        .into_any_element()
-}
-
 impl Render for SearchView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let short = self.query.chars().count() < MIN_CHARS;
@@ -340,20 +284,17 @@ impl Render for SearchView {
             sections.push(self.episode_section(cx));
         }
 
-        v_flex()
-            .id("search")
-            .size_full()
-            .overflow_y_scroll()
-            .p(px(PAD))
-            .gap_8()
+        scroll_page("search")
+            .gap(sp(8.))
             .children(inline_status(status, cx))
             .when(no_results, |this| {
-                this.child(div().flex_1().flex().items_center().justify_center().child(
-                    empty_panel(
+                this.child(
+                    centered(empty_panel(
                         format!("No matches for \u{201c}{}\u{201d}", self.query.trim()).into(),
                         cx,
-                    ),
-                ))
+                    ))
+                    .flex_1(),
+                )
             })
             .children(sections)
     }
