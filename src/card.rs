@@ -2,6 +2,7 @@ use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, v_flex
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::config::HideSpoilers;
 use crate::jellyfin::{Api, Item, Kind};
 
 const TITLE_HEIGHT: f32 = 20.;
@@ -184,6 +185,18 @@ pub fn wide_card(
                 .unwrap_or_default(),
         ),
     };
+    // Continue Watching/Next Up double as spoilers: the still and the episode name
+    // both give away that an unwatched Episode exists/what happens in it.
+    let spoiler =
+        item.kind == Kind::Episode && cx.global::<HideSpoilers>().0 && !item.user_data.played;
+    // server-side blur; gpui can't blur an image
+    let still = api.wide_image_url(item).map(|url| {
+        if spoiler {
+            format!("{url}&blur=30")
+        } else {
+            url
+        }
+    });
     v_flex()
         .w(width)
         .flex_shrink_0()
@@ -193,7 +206,7 @@ pub fn wide_card(
                 .id(ElementId::Name(format!("wide-art-{}", item.id).into()))
                 .cursor_pointer()
                 .on_click(on_play)
-                .child(image(api.wide_image_url(item), cx))
+                .child(image(still, cx))
                 .child(play_scrim("card", cx))
                 .when_some(
                     item.user_data.played_percentage.filter(|p| *p > 0.),
