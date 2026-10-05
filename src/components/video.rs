@@ -69,7 +69,7 @@ pub fn video_title(title: SharedString, subtitle: Option<SharedString>, mono: Sh
 pub fn video_tag(label: impl Into<SharedString>, mono: SharedString) -> Div {
     div()
         .px(sp(2.))
-        .rounded_full()
+        .rounded(radius::full())
         .border_1()
         .border_color(white(0.35))
         .font_family(mono)

@@ -17,7 +17,7 @@
         "shadow_opacity": 0.1,
         "button": {
           "xs": [6, 2], "sm": [8, 2.5], "default": [9, 2.5], "lg": [10, 2.5],
-          "icon_xs": 6, "icon_sm": 8, "icon": 9
+          "icon_xs": 6, "icon_sm": 8, "icon": 9, "text": "md"
         },
         "input": { "height": 9, "height_sm": 8, "px": 2.5, "py": 1, "label_gap": 3 },
         "card": { "spacing": 6, "spacing_sm": 4 },

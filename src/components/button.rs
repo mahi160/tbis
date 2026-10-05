@@ -37,11 +37,11 @@ impl VegaSize for Button {
         text_size(self, tokens().button.xs, Size::XSmall)
     }
     fn sm(self) -> Self {
-        text_size(self, tokens().button.sm, Size::Small)
+        text_size(self, tokens().button.sm, tokens().button.text.kit())
     }
     // lg keeps text-sm; gpui-kit Large would switch to text-base
     fn lg(self) -> Self {
-        text_size(self, tokens().button.lg, Size::Medium)
+        text_size(self, tokens().button.lg, tokens().button.text.kit())
     }
     fn icon_xs(self) -> Self {
         square(self.with_size(Size::XSmall), tokens().button.icon_xs)
@@ -53,7 +53,7 @@ impl VegaSize for Button {
 
 /// Base every preset builds on: vega default size, medium weight.
 fn base(id: impl Into<ElementId>) -> Button {
-    text_size(Button::new(id), tokens().button.default, Size::Medium)
+    text_size(Button::new(id), tokens().button.default, tokens().button.text.kit())
         .font_weight(FontWeight::MEDIUM)
 }
 

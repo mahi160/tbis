@@ -1,10 +1,11 @@
-//! Round person image in shadcn vega's Avatar style: `rounded-full`, fallback initials
+//! Person image in shadcn's Avatar style: `rounded-full` (square when the theme's
+//! radius is 0), fallback initials
 //! on `bg-muted text-muted-foreground`. Custom rather than gpui-kit Avatar, whose
 //! fallback paints a per-name hue that can't be overridden.
 
 use gpui_kit::*;
 
-use crate::design::{color, sp, text};
+use crate::design::{color, radius, sp, text};
 
 /// Photo at `size`; initials of `name` while missing or failing to load.
 /// Rounded on the `img` itself: a wrapper's `overflow_hidden` clips only to a rectangle.
@@ -23,7 +24,7 @@ pub fn avatar(url: Option<String>, name: impl Into<SharedString>, size: Pixels, 
         div()
             .size(size)
             .flex_shrink_0()
-            .rounded_full()
+            .rounded(radius::full())
             .bg(muted)
             .flex()
             .items_center()
@@ -37,7 +38,7 @@ pub fn avatar(url: Option<String>, name: impl Into<SharedString>, size: Pixels, 
         Some(url) => img(url)
             .size(size)
             .flex_shrink_0()
-            .rounded_full()
+            .rounded(radius::full())
             .object_fit(ObjectFit::Cover)
             .with_fallback(fallback)
             .into_any_element(),

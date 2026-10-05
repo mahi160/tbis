@@ -95,6 +95,9 @@ pub struct ButtonRecipe {
     pub icon_xs: f32,
     pub icon_sm: f32,
     pub icon: f32,
+    /// gpui-kit size whose text the sm/default/lg buttons use: `md` is text-sm,
+    /// `xs` is text-xs.
+    pub text: KitSize,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -171,6 +174,7 @@ impl Default for Design {
                 icon_xs: 6.,
                 icon_sm: 8.,
                 icon: 9.,
+                text: KitSize::Md,
             },
             input: InputRecipe {
                 height: 9.,

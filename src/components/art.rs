@@ -40,7 +40,7 @@ pub fn play_scrim(group: &'static str, cx: &App) -> AnyElement {
         .child(
             div()
                 .size(sp(11.))
-                .rounded_full()
+                .rounded(radius::full())
                 .flex()
                 .items_center()
                 .justify_center()
@@ -58,7 +58,7 @@ pub fn check_badge(cx: &App) -> Div {
         .top(sp(2.))
         .right(sp(2.))
         .size(sp(6.))
-        .rounded_full()
+        .rounded(radius::full())
         .flex()
         .items_center()
         .justify_center()

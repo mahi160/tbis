@@ -6,11 +6,11 @@ use gpui_kit::component::tag::Tag;
 use gpui_kit::component::{Icon, h_flex};
 use gpui_kit::*;
 
-use crate::design::{color, icon, sp, text, tokens};
+use crate::design::{color, icon, radius, sp, text, tokens};
 
 pub fn pill(label: impl Into<SharedString>, cx: &App) -> Tag {
     let recipe = tokens().badge;
-    Styled::h(Tag::secondary().outline().rounded_full(), sp(recipe.height))
+    Styled::h(Tag::secondary().outline().rounded(radius::full()), sp(recipe.height))
         .px(sp(recipe.px))
         .py(sp(recipe.py))
         .text_size(text::xs())
