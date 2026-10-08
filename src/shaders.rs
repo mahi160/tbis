@@ -91,20 +91,6 @@ impl ShaderProfile {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_chained_shader_is_bundled() {
-        for profile in ShaderProfile::ALL {
-            for name in profile.chain() {
-                assert!(FILES.iter().any(|(file, _)| file == name), "{name}");
-            }
-        }
-    }
-}
-
 /// Written once per process; `None` if any write failed.
 fn extract_dir() -> Option<PathBuf> {
     static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -117,4 +103,18 @@ fn extract_dir() -> Option<PathBuf> {
         Some(dir)
     })
     .clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_chained_shader_is_bundled() {
+        for profile in ShaderProfile::ALL {
+            for name in profile.chain() {
+                assert!(FILES.iter().any(|(file, _)| file == name), "{name}");
+            }
+        }
+    }
 }
