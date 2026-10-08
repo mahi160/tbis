@@ -4,7 +4,9 @@ use gpui_kit::*;
 
 use crate::components::backdrop::backdrop;
 use crate::components::button::primary_button;
-use crate::components::detail::{cast_row, detail_header, genres_line, header_body, meta_line};
+use crate::components::detail::{
+    cast_row, detail_header, genres_line, header_body, media_tags, meta_line,
+};
 use crate::components::episode::{EpisodeRow, episode_row};
 use crate::components::layout::scroll_page;
 use crate::components::status::{Status, inline_status};
@@ -235,6 +237,7 @@ impl SeriesView {
             .child(title(self.series.name.clone()))
             .children(meta_line(&self.series, self.seasons_label(), cx))
             .children(genres_line(&self.series, cx))
+            .children(media_tags(&self.series, cx))
             .children(self.series.overview.clone().map(|o| paragraph(o, 4).max_w(size::prose_max_w())))
             .child(
                 h_flex()

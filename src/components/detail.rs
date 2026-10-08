@@ -38,7 +38,7 @@ pub fn header_body() -> Div {
     v_flex().flex_1().min_w_0()
 }
 
-/// Year · runtime-or-counts · age rating · ★ community · critics %, skipping missing parts.
+/// Year · runtime-or-counts · ★ community · critics %, skipping missing parts.
 pub fn meta_line(item: &Item, length: Option<String>, cx: &App) -> Option<AnyElement> {
     let muted_fg = color::muted_foreground(cx);
     let mut parts: Vec<AnyElement> = Vec::new();
@@ -47,9 +47,6 @@ pub fn meta_line(item: &Item, length: Option<String>, cx: &App) -> Option<AnyEle
     }
     if let Some(length) = length {
         parts.push(length.into_any_element());
-    }
-    if let Some(rating) = item.official_rating.clone() {
-        parts.push(tag::pill(rating, cx).into_any_element());
     }
     if let Some(score) = item.community_rating {
         parts.push(tag::star_rating(score, cx).into_any_element());
@@ -68,14 +65,20 @@ pub fn meta_line(item: &Item, length: Option<String>, cx: &App) -> Option<AnyEle
     })
 }
 
-/// Resolution/HDR/audio format badges; `None` when the item has no stream info.
+/// Pill row: age rating first, then resolution/HDR/audio format badges; `None` when both are missing.
 pub fn media_tags(item: &Item, cx: &App) -> Option<AnyElement> {
-    let tags = item.media_tags();
-    (!tags.is_empty()).then(|| {
+    let pills: Vec<String> = item
+        .official_rating
+        .iter()
+        .filter(|r| !r.is_empty())
+        .cloned()
+        .chain(item.media_tags().into_iter().map(String::from))
+        .collect();
+    (!pills.is_empty()).then(|| {
         h_flex()
             .gap(gap::tight())
             .flex_wrap()
-            .children(tags.into_iter().map(|t| tag::pill(t, cx)))
+            .children(pills.into_iter().map(|t| tag::pill(t, cx)))
             .into_any_element()
     })
 }
