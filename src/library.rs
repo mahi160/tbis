@@ -188,11 +188,16 @@ impl Render for LibraryView {
             .into_any_element()
         };
 
+        let retry: OnClick = Box::new(cx.listener(|this, _, _, cx| this.refresh(cx)));
         let banner = self
             .error
             .clone()
             .filter(|_| !self.items.is_empty())
-            .map(|error| error_banner(error, cx).px(page()).pb(gap::item()));
+            .map(|error| {
+                error_banner(error, retry, self.loading, cx)
+                    .px(page())
+                    .pb(gap::item())
+            });
 
         v_flex()
             .size_full()

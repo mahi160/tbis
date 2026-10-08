@@ -301,10 +301,11 @@ impl Render for HomeView {
             Self::row(title, id, cards, ix, scroll, cx)
         };
         // shown while a background refresh fails but the rows still have the old data
+        let retry: OnClick = Box::new(cx.listener(|this, _, _, cx| this.refresh(cx)));
         let banner = self
             .error
             .clone()
-            .map(|error| error_banner(error, cx).px(page()));
+            .map(|error| error_banner(error, retry, self.loading, cx).px(page()));
         rows_page("home")
             .children(banner)
             .children(row(

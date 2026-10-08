@@ -9,7 +9,7 @@ use gpui_kit::component::{Icon, h_flex, v_flex};
 use gpui_kit::*;
 
 use super::OnClick;
-use super::button::button;
+use super::button::{VegaSize as _, button, ghost_button};
 use super::logo::logo_mark;
 use crate::design::{color, gap, opacity, overlay, page, radius, size, sp, text};
 
@@ -270,12 +270,21 @@ pub fn full_status(
         .into_any_element()
 }
 
-/// Error line kept above content that's still showing older data.
-pub fn error_banner(error: SharedString, cx: &App) -> Div {
-    div()
+/// Error line kept above content that's still showing older data, with a small Retry
+/// beside it; `loading` puts Retry in its spinner state while the refresh runs.
+pub fn error_banner(error: SharedString, retry: OnClick, loading: bool, cx: &App) -> Div {
+    h_flex()
+        .gap(gap::item())
+        .items_center()
         .text_size(text::body())
         .text_color(color::danger(cx))
         .child(error)
+        .child(
+            ghost_button("banner-retry", "Retry", cx)
+                .xs()
+                .loading(loading)
+                .on_click(retry),
+        )
 }
 
 /// Inline status line for a screen that keeps its other content up while this shows:
