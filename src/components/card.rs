@@ -5,6 +5,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::OnClick;
+use super::ambient::follow_hover;
 use super::art::{art_tile, check_badge, image, play_scrim, progress_bar};
 use crate::design::{color, gap, text};
 use crate::jellyfin::{Api, Item, Kind};
@@ -66,6 +67,7 @@ pub fn poster_card(
         .cursor_pointer()
         .group("poster")
         .on_click(on_open)
+        .on_hover(follow_hover(api.frost_url(item)))
         .child(poster_art(api, item, width, on_play, cx))
         .child(caption_stack(title, poster_meta(item, cx)))
         .into_any_element()
@@ -76,6 +78,7 @@ pub fn poster_card(
 pub fn wide_card(
     item: &Item,
     still: Option<String>,
+    frost: Option<String>,
     width: Pixels,
     on_play: OnClick,
     on_open: OnClick,
@@ -95,9 +98,11 @@ pub fn wide_card(
         ),
     };
     v_flex()
+        .id(ElementId::Name(format!("wide-card-{}", item.id).into()))
         .w(width)
         .flex_shrink_0()
         .gap(gap::item())
+        .on_hover(follow_hover(frost))
         .child(
             art_tile("wide-art", width, width * (9. / 16.), cx)
                 .id(ElementId::Name(format!("wide-art-{}", item.id).into()))

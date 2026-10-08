@@ -298,6 +298,26 @@ mod tests {
         }
     }
 
+    /// Ambient backdrop: text sits straight on the tinted page, no card under it.
+    #[test]
+    fn ambient_backdrop_keeps_page_text_readable_over_any_image() {
+        let file: serde_json::Value = serde_json::from_str(FILE).expect("theme file parses");
+        for theme in file["themes"].as_array().expect("themes array") {
+            let color = |role: &str| hex(theme["colors"][role].as_str().expect(role));
+            for image in ["#ffffff", "#000000"] {
+                let page = over(&color("background"), design::frost::AMBIENT_TINT, image);
+                for (role, min) in [("muted.foreground", 4.5), ("foreground", 7.)] {
+                    let ratio = contrast(&color(role), &page);
+                    assert!(
+                        ratio >= min,
+                        "{}: {role} on the page over {image} is {ratio:.2}, needs {min}",
+                        theme["name"]
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn themes_set_exactly_the_color_roles() {
         let file: serde_json::Value = serde_json::from_str(FILE).expect("theme file parses");

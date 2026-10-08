@@ -340,6 +340,11 @@ pub mod frost {
     pub const SHARP_TOP: f32 = 0.5;
     /// Opacity steps the sharp art fades out in.
     pub const SHARP_STEPS: usize = 8;
+    /// Theme background over the blurred art behind Home, Library and Search, where text
+    /// sits straight on the page (no cards) and so needs a stronger tint.
+    pub const AMBIENT_TINT: f32 = 0.9;
+    /// Cross-fade between ambient backdrops.
+    pub const AMBIENT_FADE: std::time::Duration = std::time::Duration::from_millis(400);
     /// Server blur radius.
     pub const BLUR: u32 = 50;
     /// Small image width; the blur hides the upscaling.

@@ -2,6 +2,7 @@
 //! the app's defaults, or fills a gap gpui-kit doesn't cover (poster art, backdrops).
 //! Pages compose these; they don't hand-build UI inline.
 
+pub mod ambient;
 pub mod art;
 pub mod avatar;
 pub mod button;

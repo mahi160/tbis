@@ -67,6 +67,20 @@ impl HomeView {
         }
     }
 
+    /// Ambient backdrop for the first item that has art, in row order.
+    pub fn first_frost_url(&self) -> Option<String> {
+        let rows = &self.rows;
+        [
+            &rows.continue_watching,
+            &rows.next_up,
+            &rows.movies,
+            &rows.series,
+        ]
+        .into_iter()
+        .flatten()
+        .find_map(|item| self.api.frost_url(item))
+    }
+
     /// Keeps showing the current rows until fresh data arrives.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         let api = self.api.clone();
@@ -276,7 +290,15 @@ impl Render for HomeView {
                     let still = api
                         .wide_image_url(item)
                         .map(|url| if spoiler { blurred(&url) } else { url });
-                    card::wide_card(item, still, size::wide_w(), on_play, on_open, cx)
+                    card::wide_card(
+                        item,
+                        still,
+                        api.frost_url(item),
+                        size::wide_w(),
+                        on_play,
+                        on_open,
+                        cx,
+                    )
                 })
                 .collect()
         };
