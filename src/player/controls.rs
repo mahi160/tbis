@@ -939,7 +939,15 @@ impl Render for PlayerView {
                         .on_click(cx.listener(|this, _, window, cx| this.skip_segment(window, cx))),
                 )
             });
-        let info = self.info.as_ref().map(|groups| info_panel(groups, cx));
+        let info = self.info.as_ref().map(|groups| {
+            let close = round_icon("player-info-close", Icon::new(assets::IconName::Close))
+                .icon_xs()
+                .tooltip("Close")
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.toggle_playback_info(&TogglePlaybackInfo, window, cx)
+                }));
+            info_panel(groups, close, cx)
+        });
         let up_next = self.up_next().map(|next| {
             let left = (self.playback.duration - self.playback.time).max(0.).ceil() as u64;
             overlay_corner(
@@ -1011,12 +1019,13 @@ impl Render for PlayerView {
             }))
             .children(error)
             .children(pip_notice)
+            // stays up until closed (x or i), independent of the controls
+            .children(info)
             .children(up_next)
             .children(skip)
-            // info hides with the controls, like the rest of the chrome
             .when(
                 self.controls_visible || self.playback.error.is_some(),
-                |this| this.children(info).child(top).child(bottom),
+                |this| this.child(top).child(bottom),
             )
     }
 }
