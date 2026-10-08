@@ -326,7 +326,6 @@ pub mod window {
 
 /// Opacity levels.
 pub mod opacity {
-    pub const FAINT: f32 = 0.3;
     pub const HALF: f32 = 0.5;
 }
 

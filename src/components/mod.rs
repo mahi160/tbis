@@ -4,7 +4,6 @@
 
 pub mod art;
 pub mod avatar;
-pub mod backdrop;
 pub mod button;
 pub mod card;
 pub mod chart;
