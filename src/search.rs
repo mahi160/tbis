@@ -235,27 +235,6 @@ fn merge(mut shown: Vec<Item>, server: Vec<Item>) -> Vec<Item> {
     shown
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{Item, merge};
-
-    fn item(id: &str) -> Item {
-        let mut item = Item::default();
-        item.id = id.into();
-        item
-    }
-
-    #[test]
-    fn merge_keeps_shown_order_and_skips_duplicates() {
-        let merged = merge(
-            vec![item("b"), item("a")],
-            vec![item("a"), item("c"), item("b")],
-        );
-        let ids: Vec<&str> = merged.iter().map(|i| i.id.as_str()).collect();
-        assert_eq!(ids, ["b", "a", "c"]);
-    }
-}
-
 impl Render for SearchView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let short = self.query.chars().count() < MIN_CHARS;
@@ -298,5 +277,26 @@ impl Render for SearchView {
                 )
             })
             .children(sections)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Item, merge};
+
+    fn item(id: &str) -> Item {
+        let mut item = Item::default();
+        item.id = id.into();
+        item
+    }
+
+    #[test]
+    fn merge_keeps_shown_order_and_skips_duplicates() {
+        let merged = merge(
+            vec![item("b"), item("a")],
+            vec![item("a"), item("c"), item("b")],
+        );
+        let ids: Vec<&str> = merged.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, ["b", "a", "c"]);
     }
 }
