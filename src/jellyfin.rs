@@ -333,8 +333,9 @@ fn code_matches(code: &str, season: i32, episode: i32) -> bool {
 /// Tags needed by `Api::wide_image_url`.
 const WIDE_IMAGES: &str = "EnableImageTypes=Primary,Thumb,Backdrop&ImageTypeLimit=1";
 
-/// Tags needed by `Api::poster_url`, shared by every plain item listing.
-const POSTER_IMAGES: &str = "EnableImageTypes=Primary&ImageTypeLimit=1";
+/// Tags needed by `Api::poster_url` (Primary) and the Home hero's `Api::backdrop_url`
+/// (Backdrop), shared by every plain item listing.
+const POSTER_IMAGES: &str = "EnableImageTypes=Primary,Backdrop&ImageTypeLimit=1";
 
 /// Item type searched on its own, so one type can't crowd out the others; also
 /// `Item::kind`, read off the server's own `Type` field.

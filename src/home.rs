@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use crate::components::button::{GhostState as _, VegaSize as _, icon_button};
 use crate::components::layout::{header_row, rows_page, scroll_row};
 use crate::components::status::{Placeholder, Status, error_banner, full_status};
-use crate::components::{OnClick, card, typography};
+use crate::components::{OnClick, card, hero, typography};
 use crate::config::HideSpoilers;
 use crate::design::{gap, page, size};
 use crate::jellyfin::{Api, Item, Kind, blurred};
@@ -24,6 +24,14 @@ struct Rows {
 }
 
 impl Rows {
+    /// Hero pick: most recent Continue Watching, else first Next Up, else newest Movie.
+    fn featured(&self) -> Option<&Item> {
+        self.continue_watching
+            .first()
+            .or_else(|| self.next_up.first())
+            .or_else(|| self.movies.first())
+    }
+
     fn is_empty(&self) -> bool {
         self.continue_watching.is_empty()
             && self.next_up.is_empty()
@@ -290,6 +298,11 @@ impl Render for HomeView {
                 })
                 .collect()
         };
+        let hero = self.rows.featured().map(|item| {
+            let on_play = Self::play_on_click(item, cx);
+            let on_details = Self::open_on_click(&item.detail_target(), cx);
+            hero::hero(item, api.backdrop_url(item), on_play, on_details, cx)
+        });
         let continue_watching = wide(&self.rows.continue_watching, cx);
         let next_up = wide(&self.rows.next_up, cx);
         let movies = posters(&self.rows.movies, cx);
@@ -308,6 +321,7 @@ impl Render for HomeView {
             .map(|error| error_banner(error, retry, self.loading, cx).px(page()));
         rows_page("home")
             .children(banner)
+            .children(hero.map(|hero| div().px(page()).child(hero)))
             .children(row(
                 "Continue Watching",
                 "row-continue",
