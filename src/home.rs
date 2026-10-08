@@ -282,12 +282,13 @@ impl HomeView {
 impl Render for HomeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let gutter = gutter(window);
-        if self.rows.is_empty() {
-            let status = match self.error.clone() {
-                Some(error) => Status::Error(error),
-                None if self.loading => Status::Loading,
-                None => Status::Empty("Nothing here yet".into()),
-            };
+        if self.rows.is_empty()
+            && let Some(status) = Status::pick(
+                self.error.clone(),
+                self.loading,
+                Some("Nothing here yet".into()),
+            )
+        {
             let retry: OnClick = Box::new(cx.listener(|this, _, _, cx| this.refresh(cx)));
             return full_status(status, retry, self.loading, cx);
         }

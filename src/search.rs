@@ -258,17 +258,16 @@ mod tests {
 impl Render for SearchView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let short = self.query.chars().count() < MIN_CHARS;
-        let status = if let Some(error) = self.error.clone() {
-            Some(Status::Error(error))
-        } else if short && self.query.is_empty() && self.has_recent() {
+        let message = if short && self.query.is_empty() && self.has_recent() {
             None
         } else if short {
-            Some(Status::Empty("Type at least 2 characters".into()))
+            Some("Type at least 2 characters".into())
         } else if self.results.is_empty() && self.loading {
-            Some(Status::Empty("Searching…".into()))
+            Some("Searching…".into())
         } else {
             None
         };
+        let status = Status::pick(self.error.clone(), false, message);
         let no_results = status.is_none() && !short && self.results.is_empty();
 
         let mut sections = Vec::new();

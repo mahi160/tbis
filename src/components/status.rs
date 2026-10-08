@@ -124,14 +124,27 @@ pub enum Status {
     Error(SharedString),
 }
 
+impl Status {
+    /// The status to show, if any: `error` wins, then `loading`, then the `empty`
+    /// message (`Some` only when there is nothing to show).
+    pub fn pick(
+        error: Option<SharedString>,
+        loading: bool,
+        empty: Option<SharedString>,
+    ) -> Option<Self> {
+        match (error, loading, empty) {
+            (Some(error), _, _) => Some(Self::Error(error)),
+            (None, true, _) => Some(Self::Loading),
+            (None, false, empty) => empty.map(Self::Empty),
+        }
+    }
+}
+
 /// Full-screen centered placeholder, replacing a list's content while it's empty.
 /// Error shows a Retry button; `loading` puts it in its spinner state while refreshing.
 pub fn full_status(status: Status, retry: OnClick, loading: bool, cx: &App) -> AnyElement {
-    if let Status::Loading = status {
-        return skeleton_grid();
-    }
     let body = match status {
-        Status::Loading => unreachable!(),
+        Status::Loading => return skeleton_grid(),
         Status::Empty(message) => empty_panel(message, cx).into_any_element(),
         Status::Error(message) => error_panel(
             "Something went wrong",
@@ -155,23 +168,48 @@ pub fn full_status(status: Status, retry: OnClick, loading: bool, cx: &App) -> A
 
 /// Error line kept above content that's still showing older data.
 pub fn error_banner(error: SharedString, cx: &App) -> Div {
-    div().children(inline_status(Some(Status::Error(error)), cx))
+    div()
+        .text_size(text::body())
+        .text_color(color::danger(cx))
+        .child(error)
 }
 
 /// Inline status line for a screen that keeps its other content up while this shows:
 /// the error in `danger`, else a muted message (e.g. "Loading…", "No episodes").
 pub fn inline_status(status: Option<Status>, cx: &App) -> Option<AnyElement> {
-    let (muted_fg, danger) = (color::muted_foreground(cx), color::danger(cx));
-    status.map(|status| match status {
-        Status::Loading => div()
-            .text_color(muted_fg)
-            .child("Loading…")
-            .into_any_element(),
-        Status::Empty(message) => div().text_color(muted_fg).child(message).into_any_element(),
-        Status::Error(message) => div()
+    let status = status?;
+    let (fg, message) = match status {
+        Status::Loading => (color::muted_foreground(cx), "Loading…".into()),
+        Status::Empty(message) => (color::muted_foreground(cx), message),
+        Status::Error(message) => (color::danger(cx), message),
+    };
+    Some(
+        div()
             .text_size(text::body())
-            .text_color(danger)
+            .text_color(fg)
             .child(message)
             .into_any_element(),
-    })
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Status;
+
+    #[test]
+    fn pick_prefers_error_then_loading_then_empty() {
+        let pick = |e: Option<&str>, l, m: Option<&str>| {
+            Status::pick(e.map(Into::into), l, m.map(Into::into))
+        };
+        assert!(matches!(
+            pick(Some("x"), true, Some("m")),
+            Some(Status::Error(_))
+        ));
+        assert!(matches!(pick(None, true, Some("m")), Some(Status::Loading)));
+        assert!(matches!(
+            pick(None, false, Some("m")),
+            Some(Status::Empty(_))
+        ));
+        assert!(pick(None, false, None).is_none());
+    }
 }

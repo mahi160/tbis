@@ -152,14 +152,12 @@ impl Render for LibraryView {
         .px(page())
         .py(gap::group());
 
-        let body = if self.items.is_empty() {
-            let status = if let Some(error) = self.error.clone() {
-                Status::Error(error)
-            } else if self.loading {
-                Status::Loading
-            } else {
-                Status::Empty(format!("No {}", self.title().to_lowercase()).into())
-            };
+        let body = if self.items.is_empty()
+            && let Some(status) = Status::pick(
+                self.error.clone(),
+                self.loading,
+                Some(format!("No {}", self.title().to_lowercase()).into()),
+            ) {
             let retry: OnClick = Box::new(cx.listener(|this, _, _, cx| this.refresh(cx)));
             grow()
                 .child(full_status(status, retry, self.loading, cx))

@@ -272,17 +272,12 @@ impl Render for SeriesView {
             )
         });
 
-        let status = if let Some(error) = self.error.clone() {
-            Some(Status::Error(error))
-        } else if self.episodes.is_empty() {
-            Some(if self.loading {
-                Status::Loading
-            } else {
-                Status::Empty("No episodes".into())
-            })
-        } else {
-            None
-        };
+        let none = self.episodes.is_empty();
+        let status = Status::pick(
+            self.error.clone(),
+            self.loading && none,
+            none.then(|| "No episodes".into()),
+        );
 
         let mut episodes = Vec::with_capacity(self.episodes.len());
         for episode in &self.episodes {

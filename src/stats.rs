@@ -175,14 +175,14 @@ impl StatsView {
 
 impl Render for StatsView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let status = match (&self.error, &self.stats) {
-            (Some(error), _) => Some(Status::Error(error.clone())),
-            (None, None) => Some(Status::Loading),
-            (None, Some(s)) if s.movies + s.episodes == 0 => {
-                Some(Status::Empty("Nothing watched yet".into()))
-            }
-            _ => None,
-        };
+        let status = Status::pick(
+            self.error.clone(),
+            self.stats.is_none(),
+            self.stats
+                .as_ref()
+                .filter(|s| s.movies + s.episodes == 0)
+                .map(|_| "Nothing watched yet".into()),
+        );
         let Some(stats) = self.stats.as_ref().filter(|_| status.is_none()) else {
             return v_flex().children(inline_status(status, cx));
         };

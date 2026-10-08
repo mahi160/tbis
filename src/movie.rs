@@ -154,13 +154,7 @@ impl Render for MovieView {
         };
         let header = detail::detail_header(image, back, body, cx);
 
-        let status = if let Some(error) = self.error.clone() {
-            Some(Status::Error(error))
-        } else if self.loading {
-            Some(Status::Loading)
-        } else {
-            None
-        };
+        let status = Status::pick(self.error.clone(), self.loading, None);
 
         scroll_page("movie-detail")
             .relative()
