@@ -405,7 +405,9 @@ pub fn load() -> Config {
 /// Holds the access token in plaintext, so only the user may read it.
 pub fn save(config: &Config) -> io::Result<()> {
     let path = path();
-    fs::create_dir_all(path.parent().unwrap())?;
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
     let tmp = path.with_extension("json.tmp");
     let _ = fs::remove_file(&tmp);
     let mut file = OpenOptions::new()
