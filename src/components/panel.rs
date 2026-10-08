@@ -4,7 +4,7 @@
 use gpui_kit::component::v_flex;
 use gpui_kit::*;
 
-use super::typography::{caption, figure};
+use super::typography::{caption, title};
 use crate::design::{color, gap, radius, shadow, sp, text};
 
 /// Card shell with padding and gap of `spacing`.
@@ -32,5 +32,5 @@ pub fn stat_tile(name: &'static str, value: String, cx: &App) -> Div {
         .min_w(sp(30.))
         .gap(gap::tight())
         .child(caption(name, cx))
-        .child(figure(value))
+        .child(title(value))
 }

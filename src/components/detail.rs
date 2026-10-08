@@ -74,11 +74,6 @@ pub fn media_tags(item: &Item, cx: &App) -> Option<AnyElement> {
     })
 }
 
-/// Dimmed backdrop art behind the top of a detail page; `None` without art.
-pub fn backdrop(api: &Api, item: &Item, cx: &App) -> Option<AnyElement> {
-    Some(super::backdrop::backdrop(api.backdrop_url(item)?, cx))
-}
-
 pub fn genres_line(item: &Item, cx: &App) -> Option<AnyElement> {
     (!item.genres.is_empty()).then(|| caption(item.genres.join(", "), cx).into_any_element())
 }
@@ -131,7 +126,7 @@ pub fn cast_row(api: &Api, item: &Item, cx: &App) -> Option<AnyElement> {
     Some(
         v_flex()
             .gap(gap::group())
-            .child(typography::heading("Cast"))
+            .child(typography::title("Cast"))
             .child(div().flex().flex_wrap().gap(gap::group()).children(actors))
             .into_any_element(),
     )

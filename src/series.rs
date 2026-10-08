@@ -2,6 +2,7 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::*;
 
+use crate::components::backdrop::backdrop;
 use crate::components::episode::{EpisodeRow, episode_row};
 use crate::components::layout::scroll_page;
 use crate::components::status::{Status, inline_status};
@@ -284,7 +285,11 @@ impl Render for SeriesView {
             .relative()
             .track_scroll(&self.scroll)
             .gap(gap::group())
-            .children(detail::backdrop(&self.api, &self.series, cx))
+            .children(
+                self.api
+                    .backdrop_url(&self.series)
+                    .map(|url| backdrop(url, cx)),
+            )
             .child(self.render_header(cx))
             .children(detail::cast_row(&self.api, &self.series, cx))
             .children(seasons)

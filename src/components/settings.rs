@@ -43,15 +43,6 @@ impl SettingField {
         Self::Dropdown(options, Rc::new(get), Rc::new(set))
     }
 
-    /// `dropdown` for long option lists; the menu scrolls past 8 options either way.
-    pub fn scrollable_dropdown(
-        options: Vec<(SharedString, SharedString)>,
-        get: impl Fn(&App) -> SharedString + 'static,
-        set: impl Fn(SharedString, &mut App) + 'static,
-    ) -> Self {
-        Self::dropdown(options, get, set)
-    }
-
     pub fn switch(
         get: impl Fn(&App) -> bool + 'static,
         set: impl Fn(bool, &mut App) + 'static,

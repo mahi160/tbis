@@ -2,6 +2,7 @@ use gpui_kit::component::{IconName, h_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::components::backdrop::backdrop;
 use crate::components::button::primary_button;
 use crate::components::layout::scroll_page;
 use crate::components::status::{Status, inline_status};
@@ -159,7 +160,11 @@ impl Render for MovieView {
         scroll_page("movie-detail")
             .relative()
             .gap(gap::group())
-            .children(detail::backdrop(&self.api, &self.movie, cx))
+            .children(
+                self.api
+                    .backdrop_url(&self.movie)
+                    .map(|url| backdrop(url, cx)),
+            )
             .child(header)
             .children(inline_status(status, cx))
             .children(detail::cast_row(&self.api, &self.movie, cx))

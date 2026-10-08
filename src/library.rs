@@ -97,7 +97,7 @@ impl LibraryView {
             for item in &self.items[start..end] {
                 cards.push(self.render_card(item, cx));
             }
-            out.push(grid_row(gap::group(), cards).into_any_element());
+            out.push(grid_row(cards).into_any_element());
         }
         out
     }

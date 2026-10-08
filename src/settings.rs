@@ -457,7 +457,7 @@ impl SettingsView {
         let (audio_get, audio_set) = (self.language.clone(), self.language.clone());
         let audio = SettingItem::new(
             "Audio language",
-            SettingField::scrollable_dropdown(
+            SettingField::dropdown(
                 Self::language_options(&[(NO_PREFERENCE, "No preference")]),
                 move |cx| {
                     audio_get
@@ -480,7 +480,7 @@ impl SettingsView {
         let (subs_get, subs_set) = (self.language.clone(), self.language.clone());
         let subtitles = SettingItem::new(
             "Subtitle language",
-            SettingField::scrollable_dropdown(
+            SettingField::dropdown(
                 Self::language_options(&[(NO_PREFERENCE, "No preference"), (OFF, "Off")]),
                 move |cx| {
                     let pref = subs_get.read(cx);

@@ -7,22 +7,12 @@ use gpui_kit::*;
 
 use crate::design::{color, text};
 
-/// Oversized text (wordmark, pairing codes).
-pub fn display(content: impl IntoElement) -> Div {
-    title(content)
-}
-
-/// Page title (screen headings, item names).
+/// Title: screen and section headings, item names, wordmark, pairing codes, stat values.
 pub fn title(content: impl IntoElement) -> Div {
     div()
         .text_size(text::title())
         .font_weight(FontWeight::SEMIBOLD)
         .child(content)
-}
-
-/// Section heading inside a page.
-pub fn heading(content: impl IntoElement) -> Div {
-    title(content)
 }
 
 /// shadcn `small`: label over a block (stats, panels, form fields).
@@ -31,11 +21,6 @@ pub fn subheading(content: impl IntoElement) -> Div {
         .text_size(text::body())
         .font_weight(FontWeight::MEDIUM)
         .child(content)
-}
-
-/// Stat value.
-pub fn figure(content: impl IntoElement) -> Div {
-    title(content)
 }
 
 /// Semibold single line, truncated.

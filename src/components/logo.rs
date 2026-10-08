@@ -3,7 +3,7 @@
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::*;
 
-use super::typography::{caption, display};
+use super::typography::{caption, title};
 use crate::design::{color, gap, sp, text};
 
 // mark's own aspect ratio, so it isn't squashed
@@ -37,6 +37,6 @@ pub fn brand_hero(tagline: &'static str, cx: &App) -> Div {
         .items_center()
         .gap(gap::item())
         .child(logo_mark(sp(12.)).text_color(color::primary(cx)))
-        .child(display("tbis"))
+        .child(title("tbis"))
         .child(caption(tagline, cx))
 }

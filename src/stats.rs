@@ -186,24 +186,26 @@ impl Render for StatsView {
         let Some(stats) = self.stats.as_ref().filter(|_| status.is_none()) else {
             return v_flex().children(inline_status(status, cx));
         };
-        let tile = stat_tile;
-        let heading = subheading;
         v_flex()
             .gap(gap::group())
             .child(
                 h_flex()
                     .flex_wrap()
                     .gap(gap::item())
-                    .child(tile("Last 7 days", hours_label(stats.last_7_days), cx))
-                    .child(tile("Last 30 days", hours_label(stats.last_30_days), cx))
-                    .child(tile("All time", hours_label(stats.all_time), cx))
-                    .child(tile("Movies", stats.movies.to_string(), cx))
-                    .child(tile("Episodes", stats.episodes.to_string(), cx)),
+                    .child(stat_tile("Last 7 days", hours_label(stats.last_7_days), cx))
+                    .child(stat_tile(
+                        "Last 30 days",
+                        hours_label(stats.last_30_days),
+                        cx,
+                    ))
+                    .child(stat_tile("All time", hours_label(stats.all_time), cx))
+                    .child(stat_tile("Movies", stats.movies.to_string(), cx))
+                    .child(stat_tile("Episodes", stats.episodes.to_string(), cx)),
             )
             .child(
                 v_flex()
                     .gap(gap::item())
-                    .child(heading("Hours per week"))
+                    .child(subheading("Hours per week"))
                     .child(bar_chart(
                         "weekly-hours",
                         "Hours",
@@ -215,7 +217,7 @@ impl Render for StatsView {
                 this.child(
                     v_flex()
                         .gap(gap::item())
-                        .child(heading("Most-watched Series"))
+                        .child(subheading("Most-watched Series"))
                         .children(stats.top_series.iter().map(|(name, count)| {
                             key_value(name.clone(), format!("{count} episodes"), cx)
                         })),

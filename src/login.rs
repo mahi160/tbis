@@ -10,7 +10,7 @@ use crate::components::input::text_field;
 use crate::components::layout::centered_scroll;
 use crate::components::logo::brand_hero;
 use crate::components::panel::panel;
-use crate::components::typography::{caption, display, error_text};
+use crate::components::typography::{caption, error_text, title};
 use crate::design::{gap, size};
 use crate::jellyfin::{self, PublicUser, Session};
 
@@ -255,7 +255,7 @@ impl Render for LoginView {
                                 "Enter this code on a device you're signed in on",
                                 cx,
                             ))
-                            .child(display(quick_connect.code.clone()))
+                            .child(title(quick_connect.code.clone()))
                             .child(caption("Waiting for approval\u{2026}", cx))
                             .children(self.error.clone().map(|error| error_text(error, cx)))
                             .child(

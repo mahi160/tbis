@@ -96,7 +96,6 @@ pub fn page_header(back: Option<impl IntoElement>, label: impl Into<SharedString
 pub fn scroll_row(
     id: impl Into<ElementId>,
     scroll: &ScrollHandle,
-    gutter: Pixels,
     cards: Vec<AnyElement>,
 ) -> Stateful<Div> {
     h_flex()
@@ -105,18 +104,18 @@ pub fn scroll_row(
         // else vertical swipes with slight x drift scroll the row
         .lock_scroll_axis()
         .track_scroll(scroll)
-        .px(gutter)
+        .px(page())
         .gap(gap::group())
         .items_start()
         .children(cards)
 }
 
 /// One row of a virtualized card grid.
-pub fn grid_row(gap: Pixels, cards: Vec<AnyElement>) -> Div {
+pub fn grid_row(cards: Vec<AnyElement>) -> Div {
     h_flex()
         .px(page())
-        .pb(gap)
-        .gap(gap)
+        .pb(gap::group())
+        .gap(gap::group())
         .items_start()
         .children(cards)
 }

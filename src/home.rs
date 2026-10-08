@@ -14,10 +14,6 @@ use crate::nav::Nav;
 
 const PER_ROW: usize = 24;
 const PAGE_ANIMATION: Duration = Duration::from_millis(350);
-/// Page gutter, shared with every other page.
-fn gutter(_: &Window) -> Pixels {
-    page()
-}
 
 #[derive(Default)]
 struct Rows {
@@ -155,7 +151,8 @@ impl HomeView {
 
     /// Slides row `row` about one viewport forward (`next`) or back, snapping so a card
     /// starts at the left gutter: forward brings the first cropped card there.
-    fn page(&mut self, row: usize, next: bool, gutter: Pixels, window: &mut Window) {
+    fn page(&mut self, row: usize, next: bool, window: &mut Window) {
+        let gutter = page();
         let scroll = &self.scroll[row];
         let viewport = scroll.bounds();
         // card lefts/rights in content coords (child bounds are unscrolled)
@@ -199,13 +196,12 @@ impl HomeView {
         row: usize,
         next: bool,
         disabled: bool,
-        gutter: Pixels,
         cx: &mut Context<Self>,
     ) -> Button {
         icon_button(ElementId::Name(id.into()), icon, cx)
             .icon_xs()
             .ghost_disabled(disabled, cx)
-            .on_click(cx.listener(move |this, _, window, _| this.page(row, next, gutter, window)))
+            .on_click(cx.listener(move |this, _, window, _| this.page(row, next, window)))
     }
 
     /// Moves the sliding row one frame along; requests the next frame until done.
@@ -236,7 +232,6 @@ impl HomeView {
         cards: Vec<AnyElement>,
         row: usize,
         scroll: ScrollHandle,
-        gutter: Pixels,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         if cards.is_empty() {
@@ -259,7 +254,6 @@ impl HomeView {
                                 row,
                                 false,
                                 offset >= px(0.),
-                                gutter,
                                 cx,
                             ))
                             .child(Self::page_button(
@@ -268,13 +262,12 @@ impl HomeView {
                                 row,
                                 true,
                                 at_end,
-                                gutter,
                                 cx,
                             )),
                     )
-                    .px(gutter),
+                    .px(page()),
                 )
-                .child(scroll_row(id, &scroll, gutter, cards))
+                .child(scroll_row(id, &scroll, cards))
                 .into_any_element(),
         )
     }
@@ -282,7 +275,6 @@ impl HomeView {
 
 impl Render for HomeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let gutter = gutter(window);
         if self.rows.is_empty()
             && let Some(status) = Status::pick(
                 self.error.clone(),
@@ -330,13 +322,13 @@ impl Render for HomeView {
         self.advance_paging(window, cx);
         let row = |title, id, cards, ix: usize, cx: &mut Context<Self>| {
             let scroll = self.scroll[ix].clone();
-            Self::row(title, id, cards, ix, scroll, gutter, cx)
+            Self::row(title, id, cards, ix, scroll, cx)
         };
         // shown while a background refresh fails but the rows still have the old data
         let banner = self
             .error
             .clone()
-            .map(|error| error_banner(error, cx).px(gutter));
+            .map(|error| error_banner(error, cx).px(page()));
         rows_page("home")
             .children(banner)
             .children(row(

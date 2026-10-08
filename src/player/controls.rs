@@ -10,7 +10,7 @@ use gpui_kit::*;
 
 use crate::components::button::{
     VegaSize as _, button, ghost_button, primary_button, round_ghost_button, round_icon,
-    round_icon_button as icon_button,
+    round_icon_button,
 };
 use crate::components::layout::spacer;
 use crate::components::menu::choice_menu;
@@ -658,7 +658,7 @@ impl PlayerView {
         );
         let options = choices.iter().map(|(_, l, c)| (l.clone(), *c)).collect();
         Some(choice_menu(
-            icon_button(id, icon),
+            round_icon_button(id, icon),
             options,
             // long track lists overflow the window otherwise
             true,
@@ -692,7 +692,7 @@ impl PlayerView {
             })
             .collect();
         Some(choice_menu(
-            icon_button("player-chapters", "icons/chapters.svg"),
+            round_icon_button("player-chapters", "icons/chapters.svg"),
             options,
             true,
             move |ix, cx| {
@@ -768,7 +768,7 @@ impl Render for PlayerView {
 
         let top = top_bar()
             .child(
-                icon_button("player-back", "icons/caret-left.svg")
+                round_icon_button("player-back", "icons/caret-left.svg")
                     .on_click(cx.listener(|this, _, window, cx| this.close(window, cx))),
             )
             .child(video_title(
@@ -836,7 +836,7 @@ impl Render for PlayerView {
             .mt(gap::item())
             .gap(gap::tight())
             .child(
-                icon_button(
+                round_icon_button(
                     "player-play",
                     if self.paused {
                         "icons/play.svg"
@@ -851,7 +851,7 @@ impl Render for PlayerView {
             // Episodes only; disabled at the Series' first/last Episode
             .when(is_episode, |this| {
                 this.child(
-                    icon_button("player-previous", "icons/backward-step.svg")
+                    round_icon_button("player-previous", "icons/backward-step.svg")
                         .disabled(self.playback.previous.is_none())
                         .tooltip_with_action("Previous Episode", &PreviousEpisode, Some(CONTEXT))
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -859,7 +859,7 @@ impl Render for PlayerView {
                         })),
                 )
                 .child(
-                    icon_button("player-next", "icons/forward-step.svg")
+                    round_icon_button("player-next", "icons/forward-step.svg")
                         .disabled(self.playback.next.is_none())
                         .tooltip_with_action("Next Episode", &NextEpisode, Some(CONTEXT))
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -871,7 +871,7 @@ impl Render for PlayerView {
                 // slider unfolds from the mute button on hover
                 hover_reveal(
                     "player-volume",
-                    icon_button("player-mute", volume_icon).on_click(
+                    round_icon_button("player-mute", volume_icon).on_click(
                         cx.listener(|this, _, window, cx| {
                             this.toggle_mute(&ToggleMute, window, cx)
                         }),
@@ -894,11 +894,11 @@ impl Render for PlayerView {
                         this.toggle_playback_info(&TogglePlaybackInfo, window, cx)
                     })),
             )
-            .child(icon_button("player-pip", "icons/pip.svg").on_click(
+            .child(round_icon_button("player-pip", "icons/pip.svg").on_click(
                 cx.listener(|this, _, window, cx| this.toggle_pip(&TogglePip, window, cx)),
             ))
             .child(
-                icon_button(
+                round_icon_button(
                     "player-fullscreen",
                     if window.is_fullscreen() {
                         "icons/minimize.svg"
