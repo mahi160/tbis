@@ -82,16 +82,11 @@ impl SettingField {
     }
 }
 
-enum Body {
-    Field(SettingField),
-    View(AnyView),
-}
-
-/// One row: a labelled control, or a whole custom view.
+/// One row: a labelled control.
 pub struct SettingItem {
     title: SharedString,
     description: Option<SharedString>,
-    body: Body,
+    field: SettingField,
 }
 
 impl SettingItem {
@@ -99,16 +94,7 @@ impl SettingItem {
         Self {
             title: title.into(),
             description: None,
-            body: Body::Field(field),
-        }
-    }
-
-    /// A custom view spanning the row (e.g. charts).
-    pub fn render(view: impl Into<AnyView>) -> Self {
-        Self {
-            title: SharedString::default(),
-            description: None,
-            body: Body::View(view.into()),
+            field,
         }
     }
 
@@ -126,21 +112,18 @@ impl SettingItem {
     }
 
     fn row(&self, id: SharedString, cx: &App) -> AnyElement {
-        match &self.body {
-            Body::View(view) => view.clone().into_any_element(),
-            Body::Field(field) => h_flex()
-                .justify_between()
-                .gap(gap::group())
-                .child(
-                    v_flex()
-                        .min_w_0()
-                        .gap(gap::tight())
-                        .child(div().text_size(text::body()).child(self.title.clone()))
-                        .children(self.description.clone().map(|d| caption(d, cx))),
-                )
-                .child(div().flex_shrink_0().child(field.render(id, cx)))
-                .into_any_element(),
-        }
+        h_flex()
+            .justify_between()
+            .gap(gap::group())
+            .child(
+                v_flex()
+                    .min_w_0()
+                    .gap(gap::tight())
+                    .child(div().text_size(text::body()).child(self.title.clone()))
+                    .children(self.description.clone().map(|d| caption(d, cx))),
+            )
+            .child(div().flex_shrink_0().child(self.field.render(id, cx)))
+            .into_any_element()
     }
 }
 
@@ -163,11 +146,6 @@ impl SettingGroup {
 
     pub fn description(mut self, description: impl Into<SharedString>) -> Self {
         self.description = Some(description.into());
-        self
-    }
-
-    pub fn item(mut self, item: SettingItem) -> Self {
-        self.items.push(item);
         self
     }
 

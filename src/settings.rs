@@ -11,10 +11,8 @@ use crate::config::{
     AudioStyle, Config, DebandLevel, HdrStyle, HideSpoilers, LanguagePref, SeekSteps,
     SubtitleStyle, ToneMapCurve,
 };
-use crate::jellyfin::Api;
 use crate::nav::Nav;
 use crate::shaders::ShaderProfile;
-use crate::stats::StatsView;
 use crate::theme;
 
 /// Languages offered in Settings: canonical code (ISO 639-2/B, as most containers
@@ -73,7 +71,6 @@ pub struct SettingsView {
     hide_spoilers: Entity<HideSpoilers>,
     hdr: Entity<HdrStyle>,
     audio: Entity<AudioStyle>,
-    stats: Entity<StatsView>,
     _observe: [Subscription; 9],
 }
 
@@ -81,8 +78,7 @@ impl EventEmitter<Nav> for SettingsView {}
 impl EventEmitter<SettingsChanged> for SettingsView {}
 
 impl SettingsView {
-    pub fn new(config: &Config, api: Api, cx: &mut Context<Self>) -> Self {
-        let stats = cx.new(|cx| StatsView::new(api, cx));
+    pub fn new(config: &Config, cx: &mut Context<Self>) -> Self {
         let language = cx.new(|_| config.language.clone());
         let subtitles = cx.new(|_| config.subtitles.clone());
         let max_bitrate = cx.new(|_| config.max_bitrate_mbps);
@@ -133,7 +129,6 @@ impl SettingsView {
             hide_spoilers,
             hdr,
             audio,
-            stats,
             _observe,
         }
     }
@@ -213,16 +208,6 @@ impl SettingsView {
         )
         .description("Blur the images and hide the descriptions of episodes you haven't watched.");
         SettingPage::new("Appearance").group(SettingGroup::new().items([theme, spoilers]))
-    }
-
-    fn stats_page(&self) -> SettingPage {
-        let stats = self.stats.clone();
-        SettingPage::new("Stats").group(
-            SettingGroup::new()
-                .title("Watch stats")
-                .description("From the server's play history. Recent totals count each item at its last play.")
-                .item(SettingItem::render(stats)),
-        )
     }
 
     fn video_group(&self) -> SettingGroup {
@@ -529,11 +514,11 @@ impl Render for SettingsView {
                 ),
                 "Settings",
             ))
-            .child(grow().child(settings("settings").pages([
-                self.playback_page(),
-                self.appearance_page(),
-                self.stats_page(),
-            ])))
+            .child(
+                grow().child(
+                    settings("settings").pages([self.playback_page(), self.appearance_page()]),
+                ),
+            )
     }
 }
 

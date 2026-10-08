@@ -1,20 +1,23 @@
-//! Watch stats (Settings > Stats), computed from the server's played items.
+//! Watch stats page (user menu > Watch stats), computed from the server's played items.
 //! The server keeps only each item's last play date and play count, so the
 //! 7/30-day totals and the weekly chart count each item once, at its last play.
 
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::component::{IconName, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::components::button::icon_button;
 use crate::components::chart::bar_chart;
+use crate::components::layout::{grow, page_header, scroll_page};
 use crate::components::panel::stat_tile;
 use crate::components::status::{Status, inline_status};
-use crate::components::typography::{key_value, subheading};
+use crate::components::typography::{caption, key_value, subheading};
 use crate::design::{gap, size};
 use crate::jellyfin::{Api, Item, Kind};
+use crate::nav::Nav;
 
 const WEEKS: i64 = 12;
 const TOP_SERIES: usize = 5;
@@ -223,6 +226,47 @@ impl Render for StatsView {
                         })),
                 )
             })
+    }
+}
+
+/// Own page with a Back button, opened from the user menu.
+pub struct StatsPage {
+    stats: Entity<StatsView>,
+}
+
+impl EventEmitter<Nav> for StatsPage {}
+
+impl StatsPage {
+    pub fn new(api: Api, cx: &mut Context<Self>) -> Self {
+        Self {
+            stats: cx.new(|cx| StatsView::new(api, cx)),
+        }
+    }
+}
+
+impl Render for StatsPage {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .size_full()
+            .child(page_header(
+                Some(
+                    icon_button("stats-back", IconName::ArrowLeft, cx)
+                        .on_click(cx.listener(|_, _, _, cx| cx.emit(Nav::Back))),
+                ),
+                "Watch stats",
+            ))
+            .child(
+                grow().child(
+                    scroll_page("stats")
+                        .pt(gap::item())
+                        .gap(gap::group())
+                        .child(caption(
+                            "From the server's play history. Recent totals count each item at its last play.",
+                            cx,
+                        ))
+                        .child(self.stats.clone()),
+                ),
+            )
     }
 }
 

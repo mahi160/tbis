@@ -24,6 +24,7 @@ use crate::search::{SearchEvent, SearchView};
 use crate::series::SeriesView;
 use crate::settings::{SettingsChanged, SettingsView};
 use crate::shortcuts::{self, ShowShortcuts};
+use crate::stats::StatsPage;
 use crate::update;
 
 actions!(
@@ -532,11 +533,7 @@ impl AppView {
     }
 
     fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Screen::Main(main) = &self.screen else {
-            return;
-        };
-        let (config, api) = (&self.config, main.api.clone());
-        let view = cx.new(|cx| SettingsView::new(config, api, cx));
+        let view = cx.new(|cx| SettingsView::new(&self.config, cx));
         let changed = cx.subscribe(&view, |this, _, changed: &SettingsChanged, cx| {
             match changed {
                 SettingsChanged::Language(language) => this.config.language = language.clone(),
@@ -563,6 +560,15 @@ impl AppView {
         {
             detail._subscriptions.push(changed);
         }
+    }
+
+    fn open_stats(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Screen::Main(main) = &self.screen else {
+            return;
+        };
+        let api = main.api.clone();
+        let view = cx.new(|cx| StatsPage::new(api, cx));
+        self.set_detail(view, |_| {}, window, cx);
     }
 
     fn open_movie(&mut self, movie: &Item, window: &mut Window, cx: &mut Context<Self>) {
@@ -655,13 +661,14 @@ impl AppView {
         let Screen::Main(main) = &self.screen else {
             return TitleBar::new();
         };
-        // Search and Settings belong to no tab; Movie/Series details stay under theirs
+        // Search, Settings and Watch stats belong to no tab; Movie/Series details stay under theirs
         let off_tab = main.searching(cx)
             || (main.search_open && main.search.read(cx).has_recent())
-            || main
-                .details
-                .last()
-                .is_some_and(|d| d.view.entity_type() == std::any::TypeId::of::<SettingsView>());
+            || main.details.last().is_some_and(|d| {
+                let page = d.view.entity_type();
+                page == std::any::TypeId::of::<SettingsView>()
+                    || page == std::any::TypeId::of::<StatsPage>()
+            });
         let selected = TABS
             .iter()
             .position(|(t, _)| *t == main.tab)
@@ -691,6 +698,7 @@ impl AppView {
             avatar_button("user-menu", user_name.clone(), cx).dropdown_menu(move |menu, _, _| {
                 let this = this.clone();
                 let settings = this.clone();
+                let stats = this.clone();
                 let updates = this.clone();
                 menu.label(user_name.clone())
                     .separator()
@@ -698,6 +706,13 @@ impl AppView {
                         PopupMenuItem::new("Settings").on_click(move |_, window, cx| {
                             settings
                                 .update(cx, |this, cx| this.open_settings(window, cx))
+                                .ok();
+                        }),
+                    )
+                    .item(
+                        PopupMenuItem::new("Watch stats").on_click(move |_, window, cx| {
+                            stats
+                                .update(cx, |this, cx| this.open_stats(window, cx))
                                 .ok();
                         }),
                     )
