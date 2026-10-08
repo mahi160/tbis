@@ -1,5 +1,4 @@
-//! Person image in shadcn's Avatar style: `rounded-full` (square when the theme's
-//! radius is 0), fallback initials
+//! Person image at the one radius, fallback initials
 //! on `bg-muted text-muted-foreground`. Custom rather than gpui-kit Avatar, whose
 //! fallback paints a per-name hue that can't be overridden.
 
@@ -20,12 +19,12 @@ pub fn avatar(url: Option<String>, name: impl Into<SharedString>, size: Pixels, 
         .into();
     let (muted, muted_fg) = (color::muted(cx), color::muted_foreground(cx));
     // cap: big type scale must not overflow small avatar
-    let font = if size >= sp(8.) { text::sm() } else { text::xs() }.min(size * 0.45);
+    let font = if size >= sp(8.) { text::body() } else { text::meta() }.min(size * 0.45);
     let fallback = move || {
         div()
             .size(size)
             .flex_shrink_0()
-            .rounded(radius::full())
+            .rounded(radius::base())
             .bg(muted)
             .flex()
             .items_center()
@@ -39,7 +38,7 @@ pub fn avatar(url: Option<String>, name: impl Into<SharedString>, size: Pixels, 
         Some(url) => img(url)
             .size(size)
             .flex_shrink_0()
-            .rounded(radius::full())
+            .rounded(radius::base())
             .object_fit(ObjectFit::Cover)
             .with_fallback(fallback)
             .into_any_element(),

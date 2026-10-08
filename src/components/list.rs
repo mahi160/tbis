@@ -1,11 +1,10 @@
-//! Clickable list rows (shadcn Item): `rounded-md text-sm`, `hover:bg-muted`, gap and
-//! padding from the theme's `design.item` recipe (vega: sm `gap-2.5 px-3 py-2.5`,
-//! xs `gap-2 px-2.5 py-2`).
+//! Clickable list rows (shadcn Item): the one radius, body text, `hover:bg-muted`;
+//! item-gap spacing, Xs rows tight vertically.
 
 use gpui_kit::component::h_flex;
 use gpui_kit::*;
 
-use crate::design::{color, radius, sp, text, tokens};
+use crate::design::{color, gap, radius, text};
 
 pub enum ItemSize {
     Sm,
@@ -14,18 +13,18 @@ pub enum ItemSize {
 
 /// Hoverable item row; callers add content and click handling.
 pub fn item(id: impl Into<ElementId>, size: ItemSize, cx: &App) -> Stateful<Div> {
-    let [gap, px, py] = match size {
-        ItemSize::Sm => tokens().item.sm,
-        ItemSize::Xs => tokens().item.xs,
+    let py = match size {
+        ItemSize::Sm => gap::item(),
+        ItemSize::Xs => gap::tight(),
     };
-    let muted = color::muted(cx);
+    let hover = color::hover(cx);
     h_flex()
         .id(id)
-        .gap(sp(gap))
-        .px(sp(px))
-        .py(sp(py))
-        .rounded(radius::md())
-        .text_size(text::sm())
+        .gap(gap::item())
+        .px(gap::item())
+        .py(py)
+        .rounded(radius::base())
+        .text_size(text::body())
         .cursor_pointer()
-        .hover(move |this| this.bg(muted))
+        .hover(move |this| this.bg(hover))
 }

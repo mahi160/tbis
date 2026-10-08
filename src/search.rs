@@ -14,7 +14,7 @@ use crate::components::{OnClick, card};
 use crate::jellyfin::{Api, Item, Kind};
 use crate::library::LibraryView;
 use crate::nav::Nav;
-use crate::design::{size, sp};
+use crate::design::{gap, size};
 
 const MIN_CHARS: usize = 2;
 const DEBOUNCE: Duration = Duration::from_millis(250);
@@ -174,7 +174,7 @@ impl SearchView {
         });
         v_flex()
             .max_w(size::list_max_w())
-            .gap(sp(2.))
+            .gap(gap::item())
             .child(header_row(title("Recent searches"), clear))
             .children(rows)
             .into_any_element()
@@ -219,7 +219,7 @@ impl SearchView {
                 cx,
             ));
         }
-        section("Episodes", v_flex().gap(sp(2.)).children(rows))
+        section("Episodes", v_flex().gap(gap::item()).children(rows))
     }
 }
 
@@ -285,7 +285,7 @@ impl Render for SearchView {
         }
 
         scroll_page("search")
-            .gap(sp(8.))
+            .gap(gap::group())
             .children(inline_status(status, cx))
             .when(no_results, |this| {
                 this.child(

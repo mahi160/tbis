@@ -7,7 +7,7 @@ use gpui_kit::*;
 use super::OnClick;
 use super::art::{art_tile, check_badge, image, play_scrim, progress_bar};
 use crate::config::HideSpoilers;
-use crate::design::{color, sp, text};
+use crate::design::{color, gap, text};
 use crate::jellyfin::{Api, Item, Kind};
 
 /// Art tile shared by `poster_card` and `poster_card_playable`; `on_play` wires the art's own
@@ -32,9 +32,9 @@ fn poster_art(
 /// Year row shared by `poster_card` and `poster_card_playable`.
 fn poster_meta(item: &Item, cx: &App) -> AnyElement {
     div()
-        .h(text::fit(4., text::xs(), 0.))
-        .line_height(text::fit(4., text::xs(), 0.))
-        .text_size(text::xs())
+        .h(text::line(text::meta()))
+        .line_height(text::line(text::meta()))
+        .text_size(text::meta())
         .text_color(color::muted_foreground(cx))
         .child(
             item.production_year
@@ -44,9 +44,9 @@ fn poster_meta(item: &Item, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// Title over its muted meta line, set tight (vega `gap-0.5`).
+/// Title over its muted meta line, set tight.
 fn caption_stack(title: impl IntoElement, meta: impl IntoElement) -> Div {
-    v_flex().gap(sp(0.5)).child(title).child(meta)
+    v_flex().gap(gap::tight()).child(title).child(meta)
 }
 
 /// 2:3 poster, title, year; check badge when played. Fixed height so grid rows stay uniform.
@@ -63,15 +63,15 @@ pub fn poster_card(
     v_flex()
         .id(SharedString::from(item.id.clone()))
         .w(width)
-        .gap(sp(2.))
+        .gap(gap::item())
         .cursor_pointer()
         .on_click(on_open)
         .child(poster_art(api, item, width, None, cx))
         .child(caption_stack(
             div()
-                .h(text::fit(5., text::sm(), 0.))
-                .line_height(text::fit(5., text::sm(), 0.))
-                .text_size(text::sm())
+                .h(text::line(text::body()))
+                .line_height(text::line(text::body()))
+                .text_size(text::body())
                 .truncate()
                 .group_hover("card", |this| this.text_color(primary))
                 .child(name),
@@ -95,15 +95,15 @@ pub fn poster_card_playable(
     v_flex()
         .id(SharedString::from(item.id.clone()))
         .w(width)
-        .gap(sp(2.))
+        .gap(gap::item())
         .cursor_pointer()
         .child(poster_art(api, item, width, Some(on_play), cx))
         .child(caption_stack(
             div()
                 .id(ElementId::Name(format!("poster-title-{}", item.id).into()))
-                .h(text::fit(5., text::sm(), 0.))
-                .line_height(text::fit(5., text::sm(), 0.))
-                .text_size(text::sm())
+                .h(text::line(text::body()))
+                .line_height(text::line(text::body()))
+                .text_size(text::body())
                 .truncate()
                 .hover(|this| this.text_color(primary))
                 .on_click(on_open)
@@ -151,7 +151,7 @@ pub fn wide_card(
     v_flex()
         .w(width)
         .flex_shrink_0()
-        .gap(sp(2.))
+        .gap(gap::item())
         .child(
             art_tile(width, width * (9. / 16.), cx)
                 .id(ElementId::Name(format!("wide-art-{}", item.id).into()))
@@ -174,21 +174,21 @@ pub fn wide_card(
             v_flex()
                 .id(ElementId::Name(format!("wide-title-{}", item.id).into()))
                 .group("card-title")
-                .gap(sp(0.5))
+                .gap(gap::tight())
                 .cursor_pointer()
                 .on_click(on_open)
                 .child(
                     div()
-                        .text_size(text::sm())
-                        .line_height(text::line(text::sm()))
+                        .text_size(text::body())
+                        .line_height(text::line(text::body()))
                         .truncate()
                         .group_hover("card-title", |this| this.text_color(primary))
                         .child(title),
                 )
                 .child(
                     div()
-                        .text_size(text::xs())
-                        .line_height(text::line(text::xs()))
+                        .text_size(text::meta())
+                        .line_height(text::line(text::meta()))
                         .text_color(muted_fg)
                         .truncate()
                         .child(subtitle),

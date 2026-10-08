@@ -9,7 +9,7 @@ use super::art;
 use super::list::{ItemSize, item};
 use super::tag::star_rating;
 use super::typography::paragraph;
-use crate::design::{color, icon, radius, sp, text};
+use crate::design::{color, gap, icon, radius, sp, text};
 
 /// What an Episode row shows; the page decides spoilers and formatting.
 pub struct EpisodeRow {
@@ -43,7 +43,7 @@ pub fn episode_row(
                 .w(sp(48.))
                 .h(sp(27.))
                 .flex_shrink_0()
-                .rounded(radius::lg())
+                .rounded(radius::base())
                 .overflow_hidden()
                 .bg(muted)
                 .on_click(on_play)
@@ -62,12 +62,12 @@ pub fn episode_row(
             v_flex()
                 .flex_1()
                 .min_w_0()
-                .gap(sp(1.))
+                .gap(gap::tight())
                 .child(div().truncate().child(row.title))
                 .child(
                     h_flex()
-                        .gap(sp(3.))
-                        .text_size(text::sm())
+                        .gap(gap::item())
+                        .text_size(text::meta())
                         .text_color(muted_fg)
                         .children(row.runtime)
                         .children(row.rating.map(|score| star_rating(score, cx))),
@@ -99,10 +99,10 @@ pub fn episode_result(
         .child(
             v_flex()
                 .min_w_0()
-                .gap(sp(1.))
+                .gap(gap::tight())
                 .child(
                     div()
-                        .text_size(text::sm())
+                        .text_size(text::meta())
                         .text_color(muted_fg)
                         .truncate()
                         .child(series),

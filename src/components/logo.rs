@@ -4,7 +4,7 @@ use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::*;
 
 use super::typography::{caption, display};
-use crate::design::{color, sp, text};
+use crate::design::{color, gap, sp, text};
 
 // mark's own aspect ratio, so it isn't squashed
 const ASPECT: f32 = 1707. / 1440.;
@@ -20,12 +20,12 @@ pub fn logo_mark(height: Pixels) -> Svg {
 /// Compact mark + name, for the title bar.
 pub fn brand(cx: &App) -> Div {
     h_flex()
-        .gap(sp(1.5))
+        .gap(gap::tight())
         // mark tracks wordmark size, not spacing
-        .child(logo_mark(text::base()).text_color(color::primary(cx)))
+        .child(logo_mark(text::body()).text_color(color::primary(cx)))
         .child(
             div()
-                .text_size(text::base())
+                .text_size(text::body())
                 .font_weight(FontWeight::BOLD)
                 .child("tbis"),
         )
@@ -35,7 +35,7 @@ pub fn brand(cx: &App) -> Div {
 pub fn brand_hero(tagline: &'static str, cx: &App) -> Div {
     v_flex()
         .items_center()
-        .gap(sp(2.))
+        .gap(gap::item())
         .child(logo_mark(sp(12.)).text_color(color::primary(cx)))
         .child(display("tbis"))
         .child(caption(tagline, cx))

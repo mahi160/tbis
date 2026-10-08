@@ -7,7 +7,7 @@ use crate::components::button::{GhostState as _, VegaSize as _, icon_button};
 use crate::components::layout::{header_row, rows_page, scroll_row};
 use crate::components::status::{Status, error_banner, full_status};
 use crate::components::{OnClick, card, typography};
-use crate::design::{size, sp, page};
+use crate::design::{gap, page, size};
 use crate::jellyfin::{Api, Item, Kind};
 use crate::nav::Nav;
 
@@ -246,12 +246,12 @@ impl HomeView {
         let at_end = max > px(0.) && offset <= -max;
         Some(
             v_flex()
-                .gap(sp(4.))
+                .gap(gap::item())
                 .child(
                     header_row(
                         typography::title(title),
                         h_flex()
-                            .gap(sp(1.))
+                            .gap(gap::tight())
                             .child(Self::page_button(
                                 format!("{id}-prev"),
                                 IconName::ChevronLeft,

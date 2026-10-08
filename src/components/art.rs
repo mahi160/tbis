@@ -7,7 +7,7 @@ use gpui_kit::*;
 
 use super::logo::logo_mark;
 use crate::design::overlay::black;
-use crate::design::{color, icon, opacity, radius, shadow, sp};
+use crate::design::{color, gap, icon, opacity, radius, shadow, sp};
 
 /// Poster/thumbnail base: relative, rounded, clipped, lifts on hover.
 /// `group` scopes the hover to this one card, not every card sharing the name.
@@ -17,7 +17,7 @@ pub fn art_tile(width: Pixels, height: Pixels, cx: &App) -> Div {
         .relative()
         .w(width)
         .h(height)
-        .rounded(radius::lg())
+        .rounded(radius::base())
         .overflow_hidden()
         .bg(color::muted(cx))
         .shadow(shadow::sm())
@@ -30,7 +30,7 @@ pub fn play_scrim(group: &'static str, cx: &App) -> AnyElement {
     div()
         .absolute()
         .inset_0()
-        .rounded(radius::lg())
+        .rounded(radius::base())
         .flex()
         .items_center()
         .justify_center()
@@ -40,7 +40,7 @@ pub fn play_scrim(group: &'static str, cx: &App) -> AnyElement {
         .child(
             div()
                 .size(sp(11.))
-                .rounded(radius::full())
+                .rounded(radius::base())
                 .flex()
                 .items_center()
                 .justify_center()
@@ -55,10 +55,10 @@ pub fn play_scrim(group: &'static str, cx: &App) -> AnyElement {
 pub fn check_badge(cx: &App) -> Div {
     div()
         .absolute()
-        .top(sp(2.))
-        .right(sp(2.))
+        .top(gap::item())
+        .right(gap::item())
         .size(sp(6.))
-        .rounded(radius::full())
+        .rounded(radius::base())
         .flex()
         .items_center()
         .justify_center()
@@ -78,9 +78,9 @@ pub fn progress_bar(id: impl Into<ElementId>, percent: f64, cx: &App) -> Progres
         .value(percent as f32)
         .color(color::primary(cx))
         .absolute()
-        .bottom(sp(2.))
-        .left(sp(2.))
-        .right(sp(2.))
+        .bottom(gap::item())
+        .left(gap::item())
+        .right(gap::item())
         .w_auto()
 }
 
@@ -91,7 +91,7 @@ pub fn image(url: Option<String>, cx: &App) -> AnyElement {
     let (muted, muted_fg, radius) = (
         color::muted(cx),
         color::muted_foreground(cx),
-        radius::lg(),
+        radius::base(),
     );
     let placeholder = move || {
         div()
@@ -121,7 +121,7 @@ pub fn thumb(url: Option<String>, width: Pixels, height: Pixels, cx: &App) -> Di
         .w(width)
         .h(height)
         .flex_shrink_0()
-        .rounded(radius::lg())
+        .rounded(radius::base())
         .overflow_hidden()
         .child(image(url, cx))
 }

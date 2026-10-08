@@ -1,15 +1,14 @@
 //! Settings screen: opened from the title-bar user menu as a detail page. One
 //! `SettingPage` per area; add a setting by adding a `SettingItem` to a group.
 
-use gpui_kit::component::setting::{
-    SettingField, SettingGroup, SettingItem, SettingPage,
-};
 use gpui_kit::component::{IconName, v_flex};
 use gpui_kit::*;
 
 use crate::components::button::icon_button;
 use crate::components::layout::{grow, page_header};
-use crate::components::settings::settings;
+use crate::components::settings::{
+    SettingField, SettingGroup, SettingItem, SettingPage, settings,
+};
 use crate::config::{
     AudioStyle, Config, DebandLevel, HdrStyle, HideSpoilers, LanguagePref, SeekSteps,
     SubtitleStyle, ToneMapCurve,
@@ -224,7 +223,7 @@ impl SettingsView {
             SettingGroup::new()
                 .title("Watch stats")
                 .description("From the server's play history. Recent totals count each item at its last play.")
-                .item(SettingItem::render(move |_, _, _| stats.clone())),
+                .item(SettingItem::render(stats)),
         )
     }
 
@@ -507,7 +506,7 @@ impl SettingsView {
         )
         .description("Used when an item has no remembered subtitle track.");
 
-        SettingPage::new("Playback").default_open(true).groups([
+        SettingPage::new("Playback").groups([
             SettingGroup::new()
                 .title("Language")
                 .items([audio, subtitles]),
@@ -532,7 +531,7 @@ impl Render for SettingsView {
                 ),
                 "Settings",
             ))
-            .child(grow().child(settings("settings", cx).pages([
+            .child(grow().child(settings("settings").pages([
                 self.playback_page(),
                 self.appearance_page(),
                 self.stats_page(),

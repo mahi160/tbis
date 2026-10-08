@@ -9,16 +9,11 @@ use crate::components::card::poster_card;
 use crate::components::layout::{counted_title, grid_row, grow, header_row};
 use crate::components::menu::choice_menu;
 use crate::components::status::{Status, error_banner, full_status};
-use crate::design::{size, sp, page};
+use crate::design::{gap, page, size};
 use crate::jellyfin::{Api, Item, Kind, Sort};
 use crate::nav::Nav;
 
 pub struct SortChanged(pub Sort);
-
-/// Grid gap between cards.
-fn gap() -> Pixels {
-    sp(4.)
-}
 
 /// Movies or Series page: every item of one kind from all Libraries.
 pub struct LibraryView {
@@ -102,7 +97,7 @@ impl LibraryView {
             for item in &self.items[start..end] {
                 cards.push(self.render_card(item, cx));
             }
-            out.push(grid_row(gap(), cards).into_any_element());
+            out.push(grid_row(gap::group(), cards).into_any_element());
         }
         out
     }
@@ -144,7 +139,7 @@ impl LibraryView {
 
 impl Render for LibraryView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (gap, min_card) = (gap().as_f32(), size::poster_min_w().as_f32());
+        let (gap, min_card) = (gap::group().as_f32(), size::poster_min_w().as_f32());
         let available = window.viewport_size().width.as_f32() - page().as_f32() * 2.;
         self.columns = (((available + gap) / (min_card + gap)).floor() as usize).max(1);
         self.card_width = px((available - gap * (self.columns - 1) as f32) / self.columns as f32);
@@ -155,7 +150,7 @@ impl Render for LibraryView {
             self.render_sort_menu(cx),
         )
         .px(page())
-        .py(sp(4.));
+        .py(gap::group());
 
         let body = if self.items.is_empty() {
             let status = if let Some(error) = self.error.clone() {
@@ -195,7 +190,7 @@ impl Render for LibraryView {
             .error
             .clone()
             .filter(|_| !self.items.is_empty())
-            .map(|error| error_banner(error, cx).px(page()).pb(sp(2.)));
+            .map(|error| error_banner(error, cx).px(page()).pb(gap::item()));
 
         v_flex()
             .size_full()

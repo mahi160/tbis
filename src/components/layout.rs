@@ -4,7 +4,7 @@ use gpui_kit::component::{InteractiveElementExt as _, h_flex, v_flex};
 use gpui_kit::*;
 
 use super::typography::title;
-use crate::design::{color, sp, text, page};
+use crate::design::{color, gap, page, text};
 
 /// App root: full size, theme background and text color.
 pub fn screen(cx: &App) -> Div {
@@ -38,9 +38,8 @@ pub fn rows_page(id: impl Into<ElementId>) -> Stateful<Div> {
         .overflow_y_scroll()
         // else horizontal row swipes leak into page's vertical scroll
         .lock_scroll_axis()
-        .pt(sp(6.))
-        .pb(sp(12.))
-        .gap(sp(11.))
+        .py(page())
+        .gap(gap::group())
 }
 
 /// Centers `child` in all the available space.
@@ -60,7 +59,7 @@ pub fn centered_scroll(id: impl Into<ElementId>, child: impl IntoElement) -> Sta
         .id(id)
         .size_full()
         .overflow_y_scroll()
-        .child(centered(child).h_auto().min_h_full().py(sp(6.)))
+        .child(centered(child).h_auto().min_h_full().py(gap::group()))
 }
 
 /// Title on the left, `trailing` on the right.
@@ -71,13 +70,13 @@ pub fn header_row(heading: impl IntoElement, trailing: impl IntoElement) -> Div 
 /// Page title with a muted count beside it (`Movies 124`).
 pub fn counted_title(label: impl Into<SharedString>, count: Option<usize>, cx: &App) -> Div {
     h_flex()
-        .gap(sp(2.))
+        .gap(gap::item())
         // gpui text reports no baseline; centering is the honest alignment
         .items_center()
         .child(title(label.into()))
         .children(count.map(|n| {
             div()
-                .text_size(text::sm())
+                .text_size(text::body())
                 .text_color(color::muted_foreground(cx))
                 .child(n.to_string())
         }))
@@ -87,8 +86,8 @@ pub fn counted_title(label: impl Into<SharedString>, count: Option<usize>, cx: &
 pub fn page_header(back: Option<impl IntoElement>, label: impl Into<SharedString>) -> Div {
     h_flex()
         .p(page())
-        .pb(sp(2.))
-        .gap(sp(3.))
+        .pb(gap::item())
+        .gap(gap::item())
         .children(back)
         .child(title(label.into()))
 }
@@ -107,7 +106,7 @@ pub fn scroll_row(
         .lock_scroll_axis()
         .track_scroll(scroll)
         .px(gutter)
-        .gap(sp(4.))
+        .gap(gap::group())
         .items_start()
         .children(cards)
 }
@@ -126,7 +125,7 @@ pub fn grid_row(gap: Pixels, cards: Vec<AnyElement>) -> Div {
 pub fn wrap_grid(cards: Vec<AnyElement>) -> Div {
     h_flex()
         .flex_wrap()
-        .gap(sp(4.))
+        .gap(gap::group())
         .items_start()
         .children(cards)
 }

@@ -11,7 +11,7 @@ use crate::components::layout::centered_scroll;
 use crate::components::logo::brand_hero;
 use crate::components::panel::panel;
 use crate::components::typography::{caption, display, error_text};
-use crate::design::{size, sp};
+use crate::design::{gap, size};
 use crate::jellyfin::{self, PublicUser, Session};
 
 /// Wait after typing in Server before asking it for users.
@@ -244,13 +244,13 @@ impl Render for LoginView {
             "login",
             v_flex()
                 .w(size::form_w())
-                .gap(sp(6.))
+                .gap(gap::group())
                 .child(brand_hero("Sign in to your Jellyfin server", cx))
                 .child(panel(cx).map(|this| {
                     match &self.quick_connect {
                         Some(quick_connect) => this
                             .items_center()
-                            .gap(sp(2.))
+                            .gap(gap::item())
                             .child(caption(
                                 "Enter this code on a device you're signed in on",
                                 cx,
@@ -260,7 +260,7 @@ impl Render for LoginView {
                             .children(self.error.clone().map(|error| error_text(error, cx)))
                             .child(
                                 outline_button("quick-connect-cancel", "Cancel", cx)
-                                    .mt(sp(2.))
+                                    .mt(gap::item())
                                     .on_click(
                                         cx.listener(|this, _, _, cx| this.quick_connect_cancel(cx)),
                                     ),
@@ -268,7 +268,7 @@ impl Render for LoginView {
                         None => this
                             .child(field("Server address", &self.server, cx))
                             .when(!self.users.is_empty(), |this| {
-                                this.child(h_flex().flex_wrap().gap(sp(2.)).children(
+                                this.child(h_flex().flex_wrap().gap(gap::item()).children(
                                     self.users.iter().enumerate().map(|(i, user)| {
                                         let picked = user.clone();
                                         outline_button(("user", i), user.name.clone(), cx)
@@ -286,7 +286,7 @@ impl Render for LoginView {
                             .child(
                                 primary_button("sign-in", "Sign in")
                                     .lg()
-                                    .mt(sp(2.))
+                                    .mt(gap::item())
                                     .loading(self.busy)
                                     .disabled(self.busy)
                                     .on_click(

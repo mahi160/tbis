@@ -11,53 +11,53 @@ use gpui_kit::*;
 use super::OnClick;
 use super::button::button;
 use super::logo::logo_mark;
-use crate::design::{color, opacity, radius, size, sp, text};
+use crate::design::{color, gap, opacity, page, radius, size, sp, text};
 
 const SKELETON_COUNT: usize = 12;
 
 /// Poster-shaped placeholders standing in for a grid that hasn't loaded yet, so the
 /// page doesn't jump when real cards replace them.
-/// Vega Skeleton is `bg-muted rounded-md`; poster stand-ins round like images (`lg`).
-fn skeleton_grid(radius: Pixels, line: Pixels) -> AnyElement {
-    let width = size::poster_min_w();
+/// Vega Skeleton is `bg-muted`, here at the one radius.
+fn skeleton_grid() -> AnyElement {
+    let (width, radius) = (size::poster_min_w(), radius::base());
     div()
         .size_full()
         .flex()
         .flex_wrap()
-        .gap(sp(4.))
-        .p(sp(6.))
+        .gap(gap::group())
+        .p(page())
         .children((0..SKELETON_COUNT).map(|_| {
             v_flex()
                 .w(width)
-                .gap(sp(2.))
+                .gap(gap::item())
                 .child(Skeleton::new().w(width).h(width * 1.5).rounded(radius))
-                .child(Skeleton::new().h(text::sm()).w(relative(0.75)).rounded(line))
-                .child(Skeleton::new().h(text::xs()).w(relative(0.4)).rounded(line))
+                .child(Skeleton::new().h(text::body()).w(relative(0.75)).rounded(radius))
+                .child(Skeleton::new().h(text::meta()).w(relative(0.4)).rounded(radius))
         }))
         .into_any_element()
 }
 
-/// gpui-kit Empty overridden to vega: `gap-4 rounded-lg p-12`, no dashed border.
+/// gpui-kit Empty overridden: group gap and padding, the one radius, no dashed border.
 fn empty() -> Empty {
     Empty::new()
         .max_w(sp(110.))
-        .gap(sp(4.))
-        .p(sp(12.))
-        .rounded(radius::lg())
+        .gap(gap::group())
+        .p(gap::group())
+        .rounded(radius::base())
         .border_0()
 }
 
-/// Vega `empty-description`: `text-sm/relaxed` muted.
+/// Vega `empty-description`: relaxed, muted.
 fn description(message: SharedString, cx: &App) -> EmptyDescription {
     EmptyDescription::new()
-        .text_size(text::sm())
+        .text_size(text::body())
         .line_height(relative(1.625))
         .text_color(color::muted_foreground(cx))
         .child(message)
 }
 
-/// Centered error block: alert icon in a muted `size-10 rounded-lg` tile, `title`
-/// (`text-lg font-medium`), muted `detail`, then `actions`.
+/// Centered error block: alert icon in a muted tile, medium-weight `title`, muted
+/// `detail`, then `actions`.
 /// Shared by list screens (`full_status`) and the Player's error overlay.
 pub fn error_panel(
     title: impl Into<SharedString>,
@@ -68,12 +68,12 @@ pub fn error_panel(
     empty()
         .header(
             EmptyHeader::new()
-                .gap(sp(2.))
+                .gap(gap::item())
                 .media(
                     EmptyMedia::new()
                         .with_variant(EmptyMediaVariant::Icon)
                         .size(sp(10.))
-                        .rounded(radius::lg())
+                        .rounded(radius::base())
                         .child(
                             Icon::new(assets::IconName::CircleAlert)
                                 .size(sp(6.))
@@ -82,20 +82,20 @@ pub fn error_panel(
                 )
                 .title(
                     EmptyTitle::new()
-                        .text_size(text::lg())
+                        .text_size(text::body())
                         .font_weight(FontWeight::MEDIUM)
                         .child(title.into()),
                 )
                 .description(description(detail, cx)),
         )
-        .content(EmptyContent::new().child(h_flex().gap(sp(2.)).children(actions)))
+        .content(EmptyContent::new().child(h_flex().gap(gap::item()).children(actions)))
 }
 
 /// Centered empty block: the faded tbis mark over a muted `message`.
 pub fn empty_panel(message: SharedString, cx: &App) -> Empty {
     empty().header(
         EmptyHeader::new()
-            .gap(sp(2.))
+            .gap(gap::item())
             .media(
                 EmptyMedia::new().child(
                     logo_mark(sp(12.))
@@ -118,7 +118,7 @@ pub enum Status {
 /// Error shows a Retry button; `loading` puts it in its spinner state while refreshing.
 pub fn full_status(status: Status, retry: OnClick, loading: bool, cx: &App) -> AnyElement {
     if let Status::Loading = status {
-        return skeleton_grid(radius::lg(), radius::md());
+        return skeleton_grid();
     }
     let body = match status {
         Status::Loading => unreachable!(),
@@ -162,7 +162,7 @@ pub fn inline_status(status: Option<Status>, cx: &App) -> Option<AnyElement> {
             .child(message)
             .into_any_element(),
         Status::Error(message) => div()
-            .text_size(text::sm())
+            .text_size(text::body())
             .text_color(danger)
             .child(message)
             .into_any_element(),

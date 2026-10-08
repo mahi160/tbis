@@ -2,16 +2,15 @@
 //! overridden. Every button in the app starts here, so one edit restyles them all.
 //! Like shadcn's single `Button`, icon-only buttons are presets here too.
 //!
-//! `rounded-md text-sm font-medium`; heights and padding per size come from the theme's
-//! `design.button` recipe (vega: xs `h-6 px-2`, sm `h-8 px-2.5`, default `h-9 px-2.5`,
-//! lg `h-10 px-2.5`; icon-only `size-6` / `size-8` / `size-9`).
+//! One radius, body text, medium weight; heights per size come from the theme's
+//! `design.button` recipe, horizontal padding is the item gap.
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::{Disableable as _, Icon, Selectable as _, Sizable as _, Size};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::design::{color, font, input_bg, overlay, radius, sp, text, tokens};
+use crate::design::{color, font, gap, input_bg, overlay, radius, sp, text, tokens};
 
 /// Vega sizes; chain after a preset. Default size needs no call.
 pub trait VegaSize: Sized {
@@ -19,7 +18,6 @@ pub trait VegaSize: Sized {
     fn sm(self) -> Self;
     fn lg(self) -> Self;
     fn icon_xs(self) -> Self;
-    fn icon_sm(self) -> Self;
 }
 
 /// State setters for ghost presets: the preset's foreground override would otherwise
@@ -46,10 +44,10 @@ fn ghost(button: Button, cx: &App) -> Button {
     button.ghost().text_color(color::foreground(cx))
 }
 
-/// Text button sized by a recipe `[height, padding-x]` in spacing units; `kit` picks
-/// gpui-kit's text/icon size.
-fn text_size(button: Button, [h, px]: [f32; 2], kit: Size) -> Button {
-    Styled::h(button.with_size(kit), text::fit(h, text::sm(), 0.)).px(sp(px))
+/// Text button `h` spacing units tall. gpui-kit Medium draws text-sm, which
+/// `theme::apply` makes the body size, so every size shares it.
+fn text_size(button: Button, h: f32) -> Button {
+    Styled::h(button.with_size(Size::Medium), text::fit(h, text::body(), px(0.))).px(gap::item())
 }
 
 /// Icon-only button, `n` units square.
@@ -59,20 +57,16 @@ fn square(button: Button, n: f32) -> Button {
 
 impl VegaSize for Button {
     fn xs(self) -> Self {
-        text_size(self, tokens().button.xs, Size::XSmall)
+        text_size(self, tokens().button.xs)
     }
     fn sm(self) -> Self {
-        text_size(self, tokens().button.sm, tokens().button.text.kit())
+        text_size(self, tokens().button.sm)
     }
-    // lg keeps text-sm; gpui-kit Large would switch to text-base
     fn lg(self) -> Self {
-        text_size(self, tokens().button.lg, tokens().button.text.kit())
+        text_size(self, tokens().button.lg)
     }
     fn icon_xs(self) -> Self {
         square(self.with_size(Size::XSmall), tokens().button.icon_xs)
-    }
-    fn icon_sm(self) -> Self {
-        square(self.with_size(Size::Small), tokens().button.icon_sm)
     }
 }
 
@@ -84,7 +78,7 @@ fn plain(id: impl Into<ElementId>) -> Button {
 /// Text-button base: the recipe's default size. Icon-only buttons skip it, since its
 /// padding would squeeze an icon out of a small square.
 fn base(id: impl Into<ElementId>) -> Button {
-    text_size(plain(id), tokens().button.default, tokens().button.text.kit())
+    text_size(plain(id), tokens().button.default)
 }
 
 /// Neutral button.
@@ -118,15 +112,20 @@ pub fn round_ghost_button(
     cx: &App,
 ) -> Button {
     ghost_button(id, label, cx)
-        .rounded(radius::full())
+        .rounded(radius::base())
         .text_color(overlay::WHITE)
         .font_family(font::mono(cx))
-        .text_size(text::xs())
+        .text_size(text::meta())
 }
 
-/// Ghost icon-only button at the recipe's icon size; chain `.icon_sm()` / `.icon_xs()`.
+/// Ghost icon-only button at the recipe's icon size; chain `.icon_xs()`.
 pub fn icon_button(id: impl Into<ElementId>, icon: impl Into<Icon>, cx: &App) -> Button {
     ghost(plain_icon(id, icon), cx)
+}
+
+/// `icon_button` on the surface fill, the twin of `avatar_button` in the title bar.
+pub fn surface_icon_button(id: impl Into<ElementId>, icon: impl Into<Icon>, cx: &App) -> Button {
+    icon_button(id, icon, cx).bg(color::muted(cx))
 }
 
 fn plain_icon(id: impl Into<ElementId>, icon: impl Into<Icon>) -> Button {
@@ -136,7 +135,7 @@ fn plain_icon(id: impl Into<ElementId>, icon: impl Into<Icon>) -> Button {
 /// Round ghost icon button, for the Player's bars.
 pub fn round_icon(id: impl Into<ElementId>, icon: impl Into<Icon>) -> Button {
     // white: bars sit on video, never on theme background
-    plain_icon(id, icon).rounded(radius::full()).text_color(overlay::WHITE)
+    plain_icon(id, icon).rounded(radius::base()).text_color(overlay::WHITE)
 }
 
 /// `round_icon` with an SVG from `assets/icons`.
@@ -149,8 +148,13 @@ pub fn avatar_button(id: impl Into<ElementId>, name: impl Into<SharedString>, cx
     let size = tokens().avatar.default;
     square(ghost(plain(id).with_size(Size::Small), cx), size)
         .p(px(0.))
-        .rounded(radius::full())
+        .rounded(radius::base())
         .child(super::avatar::avatar(None, name, sp(size), cx))
+}
+
+/// Select trigger: the current choice in a small outline button with a caret.
+pub fn select_button(id: impl Into<ElementId>, label: impl Into<SharedString>, cx: &App) -> Button {
+    outline_button(id, label, cx).sm().dropdown_caret(true)
 }
 
 /// Small ghost button with a caret, opening a dropdown.

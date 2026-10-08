@@ -8,7 +8,7 @@ use super::avatar::avatar;
 use super::button::icon_button;
 use super::typography::caption;
 use super::{OnClick, art, tag, typography};
-use crate::design::{color, sp, text};
+use crate::design::{color, gap, sp, text};
 use crate::jellyfin::{Api, Item};
 
 /// Back button, `image` (URL, width, height), then `body` (title/meta/overview/actions).
@@ -20,7 +20,7 @@ pub fn detail_header(
 ) -> impl IntoElement {
     let (url, width, height) = image;
     h_flex()
-        .gap(sp(5.))
+        .gap(gap::group())
         .items_start()
         .child(icon_button("detail-back", IconName::ArrowLeft, cx).on_click(back))
         .child(art::thumb(url, width, height, cx))
@@ -53,9 +53,9 @@ pub fn meta_line(item: &Item, length: Option<String>, cx: &App) -> Option<AnyEle
     }
     (!parts.is_empty()).then(|| {
         h_flex()
-            .gap(sp(3.))
+            .gap(gap::item())
             .items_center()
-            .text_size(text::sm())
+            .text_size(text::body())
             .text_color(muted_fg)
             .children(parts)
             .into_any_element()
@@ -67,7 +67,7 @@ pub fn media_tags(item: &Item, cx: &App) -> Option<AnyElement> {
     let tags = item.media_tags();
     (!tags.is_empty()).then(|| {
         h_flex()
-            .gap(sp(1.5))
+            .gap(gap::tight())
             .flex_wrap()
             .children(tags.into_iter().map(|t| tag::pill(t, cx)))
             .into_any_element()
@@ -97,7 +97,7 @@ pub fn cast_row(api: &Api, item: &Item, cx: &App) -> Option<AnyElement> {
         .map(|person| {
             h_flex()
                 .w(sp(54.))
-                .gap(sp(3.))
+                .gap(gap::item())
                 .child(avatar(
                     api.person_image_url(person),
                     person.name.clone(),
@@ -109,14 +109,14 @@ pub fn cast_row(api: &Api, item: &Item, cx: &App) -> Option<AnyElement> {
                         .min_w_0()
                         .child(
                             div()
-                                .text_size(text::sm())
+                                .text_size(text::body())
                                 .font_weight(FontWeight::MEDIUM)
                                 .truncate()
                                 .child(person.name.clone()),
                         )
                         .children(person.role.clone().filter(|r| !r.is_empty()).map(|role| {
                             div()
-                                .text_size(text::xs())
+                                .text_size(text::meta())
                                 .truncate()
                                 .text_color(muted_fg)
                                 .child(role)
@@ -130,14 +130,13 @@ pub fn cast_row(api: &Api, item: &Item, cx: &App) -> Option<AnyElement> {
     }
     Some(
         v_flex()
-            .gap(sp(4.))
+            .gap(gap::group())
             .child(typography::heading("Cast"))
             .child(
                 div()
                     .flex()
                     .flex_wrap()
-                    .gap_x(sp(6.))
-                    .gap_y(sp(4.))
+                    .gap(gap::group())
                     .children(actors),
             )
             .into_any_element(),

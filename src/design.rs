@@ -1,13 +1,14 @@
 //! Design tokens: the single source UI code reads for every visual value. Each theme in
-//! `assets/themes/tbis.json` carries its whole look: gpui-kit's colors and font
-//! families, plus a `"design"` object (parsed into [`Design`]) with the spacing unit,
-//! type scale, one base radius, shadow strength, and each component's recipe (button,
-//! input, card, badge, item, avatar, key cap sizes). Missing keys fall back to shadcn
-//! vega. `theme::apply` installs the active `Design` and derives gpui-kit's own font
-//! size and radii from it. Only this file reads `cx.theme()` for visuals.
+//! `assets/themes/tbis.json` carries its whole look: eight color roles and font
+//! families, plus a `"design"` object (parsed into [`Design`]). The system is small on
+//! purpose and the same for every theme: three type sizes (`text`), one corner radius
+//! (`radius`), three gaps (`gap`), and component heights. Missing keys fall back to the
+//! defaults below; unknown keys are rejected. `theme::apply` installs the active
+//! `Design` and derives gpui-kit's own font size, radii and colors from it. Only this
+//! file reads `cx.theme()` for visuals.
 //!
-//! Lengths are multiples of the theme's spacing unit (`sp(4.)` is 16px at the default
-//! 4px unit, like Tailwind's `p-4`); components use `sp(n)` for their own dimensions.
+//! Spacing between and inside things is always a `gap`. Fixed dimensions (control
+//! heights, poster widths) are multiples of the theme's spacing unit: `sp(n)`.
 
 use std::sync::RwLock;
 
@@ -15,34 +16,57 @@ use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::*;
 use serde::Deserialize;
 
-/// A theme's non-color look, from its `"design"` object. Lengths are spacing units
-/// except `spacing`, `text` and `radius` (px).
+/// A theme's non-color look, from its `"design"` object. `spacing`, `text`, `radius`
+/// and `gap` are px; recipe sizes are spacing units.
 #[derive(Clone, Copy, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Design {
     pub spacing: f32,
-    pub page: f32,
     pub text: TextScale,
-    /// Base corner radius (shadcn's `--radius`); the radius scale derives from it.
+    /// The one corner radius, for everything.
     pub radius: f32,
+    pub gap: Gaps,
     pub shadow_opacity: f32,
     pub button: ButtonRecipe,
     pub input: InputRecipe,
-    pub card: CardRecipe,
     pub badge: BadgeRecipe,
-    pub item: ItemRecipe,
     pub avatar: AvatarRecipe,
     pub kbd: KbdRecipe,
     pub icon: IconRecipe,
     pub progress_height: f32,
-    /// gpui-kit size of the tab strips and the Settings page.
+    /// gpui-kit size of the tab strips.
     pub tabs: KitSize,
-    pub settings: KitSize,
+}
+
+/// The three type sizes.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TextScale {
+    /// Secondary details: years, episode labels, badges, descriptions.
+    pub meta: f32,
+    /// Everything else: body, controls, rows, card titles.
+    pub body: f32,
+    /// Page and section headings.
+    pub title: f32,
+}
+
+/// The three gaps, px.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Gaps {
+    /// Inside a control: icon to label, title to its meta line.
+    pub tight: f32,
+    /// Between related items, and padding inside controls.
+    pub item: f32,
+    /// Between groups and sections.
+    pub group: f32,
+    /// Window padding: the gutter around every page.
+    pub page: f32,
 }
 
 /// Icon sizes in spacing units.
 #[derive(Clone, Copy, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct IconRecipe {
     pub sm: f32,
     pub default: f32,
@@ -70,145 +94,81 @@ impl KitSize {
     }
 }
 
+/// Heights per button size; icon-only buttons are squares.
 #[derive(Clone, Copy, Deserialize)]
-#[serde(default)]
-pub struct TextScale {
+#[serde(default, deny_unknown_fields)]
+pub struct ButtonRecipe {
     pub xs: f32,
     pub sm: f32,
-    pub base: f32,
+    pub default: f32,
     pub lg: f32,
-    pub xl: f32,
-    #[serde(rename = "2xl")]
-    pub x2l: f32,
-    #[serde(rename = "3xl")]
-    pub x3l: f32,
-}
-
-/// `[height, padding-x]` per text size; icon-only buttons are squares.
-#[derive(Clone, Copy, Deserialize)]
-#[serde(default)]
-pub struct ButtonRecipe {
-    pub xs: [f32; 2],
-    pub sm: [f32; 2],
-    pub default: [f32; 2],
-    pub lg: [f32; 2],
     pub icon_xs: f32,
-    pub icon_sm: f32,
     pub icon: f32,
-    /// gpui-kit size whose text the sm/default/lg buttons use: `md` is text-sm,
-    /// `xs` is text-xs.
-    pub text: KitSize,
 }
 
 #[derive(Clone, Copy, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct InputRecipe {
     pub height: f32,
-    pub height_sm: f32,
-    pub px: f32,
-    pub py: f32,
-    /// Gap between a field's label and its input.
-    pub label_gap: f32,
-}
-
-/// Padding and gap of a card, default and small.
-#[derive(Clone, Copy, Deserialize)]
-#[serde(default)]
-pub struct CardRecipe {
-    pub spacing: f32,
-    pub spacing_sm: f32,
 }
 
 #[derive(Clone, Copy, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct BadgeRecipe {
     pub height: f32,
-    pub px: f32,
-    pub py: f32,
-}
-
-/// `[gap, padding-x, padding-y]` of list rows.
-#[derive(Clone, Copy, Deserialize)]
-#[serde(default)]
-pub struct ItemRecipe {
-    pub sm: [f32; 3],
-    pub xs: [f32; 3],
 }
 
 #[derive(Clone, Copy, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct AvatarRecipe {
     pub default: f32,
     pub lg: f32,
 }
 
 #[derive(Clone, Copy, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct KbdRecipe {
     pub size: f32,
-    pub px: f32,
 }
 
-/// shadcn vega.
 impl Default for Design {
     fn default() -> Self {
         Self {
             spacing: 4.,
-            page: 8.,
             text: TextScale {
-                xs: 12.,
-                sm: 14.,
-                base: 16.,
-                lg: 18.,
-                xl: 20.,
-                x2l: 24.,
-                x3l: 30.,
+                meta: 11.,
+                body: 12.,
+                title: 20.,
             },
-            radius: 10.,
+            radius: 8.,
+            gap: Gaps {
+                tight: 4.,
+                item: 8.,
+                group: 16.,
+                page: 24.,
+            },
             shadow_opacity: 0.1,
             button: ButtonRecipe {
-                xs: [6., 2.],
-                sm: [8., 2.5],
-                default: [9., 2.5],
-                lg: [10., 2.5],
+                xs: 6.,
+                sm: 7.,
+                default: 8.,
+                lg: 9.,
                 icon_xs: 6.,
-                icon_sm: 8.,
-                icon: 9.,
-                text: KitSize::Md,
+                icon: 8.,
             },
-            input: InputRecipe {
-                height: 9.,
-                height_sm: 8.,
-                px: 2.5,
-                py: 1.,
-                label_gap: 3.,
-            },
-            card: CardRecipe {
-                spacing: 6.,
-                spacing_sm: 4.,
-            },
-            badge: BadgeRecipe {
-                height: 5.,
-                px: 2.,
-                py: 0.5,
-            },
-            item: ItemRecipe {
-                sm: [2.5, 3., 2.5],
-                xs: [2., 2.5, 2.],
-            },
+            input: InputRecipe { height: 8. },
+            badge: BadgeRecipe { height: 5. },
             avatar: AvatarRecipe {
                 default: 8.,
                 lg: 10.,
             },
-            kbd: KbdRecipe { size: 5., px: 1. },
+            kbd: KbdRecipe { size: 5. },
             icon: IconRecipe {
                 sm: 3.,
                 default: 4.,
             },
-            progress_height: 1.5,
-            // segmented tabs at gpui-kit Large are vega's h-9 list
-            tabs: KitSize::Lg,
-            settings: KitSize::Sm,
+            progress_height: 1.,
+            tabs: KitSize::Md,
         }
     }
 }
@@ -225,11 +185,10 @@ macro_rules! default_parts {
 
 default_parts!(
     TextScale.text,
+    Gaps.gap,
     ButtonRecipe.button,
     InputRecipe.input,
-    CardRecipe.card,
     BadgeRecipe.badge,
-    ItemRecipe.item,
     AvatarRecipe.avatar,
     KbdRecipe.kbd,
     IconRecipe.icon,
@@ -242,7 +201,7 @@ pub fn set(design: Design) {
     *ACTIVE.write().unwrap_or_else(|e| e.into_inner()) = Some(design);
 }
 
-/// The active theme's design (vega before any theme is applied).
+/// The active theme's design (defaults before any theme is applied).
 pub fn tokens() -> Design {
     ACTIVE
         .read()
@@ -250,47 +209,69 @@ pub fn tokens() -> Design {
         .unwrap_or_default()
 }
 
-/// `n` spacing units.
+/// `n` spacing units: fixed dimensions only; spacing between things is a `gap`.
 pub fn sp(n: f32) -> Pixels {
     px(n * tokens().spacing)
 }
 
 /// Page gutter on every screen.
 pub fn page() -> Pixels {
-    sp(tokens().page)
+    px(tokens().gap.page)
+}
+
+/// The three gaps.
+pub mod gap {
+    use super::{Pixels, px, tokens};
+
+    pub fn tight() -> Pixels {
+        px(tokens().gap.tight)
+    }
+
+    pub fn item() -> Pixels {
+        px(tokens().gap.item)
+    }
+
+    pub fn group() -> Pixels {
+        px(tokens().gap.group)
+    }
 }
 
 macro_rules! theme_colors {
-    ($($name:ident),* $(,)?) => {
-        /// Theme colors, from the active theme.
+    ($($name:ident = $field:ident),* $(,)?) => {
+        /// Theme colors, from the active theme's roles (`theme::KIT_KEYS` says which
+        /// gpui-kit color carries each role).
         pub mod color {
             use super::*;
-            $(pub fn $name(cx: &App) -> Hsla { cx.theme().$name })*
+            $(pub fn $name(cx: &App) -> Hsla { cx.theme().$field })*
         }
     };
 }
 
 theme_colors!(
-    background,
-    foreground,
-    muted,
-    muted_foreground,
-    popover,
-    primary,
-    primary_foreground,
-    accent_foreground,
-    border,
-    ring,
-    danger,
-    warning,
+    background = background,
+    foreground = foreground,
+    surface = popover,
+    muted = muted,
+    muted_foreground = muted_foreground,
+    hover = accent,
+    // not list_active: gpui-kit caps that to 20% alpha
+    active = secondary_active,
+    accent_foreground = accent_foreground,
+    border = border,
+    primary = primary,
+    primary_foreground = primary_foreground,
+    ring = ring,
+    danger = danger,
+    warning = warning,
 );
 
-/// Input fill: shadcn's `bg-transparent dark:bg-input/30`.
+/// Input fill: shadcn's `dark:bg-input/30`; on light themes the raised surface, so
+/// fields read as white wells on a tinted page.
 pub fn input_bg(cx: &App) -> Hsla {
     if cx.theme().is_dark() {
         cx.theme().input.opacity(0.3)
     } else {
-        overlay::CLEAR
+        cx.theme().popover
     }
 }
 
@@ -303,17 +284,21 @@ pub mod font {
     }
 }
 
-/// Type scale (Tailwind `text-xs` .. `text-3xl`), from the theme.
+/// The three type sizes, from the theme.
 pub mod text {
-    use super::{px, tokens, Pixels};
+    use super::{Pixels, px, tokens};
 
-    macro_rules! steps {
-        ($($name:ident),*) => {
-            $(pub fn $name() -> Pixels { px(tokens().text.$name) })*
-        };
+    pub fn meta() -> Pixels {
+        px(tokens().text.meta)
     }
 
-    steps!(xs, sm, base, lg, xl, x2l, x3l);
+    pub fn body() -> Pixels {
+        px(tokens().text.body)
+    }
+
+    pub fn title() -> Pixels {
+        px(tokens().text.title)
+    }
 
     /// One line's height at `size` (Tailwind's `text-xs` leading, 16/12).
     pub fn line(size: Pixels) -> Pixels {
@@ -321,9 +306,9 @@ pub mod text {
     }
 
     /// Control height: `units` of spacing, but never shorter than one line at `size`
-    /// plus `pad_y` units above and below, so big type in tight spacing isn't clipped.
-    pub fn fit(units: f32, size: Pixels, pad_y: f32) -> Pixels {
-        super::sp(units).max(line(size) + super::sp(pad_y) * 2.)
+    /// plus `pad_y` above and below, so big type in tight spacing isn't clipped.
+    pub fn fit(units: f32, size: Pixels, pad_y: Pixels) -> Pixels {
+        super::sp(units).max(line(size) + pad_y * 2.)
     }
 }
 
@@ -340,38 +325,12 @@ pub mod icon {
     }
 }
 
-/// Corner radii: shadcn's scale off the theme's one base `radius` (`--radius`).
-/// `theme::apply` hands gpui-kit `md` (controls) and `lg` (dialogs, popovers).
+/// The one corner radius.
 pub mod radius {
     use super::{Pixels, px, tokens};
 
-    fn scaled(ratio: f32) -> Pixels {
-        px(tokens().radius * ratio)
-    }
-
-    /// Small bits: key caps.
-    pub fn sm() -> Pixels {
-        scaled(0.6)
-    }
-
-    /// Controls, list rows, small overlays.
-    pub fn md() -> Pixels {
-        scaled(0.8)
-    }
-
-    /// Images and art tiles.
-    pub fn lg() -> Pixels {
-        scaled(1.)
-    }
-
-    /// Cards, panels, dialogs.
-    pub fn xl() -> Pixels {
-        scaled(1.4)
-    }
-
-    /// Pills and round buttons; square when the theme's radius is 0.
-    pub fn full() -> Pixels {
-        if tokens().radius == 0. { px(0.) } else { px(9999.) }
+    pub fn base() -> Pixels {
+        px(tokens().radius)
     }
 }
 
@@ -401,11 +360,11 @@ pub mod size {
         chart_h = 45.,
     );
 
-    // text containers: scale with type, like Tailwind's rem-based max-w-*; same units
-    // as sp at the default 16px base
+    // text containers: scale with body type (like Tailwind's rem-based max-w-*); a unit
+    // is 4px at a 14px body
     macro_rules! type_units {
         ($($name:ident = $n:expr),* $(,)?) => {
-            $(pub fn $name() -> Pixels { px($n * tokens().text.base / 4.) })*
+            $(pub fn $name() -> Pixels { px($n * tokens().text.body / 3.5) })*
         };
     }
 

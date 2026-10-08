@@ -6,7 +6,7 @@ use gpui_kit::component::{IconName, Root, TitleBar, WindowExt as _};
 use gpui_kit::*;
 
 use crate::design;
-use crate::components::button::{VegaSize as _, avatar_button, icon_button};
+use crate::components::button::{avatar_button, surface_icon_button};
 use crate::components::dialog::vega_dialog;
 use crate::components::input::search_input;
 use crate::components::layout::{grow, screen};
@@ -637,8 +637,7 @@ impl AppView {
         let search = if main.search_open || main.searching(cx) {
             search_input(&main.search_input, cx).into_any_element()
         } else {
-            icon_button("search", IconName::Search, cx)
-                .icon_sm()
+            surface_icon_button("search", IconName::Search, cx)
                 .tooltip_with_action("Search", &FocusSearch, None)
                 .on_click(
                     cx.listener(|this, _, window, cx| this.focus_search(&FocusSearch, window, cx)),

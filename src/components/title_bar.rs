@@ -5,7 +5,7 @@ use gpui_kit::component::{TitleBar, h_flex};
 use gpui_kit::*;
 
 use super::logo::brand;
-use crate::design::{color, size, sp, tokens, window};
+use crate::design::{color, gap, size, sp, tokens, window};
 
 pub fn app_title_bar(
     center: impl IntoElement,
@@ -34,5 +34,5 @@ pub fn app_title_bar(
                 .justify_center()
                 .child(center),
         )
-        .child(h_flex().pr(inset).gap(sp(1.)).children(trailing))
+        .child(h_flex().pr(inset).gap(gap::tight()).children(trailing))
 }

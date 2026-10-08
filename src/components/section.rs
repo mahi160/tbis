@@ -5,7 +5,7 @@ use gpui_kit::*;
 
 pub fn section(title: impl Into<SharedString>, body: impl IntoElement) -> AnyElement {
     v_flex()
-        .gap(crate::design::sp(3.))
+        .gap(crate::design::gap::group())
         .child(super::typography::title(title.into()))
         .child(body)
         .into_any_element()

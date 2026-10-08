@@ -9,7 +9,7 @@ use crate::components::toggle_button::toggle_button;
 use crate::components::typography::{caption, paragraph, title};
 use crate::detail::{self, Toggle, UserDataView};
 use crate::jellyfin::{Api, Item, Kind, UserData, episode_code};
-use crate::design::{size, sp};
+use crate::design::{gap, size};
 use crate::nav::Nav;
 
 /// Movie or Episode detail: art, title, meta, overview, and a Play/Resume button.
@@ -103,7 +103,7 @@ impl Render for MovieView {
         let episode = self.movie.kind == Kind::Episode;
         let back = Box::new(cx.listener(|_, _, _, cx| cx.emit(Nav::Back)));
         let body = detail::header_body()
-            .gap(sp(3.))
+            .gap(gap::item())
             .when(episode, |this| this.child(self.episode_kicker(cx)))
             .child(title(self.movie.display_name().to_string()))
             .children(detail::meta_line(&self.movie, runtime, cx))
@@ -117,7 +117,7 @@ impl Render for MovieView {
             )
             .child(
                 h_flex()
-                    .gap(sp(2.))
+                    .gap(gap::item())
                     .child(
                         primary_button("movie-play", if resumed { "Resume" } else { "Play" })
                             .icon(IconName::Play)
@@ -164,7 +164,7 @@ impl Render for MovieView {
 
         scroll_page("movie-detail")
             .relative()
-            .gap(sp(6.))
+            .gap(gap::group())
             .children(detail::backdrop(&self.api, &self.movie, cx))
             .child(header)
             .children(inline_status(status, cx))

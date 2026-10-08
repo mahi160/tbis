@@ -9,7 +9,7 @@ use crate::components::tabs::scrolling_tabs;
 use crate::components::toggle_button::toggle_button;
 use crate::components::typography::{paragraph, title};
 use crate::config::HideSpoilers;
-use crate::design::{size, sp};
+use crate::design::{gap, size};
 use crate::detail::{self, Toggle, UserDataView};
 use crate::jellyfin::{Api, Item, UserData};
 use crate::nav::Nav;
@@ -182,14 +182,14 @@ impl SeriesView {
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let back = Box::new(cx.listener(|_, _, _, cx| cx.emit(Nav::Back)));
         let body = detail::header_body()
-            .gap(sp(2.))
+            .gap(gap::item())
             .child(title(self.series.name.clone()))
             .children(detail::meta_line(&self.series, self.seasons_label(), cx))
             .children(detail::genres_line(&self.series, cx))
             .children(self.series.overview.clone().map(|o| paragraph(o, 4)))
             .child(
                 h_flex()
-                    .gap(sp(2.))
+                    .gap(gap::item())
                     .children([Toggle::Played, Toggle::Favorite].map(|toggle| {
                         self.toggle_button(
                             &self.series,
@@ -292,12 +292,12 @@ impl Render for SeriesView {
         scroll_page("series-detail")
             .relative()
             .track_scroll(&self.scroll)
-            .gap(sp(6.))
+            .gap(gap::group())
             .children(detail::backdrop(&self.api, &self.series, cx))
             .child(self.render_header(cx))
             .children(detail::cast_row(&self.api, &self.series, cx))
             .children(seasons)
             .children(inline_status(status, cx))
-            .child(v_flex().gap(sp(1.)).children(episodes))
+            .child(v_flex().gap(gap::tight()).children(episodes))
     }
 }

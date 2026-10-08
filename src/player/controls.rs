@@ -22,7 +22,7 @@ use crate::components::video::{
     sprite_thumb, timeline, top_bar, video_meta, video_tag, video_title,
 };
 use crate::config::SeekSteps;
-use crate::design::{self, color, font, overlay, sp, text};
+use crate::design::{self, color, font, gap, overlay, text};
 use crate::jellyfin::SegmentKind;
 use crate::mpv::{Track, TrackKind};
 use crate::now_playing::{Info, NowPlaying, RemoteCommand};
@@ -780,7 +780,7 @@ impl Render for PlayerView {
             .child(
                 h_flex()
                     .flex_none()
-                    .gap(sp(3.))
+                    .gap(gap::item())
                     .children(
                         self.playback
                             .item
@@ -790,7 +790,7 @@ impl Render for PlayerView {
                     )
                     .child(
                         video_meta(clock(0.), mono.clone(), overlay::TEXT_MUTED)
-                            .text_size(text::sm()),
+                            .text_size(text::body()),
                     ),
             );
 
@@ -825,8 +825,8 @@ impl Render for PlayerView {
                 mono.clone(),
                 overlay::TEXT_FAINT,
             )
-            .ml(sp(2.5))
-            .text_size(text::xs())
+            .ml(gap::item())
+            .text_size(text::meta())
         });
         let is_episode = self
             .playback
@@ -834,8 +834,8 @@ impl Render for PlayerView {
             .as_ref()
             .is_some_and(|item| item.series_id.is_some());
         let controls = h_flex()
-            .mt(sp(3.))
-            .gap(sp(0.5))
+            .mt(gap::item())
+            .gap(gap::tight())
             .child(
                 icon_button(
                     "player-play",
@@ -916,7 +916,7 @@ impl Render for PlayerView {
             let back = button("error-back", "Go back")
                 .on_click(cx.listener(|this, _, window, cx| this.close(window, cx)))
                 .into_any_element();
-            overlay_banner(error_panel("Can't play this", error, [back], cx).p(sp(4.)))
+            overlay_banner(error_panel("Can't play this", error, [back], cx).p(gap::group()))
         });
 
         let pip_notice = self
@@ -945,12 +945,12 @@ impl Render for PlayerView {
             overlay_corner(
                 overlay_card(overlay::CARD)
                     .w(design::size::up_next_w())
-                    .gap(sp(3.))
+                    .gap(gap::item())
                     .child(strong(format!("Next: {}", next.episode_label())))
                     .child(caption(format!("Playing in {left}s"), cx))
                     .child(
                         h_flex()
-                            .gap(sp(2.))
+                            .gap(gap::item())
                             .child(
                                 primary_button("up-next-play", "Play now")
                                     .on_click(cx.listener(|this, _, window, cx| {

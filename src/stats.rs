@@ -13,7 +13,7 @@ use crate::components::chart::bar_chart;
 use crate::components::panel::stat_tile;
 use crate::components::status::{Status, inline_status};
 use crate::components::typography::{key_value, subheading};
-use crate::design::{size, sp};
+use crate::design::{gap, size};
 use crate::jellyfin::{Api, Item, Kind};
 
 const WEEKS: i64 = 12;
@@ -189,11 +189,11 @@ impl Render for StatsView {
         let tile = stat_tile;
         let heading = subheading;
         v_flex()
-            .gap(sp(5.))
+            .gap(gap::group())
             .child(
                 h_flex()
                     .flex_wrap()
-                    .gap(sp(3.))
+                    .gap(gap::item())
                     .child(tile("Last 7 days", hours_label(stats.last_7_days), cx))
                     .child(tile("Last 30 days", hours_label(stats.last_30_days), cx))
                     .child(tile("All time", hours_label(stats.all_time), cx))
@@ -202,7 +202,7 @@ impl Render for StatsView {
             )
             .child(
                 v_flex()
-                    .gap(sp(2.))
+                    .gap(gap::item())
                     .child(heading("Hours per week"))
                     .child(bar_chart(
                         "weekly-hours",
@@ -214,7 +214,7 @@ impl Render for StatsView {
             .when(!stats.top_series.is_empty(), |this| {
                 this.child(
                     v_flex()
-                        .gap(sp(2.))
+                        .gap(gap::item())
                         .child(heading("Most-watched Series"))
                         .children(stats.top_series.iter().map(|(name, count)| {
                             key_value(name.clone(), format!("{count} episodes"), cx)
