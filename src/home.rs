@@ -120,30 +120,6 @@ impl HomeView {
         Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Play(item.clone()))))
     }
 
-    /// Movie plays itself; Series plays its Next Up Episode, else opens its page.
-    fn poster_play_on_click(&self, item: &Item, cx: &mut Context<Self>) -> OnClick {
-        if item.kind != Kind::Series {
-            return Self::play_on_click(item, cx);
-        }
-        let (api, series) = (self.api.clone(), item.clone());
-        Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| {
-            let (api, series) = (api.clone(), series.clone());
-            cx.spawn(async move |this, cx| {
-                let next = api.next_up(&series.id).await;
-                this.update(cx, |_, cx| match next {
-                    Ok(Some(episode)) => cx.emit(Nav::Play(episode)),
-                    Ok(None) => cx.emit(Nav::Open(series)),
-                    Err(err) => {
-                        eprintln!("next up lookup failed: {err}");
-                        cx.emit(Nav::Open(series))
-                    }
-                })
-                .ok();
-            })
-            .detach();
-        }))
-    }
-
     fn open_on_click(item: &Item, cx: &mut Context<Self>) -> OnClick {
         let item = item.clone();
         Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Open(item.clone()))))
@@ -308,9 +284,9 @@ impl Render for HomeView {
             items
                 .iter()
                 .map(|item| {
-                    let on_play = self.poster_play_on_click(item, cx);
+                    let on_play = Self::play_on_click(item, cx);
                     let on_open = Self::open_on_click(item, cx);
-                    card::poster_card(&api, item, size::poster_w(), Some(on_play), on_open, cx)
+                    card::poster_card(&api, item, size::poster_w(), on_play, on_open, cx)
                 })
                 .collect()
         };

@@ -115,7 +115,11 @@ impl LibraryView {
         let open: OnClick = Box::new(
             cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Open(item_.clone()))),
         );
-        poster_card(&self.api, item, self.card_width, None, open, cx)
+        let item_ = item.clone();
+        let play: OnClick = Box::new(
+            cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Play(item_.clone()))),
+        );
+        poster_card(&self.api, item, self.card_width, play, open, cx)
     }
 
     fn render_sort_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {

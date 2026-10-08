@@ -193,11 +193,15 @@ impl SearchView {
             let on_click: OnClick = Box::new(
                 cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Open(item_.clone()))),
             );
+            let item_ = item.clone();
+            let on_play: OnClick = Box::new(
+                cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Play(item_.clone()))),
+            );
             cards.push(card::poster_card(
                 &self.api,
                 item,
                 size::poster_min_w(),
-                None,
+                on_play,
                 on_click,
                 cx,
             ));

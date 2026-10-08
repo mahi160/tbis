@@ -3,8 +3,10 @@
 
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::{Icon, IconName, Sizable as _};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use super::OnClick;
 use super::logo::logo_mark;
 use crate::design::overlay::black;
 use crate::design::{color, gap, icon, opacity, radius, shadow, sp};
@@ -26,8 +28,9 @@ pub fn art_tile(group: &'static str, width: Pixels, height: Pixels, cx: &App) ->
 }
 
 /// Centered play button that fades in over the art while `group` is hovered
-/// (Photon's play scrim).
-pub fn play_scrim(group: &'static str, cx: &App) -> AnyElement {
+/// (Photon's play scrim). With `on_play` the button itself is clickable and
+/// swallows the click so a parent's click (open) doesn't also fire.
+pub fn play_scrim(group: &'static str, on_play: Option<OnClick>, cx: &App) -> AnyElement {
     div()
         .absolute()
         .inset_0()
@@ -40,6 +43,7 @@ pub fn play_scrim(group: &'static str, cx: &App) -> AnyElement {
         .group_hover(group, |this| this.opacity(1.))
         .child(
             div()
+                .id(ElementId::Name(format!("{group}-play").into()))
                 .size(sp(11.))
                 .rounded(radius::base())
                 .flex()
@@ -47,6 +51,12 @@ pub fn play_scrim(group: &'static str, cx: &App) -> AnyElement {
                 .justify_center()
                 .bg(color::primary(cx))
                 .text_color(color::primary_foreground(cx))
+                .when_some(on_play, |this, on_play| {
+                    this.cursor_pointer().on_click(move |event, window, cx| {
+                        cx.stop_propagation();
+                        on_play(event, window, cx)
+                    })
+                })
                 .child(Icon::new(IconName::Play)),
         )
         .into_any_element()

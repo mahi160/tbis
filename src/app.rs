@@ -445,6 +445,25 @@ impl AppView {
                 // Episode detail shares the Movie page; Other would be a server data bug
                 Kind::Movie | Kind::Episode | Kind::Other => self.open_movie(item, window, cx),
             },
+            Nav::Play(item) if item.kind == Kind::Series => {
+                let Screen::Main(main) = &self.screen else {
+                    return;
+                };
+                let (api, series) = (main.api.clone(), item.clone());
+                cx.spawn_in(window, async move |this, cx| {
+                    let next = api.next_up(&series.id).await;
+                    this.update_in(cx, |this, window, cx| match next {
+                        Ok(Some(episode)) => this.open_player(&episode, window, cx),
+                        Ok(None) => this.open_series(&series, window, cx),
+                        Err(err) => {
+                            eprintln!("next up lookup failed: {err}");
+                            this.open_series(&series, window, cx)
+                        }
+                    })
+                    .ok();
+                })
+                .detach();
+            }
             Nav::Play(item) => self.open_player(item, window, cx),
             Nav::Back => {
                 let Screen::Main(main) = &mut self.screen else {

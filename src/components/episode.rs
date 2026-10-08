@@ -41,7 +41,7 @@ pub fn episode_row(
                 .flex_shrink_0()
                 .on_click(on_play)
                 .child(art::image(row.still, cx))
-                .child(art::play_scrim("episode-still", cx))
+                .child(art::play_scrim("episode-still", None, cx))
                 .when_some(row.progress, |this, percent| {
                     this.child(art::progress_bar(
                         ElementId::Name(format!("episode-progress-{}", row.id).into()),

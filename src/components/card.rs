@@ -9,21 +9,12 @@ use super::art::{art_tile, check_badge, image, play_scrim, progress_bar};
 use crate::design::{color, gap, text};
 use crate::jellyfin::{Api, Item, Kind};
 
-/// `poster_card` art; `on_play` wires the art's own
-/// click (and play scrim) when the poster itself should start playback.
-fn poster_art(
-    api: &Api,
-    item: &Item,
-    width: Pixels,
-    on_play: Option<OnClick>,
-    cx: &App,
-) -> AnyElement {
+/// `poster_card` art; only the hover play button (`on_play`) plays.
+fn poster_art(api: &Api, item: &Item, width: Pixels, on_play: OnClick, cx: &App) -> AnyElement {
     art_tile("poster-art", width, width * 1.5, cx)
         .id(ElementId::Name(format!("poster-art-{}", item.id).into()))
         .child(image(api.poster_url(item), cx))
-        .when_some(on_play, |this, on_play| {
-            this.on_click(on_play).child(play_scrim("poster-art", cx))
-        })
+        .child(play_scrim("poster-art", Some(on_play), cx))
         .when(item.user_data.played, |this| this.child(check_badge(cx)))
         .into_any_element()
 }
@@ -49,43 +40,32 @@ fn caption_stack(title: impl IntoElement, meta: impl IntoElement) -> Div {
 }
 
 /// 2:3 poster, title, year; check badge when played. Fixed height so grid rows stay uniform.
-/// With `on_play` the art plays and only the title opens (Home's Movies/Series rows);
-/// without it the whole card opens (`on_open`).
+/// The whole card opens (`on_open`); only the hover play button plays (`on_play`).
 pub fn poster_card(
     api: &Api,
     item: &Item,
     width: Pixels,
-    on_play: Option<OnClick>,
+    on_play: OnClick,
     on_open: OnClick,
     cx: &App,
 ) -> AnyElement {
     let primary = color::primary(cx);
     let name: SharedString = item.name.clone().into();
-    let (title_click, card_click) = match on_play {
-        Some(_) => (Some(on_open), None),
-        None => (None, Some(on_open)),
-    };
     let title = div()
         .id(ElementId::Name(format!("poster-title-{}", item.id).into()))
         .h(text::line(text::body()))
         .line_height(text::line(text::body()))
         .text_size(text::body())
         .truncate()
+        .group_hover("poster", |this| this.text_color(primary))
         .child(name);
-    let title = match title_click {
-        Some(on_open) => title
-            .hover(|this| this.text_color(primary))
-            .on_click(on_open),
-        None => title.group_hover("poster", |this| this.text_color(primary)),
-    };
     v_flex()
         .id(SharedString::from(item.id.clone()))
         .w(width)
         .gap(gap::item())
         .cursor_pointer()
-        .when_some(card_click, |this, on_open| {
-            this.group("poster").on_click(on_open)
-        })
+        .group("poster")
+        .on_click(on_open)
         .child(poster_art(api, item, width, on_play, cx))
         .child(caption_stack(title, poster_meta(item, cx)))
         .into_any_element()
@@ -124,7 +104,7 @@ pub fn wide_card(
                 .cursor_pointer()
                 .on_click(on_play)
                 .child(image(still, cx))
-                .child(play_scrim("wide-art", cx))
+                .child(play_scrim("wide-art", None, cx))
                 .when_some(
                     item.user_data.played_percentage.filter(|p| *p > 0.),
                     |this, p| {
