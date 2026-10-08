@@ -32,7 +32,8 @@ fn poster_art(
 /// Year row shared by `poster_card` and `poster_card_playable`.
 fn poster_meta(item: &Item, cx: &App) -> AnyElement {
     div()
-        .h(sp(4.))
+        .h(text::fit(4., text::xs(), 0.))
+        .line_height(text::fit(4., text::xs(), 0.))
         .text_size(text::xs())
         .text_color(color::muted_foreground(cx))
         .child(
@@ -41,6 +42,11 @@ fn poster_meta(item: &Item, cx: &App) -> AnyElement {
                 .unwrap_or_default(),
         )
         .into_any_element()
+}
+
+/// Title over its muted meta line, set tight (vega `gap-0.5`).
+fn caption_stack(title: impl IntoElement, meta: impl IntoElement) -> Div {
+    v_flex().gap(sp(0.5)).child(title).child(meta)
 }
 
 /// 2:3 poster, title, year; check badge when played. Fixed height so grid rows stay uniform.
@@ -61,15 +67,16 @@ pub fn poster_card(
         .cursor_pointer()
         .on_click(on_open)
         .child(poster_art(api, item, width, None, cx))
-        .child(
+        .child(caption_stack(
             div()
-                .h(sp(5.))
+                .h(text::fit(5., text::sm(), 0.))
+                .line_height(text::fit(5., text::sm(), 0.))
                 .text_size(text::sm())
                 .truncate()
                 .group_hover("card", |this| this.text_color(primary))
                 .child(name),
-        )
-        .child(poster_meta(item, cx))
+            poster_meta(item, cx),
+        ))
         .into_any_element()
 }
 
@@ -91,17 +98,18 @@ pub fn poster_card_playable(
         .gap(sp(2.))
         .cursor_pointer()
         .child(poster_art(api, item, width, Some(on_play), cx))
-        .child(
+        .child(caption_stack(
             div()
                 .id(ElementId::Name(format!("poster-title-{}", item.id).into()))
-                .h(sp(5.))
+                .h(text::fit(5., text::sm(), 0.))
+                .line_height(text::fit(5., text::sm(), 0.))
                 .text_size(text::sm())
                 .truncate()
                 .hover(|this| this.text_color(primary))
                 .on_click(on_open)
                 .child(name),
-        )
-        .child(poster_meta(item, cx))
+            poster_meta(item, cx),
+        ))
         .into_any_element()
 }
 
@@ -166,12 +174,13 @@ pub fn wide_card(
             v_flex()
                 .id(ElementId::Name(format!("wide-title-{}", item.id).into()))
                 .group("card-title")
-                .gap(sp(2.))
+                .gap(sp(0.5))
                 .cursor_pointer()
                 .on_click(on_open)
                 .child(
                     div()
                         .text_size(text::sm())
+                        .line_height(text::line(text::sm()))
                         .truncate()
                         .group_hover("card-title", |this| this.text_color(primary))
                         .child(title),
@@ -179,6 +188,7 @@ pub fn wide_card(
                 .child(
                     div()
                         .text_size(text::xs())
+                        .line_height(text::line(text::xs()))
                         .text_color(muted_fg)
                         .truncate()
                         .child(subtitle),

@@ -169,7 +169,7 @@ impl SeriesView {
         cx: &mut Context<Self>,
     ) -> Button {
         let id = item.id.clone();
-        toggle_button(element_id, toggle, &item.user_data).on_click(cx.listener(
+        toggle_button(element_id, toggle, &item.user_data, cx).on_click(cx.listener(
             move |this, _, _, cx| {
                 // gpui-kit Button doesn't stop the click; Episode row would play
                 cx.stop_propagation();

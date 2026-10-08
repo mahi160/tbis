@@ -6,13 +6,13 @@ use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::{Icon, IconName, v_flex};
 use gpui_kit::*;
 
-use crate::design::{icon, input_bg, radius, shadow, sp, text, tokens};
+use crate::design::{color, icon, input_bg, radius, shadow, sp, text, tokens};
 
 /// Input `height` spacing units tall.
 fn input(state: &Entity<InputState>, height: f32, cx: &App) -> Input {
     let recipe = tokens().input;
     // Input::h is its own multi-line height; Styled::h sets the box
-    Styled::h(Input::new(state), sp(height))
+    Styled::h(Input::new(state), text::fit(height, text::sm(), recipe.py))
         .px(sp(recipe.px))
         .py(sp(recipe.py))
         .rounded(radius::md())
@@ -45,6 +45,9 @@ pub fn text_field(
 pub fn search_input(state: &Entity<InputState>, cx: &App) -> Div {
     div().w(sp(50.)).child(
         input(state, tokens().input.height_sm, cx)
+            // outer 3px ring clips at window edge; field only opens while searching, so ring-tinted border marks focus
+            .focus_bordered(false)
+            .border_color(color::ring(cx))
             .cleanable(true)
             .prefix(Icon::new(IconName::Search).size(icon::default())),
     )

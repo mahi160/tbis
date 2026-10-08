@@ -13,11 +13,12 @@ use crate::config::Config;
 use crate::design::{self, Design};
 
 /// Theme names as in the JSON's `"name"`, also the Settings labels. First is the default.
-pub const NAMES: [&str; 4] = [
+pub const NAMES: [&str; 5] = [
     "Raptor Night",
     "Bronto Morning",
     "Stego Dusk",
     "Angry T-Rex",
+    "Weird Test",
 ];
 
 /// Earlier names still found in saved configs.
@@ -85,6 +86,10 @@ pub fn apply(name: &str, cx: &mut App) {
     kit.font_size = Some(design.text.base);
     kit.radius = Some(design::radius::md().as_f32().round() as usize);
     kit.radius_lg = Some(design::radius::lg().as_f32().round() as usize);
+    // vega dark thumb is light; kit's default (background) vanishes on dark tracks
+    if kit.mode.is_dark() && kit.colors.switch_thumb.is_none() {
+        kit.colors.switch_thumb = kit.colors.foreground.clone();
+    }
     let mode = config.mode;
     // stores config as the mode's theme; change() then applies it and syncs the Base layer
     Theme::global_mut(cx).apply_config(&config);

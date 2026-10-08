@@ -278,7 +278,9 @@ theme_colors!(
     popover,
     primary,
     primary_foreground,
+    accent_foreground,
     border,
+    ring,
     danger,
     warning,
 );
@@ -312,6 +314,17 @@ pub mod text {
     }
 
     steps!(xs, sm, base, lg, xl, x2l, x3l);
+
+    /// One line's height at `size` (Tailwind's `text-xs` leading, 16/12).
+    pub fn line(size: Pixels) -> Pixels {
+        size * (4. / 3.)
+    }
+
+    /// Control height: `units` of spacing, but never shorter than one line at `size`
+    /// plus `pad_y` units above and below, so big type in tight spacing isn't clipped.
+    pub fn fit(units: f32, size: Pixels, pad_y: f32) -> Pixels {
+        super::sp(units).max(line(size) + super::sp(pad_y) * 2.)
+    }
 }
 
 /// Icon sizes, from the theme's `icon` recipe.
@@ -385,11 +398,22 @@ pub mod size {
         header_poster_sm_h = 45.,
         header_still_w = 80.,
         header_still_h = 45.,
+        chart_h = 45.,
+    );
+
+    // text containers: scale with type, like Tailwind's rem-based max-w-*; same units
+    // as sp at the default 16px base
+    macro_rules! type_units {
+        ($($name:ident = $n:expr),* $(,)?) => {
+            $(pub fn $name() -> Pixels { px($n * tokens().text.base / 4.) })*
+        };
+    }
+
+    type_units!(
         form_w = 90.,
         list_max_w = 120.,
         prose_max_w = 140.,
         dialog_w = 112., // vega max-w-md
-        chart_h = 45.,
         up_next_w = 80.,
     );
     /// Scrub-preview width in px; the Player scales sprite tiles to it.
@@ -404,7 +428,12 @@ pub mod window {
 
     pub const DEFAULT: Size<Pixels> = size(px(1200.), px(800.));
     pub const MIN: Size<Pixels> = size(px(800.), px(560.));
-    pub const TRAFFIC_LIGHTS: Point<Pixels> = point(px(13.), px(13.));
+    /// macOS unified-toolbar height (Finder/Safari): roomy, not themed.
+    pub const TITLE_BAR_H: Pixels = px(52.);
+    /// Traffic lights (14px tall) centered in the bar, same inset from top and left.
+    pub const TRAFFIC_LIGHTS: Point<Pixels> = point(px(19.), px(19.));
+    /// Extra lead before the brand: lights sit 6px right of where TitleBar's padding expects.
+    pub const BRAND_LEAD: Pixels = px(12.);
 }
 
 /// Opacity levels.

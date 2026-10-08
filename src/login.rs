@@ -7,7 +7,7 @@ use gpui_kit::*;
 
 use crate::components::button::{VegaSize as _, outline_button, primary_button};
 use crate::components::input::text_field;
-use crate::components::layout::centered;
+use crate::components::layout::centered_scroll;
 use crate::components::logo::brand_hero;
 use crate::components::panel::panel;
 use crate::components::typography::{caption, display, error_text};
@@ -240,7 +240,8 @@ impl Render for LoginView {
         let busy = self.busy;
         let field = |label, input, cx: &App| text_field(label, input, busy, cx);
 
-        centered(
+        centered_scroll(
+            "login",
             v_flex()
                 .w(size::form_w())
                 .gap(sp(6.))

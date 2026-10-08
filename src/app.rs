@@ -637,7 +637,7 @@ impl AppView {
         let search = if main.search_open || main.searching(cx) {
             search_input(&main.search_input, cx).into_any_element()
         } else {
-            icon_button("search", IconName::Search)
+            icon_button("search", IconName::Search, cx)
                 .icon_sm()
                 .tooltip_with_action("Search", &FocusSearch, None)
                 .on_click(

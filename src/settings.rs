@@ -527,12 +527,12 @@ impl Render for SettingsView {
             .size_full()
             .child(page_header(
                 Some(
-                    icon_button("settings-back", IconName::ArrowLeft)
+                    icon_button("settings-back", IconName::ArrowLeft, cx)
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(Nav::Back))),
                 ),
                 "Settings",
             ))
-            .child(grow().child(settings("settings").pages([
+            .child(grow().child(settings("settings", cx).pages([
                 self.playback_page(),
                 self.appearance_page(),
                 self.stats_page(),

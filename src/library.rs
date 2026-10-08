@@ -127,7 +127,7 @@ impl LibraryView {
         let this = cx.entity().downgrade();
         let current = self.sort;
         choice_menu(
-            menu_button("library-sort").label(format!("Sort: {}", current.label())),
+            menu_button("library-sort", cx).label(format!("Sort: {}", current.label())),
             Sort::ALL
                 .iter()
                 .map(|sort| (sort.label().into(), *sort == current))

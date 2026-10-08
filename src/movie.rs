@@ -131,6 +131,7 @@ impl Render for MovieView {
                             ("movie-toggle", toggle as usize),
                             toggle,
                             &self.movie.user_data,
+                            cx,
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let api = this.api.clone();

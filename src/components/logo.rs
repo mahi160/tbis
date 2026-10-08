@@ -21,7 +21,8 @@ pub fn logo_mark(height: Pixels) -> Svg {
 pub fn brand(cx: &App) -> Div {
     h_flex()
         .gap(sp(1.5))
-        .child(logo_mark(sp(4.)).text_color(color::primary(cx)))
+        // mark tracks wordmark size, not spacing
+        .child(logo_mark(text::base()).text_color(color::primary(cx)))
         .child(
             div()
                 .text_size(text::base())

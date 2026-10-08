@@ -1,9 +1,9 @@
 use gpui_kit::component::button::Button;
-use gpui_kit::component::{Disableable as _, IconName, h_flex, v_flex};
+use gpui_kit::component::{IconName, h_flex, v_flex};
 use gpui_kit::*;
 use std::time::{Duration, Instant};
 
-use crate::components::button::{VegaSize as _, icon_button};
+use crate::components::button::{GhostState as _, VegaSize as _, icon_button};
 use crate::components::layout::{header_row, rows_page, scroll_row};
 use crate::components::status::{Status, error_banner, full_status};
 use crate::components::{OnClick, card, typography};
@@ -201,9 +201,9 @@ impl HomeView {
         gutter: Pixels,
         cx: &mut Context<Self>,
     ) -> Button {
-        icon_button(ElementId::Name(id.into()), icon)
+        icon_button(ElementId::Name(id.into()), icon, cx)
             .icon_xs()
-            .disabled(disabled)
+            .ghost_disabled(disabled, cx)
             .on_click(cx.listener(move |this, _, window, _| this.page(row, next, gutter, window)))
     }
 

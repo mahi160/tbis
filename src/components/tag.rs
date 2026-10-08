@@ -10,7 +10,10 @@ use crate::design::{color, icon, radius, sp, text, tokens};
 
 pub fn pill(label: impl Into<SharedString>, cx: &App) -> Tag {
     let recipe = tokens().badge;
-    Styled::h(Tag::secondary().outline().rounded(radius::full()), sp(recipe.height))
+    Styled::h(
+        Tag::secondary().outline().rounded(radius::full()),
+        text::fit(recipe.height, text::xs(), recipe.py),
+    )
         .px(sp(recipe.px))
         .py(sp(recipe.py))
         .text_size(text::xs())

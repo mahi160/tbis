@@ -866,11 +866,13 @@ impl Api {
         tile: i32,
     ) -> String {
         format!(
-            "{}/Videos/{}/Trickplay/{}/{tile}.jpg?mediaSourceId={}",
+            // img() can't send headers; trickplay (unlike Images) requires auth
+            "{}/Videos/{}/Trickplay/{}/{tile}.jpg?mediaSourceId={}&api_key={}",
             self.session.server,
             item.id,
             info.width,
-            item.media_source_id()
+            item.media_source_id(),
+            self.session.token
         )
     }
 

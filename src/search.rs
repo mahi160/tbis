@@ -156,7 +156,7 @@ impl SearchView {
     }
 
     fn recent_section(&self, cx: &mut Context<Self>) -> AnyElement {
-        let clear = ghost_button("clear-recent", "Clear").xs()
+        let clear = ghost_button("clear-recent", "Clear", cx).xs()
             .on_click(cx.listener(|this, _, _, cx| {
                 this.recent.clear();
                 cx.emit(SearchEvent::RecentChanged(Vec::new()));

@@ -16,6 +16,9 @@ fn key_cap(key: Kbd, cx: &App) -> Kbd {
     let recipe = crate::design::tokens().kbd;
     Styled::h(key, sp(recipe.size))
         .min_w(sp(recipe.size))
+        .flex()
+        .items_center()
+        .justify_center()
         .px(sp(recipe.px))
         .rounded(radius::sm())
         .bg(color::muted(cx))

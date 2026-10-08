@@ -19,7 +19,8 @@ pub fn avatar(url: Option<String>, name: impl Into<SharedString>, size: Pixels, 
         .to_uppercase()
         .into();
     let (muted, muted_fg) = (color::muted(cx), color::muted_foreground(cx));
-    let font = if size >= sp(8.) { text::sm() } else { text::xs() };
+    // cap: big type scale must not overflow small avatar
+    let font = if size >= sp(8.) { text::sm() } else { text::xs() }.min(size * 0.45);
     let fallback = move || {
         div()
             .size(size)

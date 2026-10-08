@@ -958,7 +958,7 @@ impl Render for PlayerView {
                                     })),
                             )
                             .child(
-                                ghost_button("up-next-cancel", "Cancel")
+                                ghost_button("up-next-cancel", "Cancel", cx)
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.playback.next_cancelled = true;
                                         this.refocus(window, cx);

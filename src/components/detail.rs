@@ -22,7 +22,7 @@ pub fn detail_header(
     h_flex()
         .gap(sp(5.))
         .items_start()
-        .child(icon_button("detail-back", IconName::ArrowLeft).on_click(back))
+        .child(icon_button("detail-back", IconName::ArrowLeft, cx).on_click(back))
         .child(art::thumb(url, width, height, cx))
         .child(body)
 }

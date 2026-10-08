@@ -285,6 +285,66 @@
         "base.cyan": "#5ee0d6",
         "base.cyan.light": "#8aeae2"
       }
+    },
+    {
+      "name": "Weird Test",
+      "mode": "light",
+      "font.family": "Courier New",
+      "mono_font.family": "Courier New",
+      "design": {
+        "spacing": 5,
+        "page": 6,
+        "text": { "xs": 13, "sm": 15, "base": 18, "lg": 21, "xl": 24, "2xl": 30, "3xl": 38 },
+        "radius": 22,
+        "shadow_opacity": 0.45,
+        "button": {
+          "xs": [6, 3], "sm": [8, 4], "default": [10, 5], "lg": [12, 6],
+          "icon_xs": 6, "icon_sm": 8, "icon": 10, "text": "md"
+        },
+        "input": { "height": 11, "height_sm": 8, "px": 4, "py": 2, "label_gap": 1 },
+        "card": { "spacing": 8, "spacing_sm": 5 },
+        "badge": { "height": 6, "px": 3, "py": 1 },
+        "item": { "sm": [5, 5, 4], "xs": [3, 4, 3] },
+        "avatar": { "default": 8, "lg": 14 },
+        "kbd": { "size": 6, "px": 2 },
+        "icon": { "sm": 4, "default": 5 },
+        "progress_height": 3,
+        "tabs": "sm",
+        "settings": "lg"
+      },
+      "colors": {
+        "background": "#fff1f8",
+        "foreground": "#2b0a3d",
+        "border": "#ff9ccf",
+        "input.border": "#9b5de5",
+        "ring": "#00bbf9",
+        "caret": "#00bbf9",
+        "window.border": "#ff9ccf",
+        "muted.background": "#d9fff1",
+        "muted.foreground": "#5a3d6e",
+        "primary.background": "#00f5d4",
+        "primary.foreground": "#2b0a3d",
+        "secondary.background": "#fee440",
+        "secondary.foreground": "#2b0a3d",
+        "accent.background": "#fee440",
+        "accent.foreground": "#2b0a3d",
+        "success.background": "#06d6a0",
+        "info.background": "#00bbf9",
+        "warning.background": "#ff8800",
+        "danger.background": "#f15bb5",
+        "popover.background": "#e6ddff",
+        "popover.foreground": "#2b0a3d",
+        "overlay": "#2b0a3d80",
+        "selection.background": "#00f5d466",
+        "title_bar.background": "#ffd6ec",
+        "title_bar.border": "#ff9ccf",
+        "link": "#9b5de5",
+        "chart.1": "#9b5de5",
+        "chart.2": "#9b5de5",
+        "chart.3": "#9b5de5",
+        "chart.4": "#9b5de5",
+        "chart.5": "#9b5de5"
+      }
     }
   ]
 }

@@ -5,18 +5,22 @@ use gpui_kit::component::{TitleBar, h_flex};
 use gpui_kit::*;
 
 use super::logo::brand;
-use crate::design::{color, size, sp};
+use crate::design::{color, size, sp, tokens, window};
 
 pub fn app_title_bar(
     center: impl IntoElement,
     trailing: impl IntoIterator<Item = AnyElement>,
     cx: &App,
 ) -> TitleBar {
+    // trailing inset = avatar's vertical inset, so its circle sits concentric with window corner
+    let inset = ((window::TITLE_BAR_H - sp(tokens().avatar.default)) / 2.).max(sp(2.));
     TitleBar::new()
-        .h(sp(10.))
+        // grows with tall content (big type scales)
+        .h_auto()
+        .min_h(window::TITLE_BAR_H)
         .border_b_0()
         .bg(color::background(cx))
-        .child(brand(cx))
+        .child(brand(cx).pl(window::BRAND_LEAD))
         // spans whole window width so center sits at true center; offset cancels TitleBar left padding
         .child(
             div()
@@ -30,5 +34,5 @@ pub fn app_title_bar(
                 .justify_center()
                 .child(center),
         )
-        .child(h_flex().pr(sp(2.)).gap(sp(1.)).children(trailing))
+        .child(h_flex().pr(inset).gap(sp(1.)).children(trailing))
 }

@@ -53,6 +53,16 @@ pub fn centered(child: impl IntoElement) -> Div {
         .child(child)
 }
 
+/// `centered`, but scrolls when `child` is taller than the window, e.g. a sign-in form
+/// under a large-spacing theme.
+pub fn centered_scroll(id: impl Into<ElementId>, child: impl IntoElement) -> Stateful<Div> {
+    div()
+        .id(id)
+        .size_full()
+        .overflow_y_scroll()
+        .child(centered(child).h_auto().min_h_full().py(sp(6.)))
+}
+
 /// Title on the left, `trailing` on the right.
 pub fn header_row(heading: impl IntoElement, trailing: impl IntoElement) -> Div {
     h_flex().justify_between().child(heading).child(trailing)
@@ -62,7 +72,8 @@ pub fn header_row(heading: impl IntoElement, trailing: impl IntoElement) -> Div 
 pub fn counted_title(label: impl Into<SharedString>, count: Option<usize>, cx: &App) -> Div {
     h_flex()
         .gap(sp(2.))
-        .items_baseline()
+        // gpui text reports no baseline; centering is the honest alignment
+        .items_center()
         .child(title(label.into()))
         .children(count.map(|n| {
             div()
