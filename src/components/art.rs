@@ -8,7 +8,7 @@ use gpui_kit::*;
 
 use super::OnClick;
 use super::logo::logo_mark;
-use crate::design::overlay::black;
+use crate::design::overlay::{self, black};
 use crate::design::{color, gap, icon, opacity, radius, shadow, sp};
 
 /// Poster/thumbnail base: relative, rounded, clipped, lifts while `group` is hovered.
@@ -62,8 +62,8 @@ pub fn play_scrim(group: &'static str, on_play: Option<OnClick>, cx: &App) -> An
         .into_any_element()
 }
 
-/// Round check in the top-right corner of a relative image box.
-pub fn check_badge(cx: &App) -> Div {
+/// Dark tinted check in the top-right corner of a relative image box.
+pub fn check_badge() -> Div {
     div()
         .absolute()
         .top(gap::item())
@@ -73,8 +73,8 @@ pub fn check_badge(cx: &App) -> Div {
         .flex()
         .items_center()
         .justify_center()
-        .bg(color::primary(cx))
-        .text_color(color::primary_foreground(cx))
+        .bg(black(0.6))
+        .text_color(overlay::WHITE)
         .child(Icon::new(IconName::Check).size(icon::sm()))
 }
 

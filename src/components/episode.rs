@@ -49,7 +49,7 @@ pub fn episode_row(
                         cx,
                     ))
                 })
-                .when(row.played, |this| this.child(art::check_badge(cx))),
+                .when(row.played, |this| this.child(art::check_badge())),
         )
         .child(
             v_flex()

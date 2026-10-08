@@ -15,7 +15,7 @@ fn poster_art(api: &Api, item: &Item, width: Pixels, on_play: OnClick, cx: &App)
         .id(ElementId::Name(format!("poster-art-{}", item.id).into()))
         .child(image(api.poster_url(item), cx))
         .child(play_scrim("poster-art", Some(on_play), cx))
-        .when(item.user_data.played, |this| this.child(check_badge(cx)))
+        .when(item.user_data.played, |this| this.child(check_badge()))
         .into_any_element()
 }
 

@@ -223,8 +223,8 @@ mod tests {
         (x.max(y) + 0.05) / (x.min(y) + 0.05)
     }
 
-    /// Body text AAA (7), meta and label text AA (4.5), primary and focus as UI
-    /// components (3, WCAG 1.4.11), and fill/border steps that stay visible.
+    /// Body text AAA (7), meta and label text AA (4.5), primary as hover-title text (4.5), focus as UI
+    /// component (3, WCAG 1.4.11), and fill/border steps that stay visible.
     #[test]
     fn themes_meet_contrast_minimums() {
         const PAIRS: [(&str, &str, f64); 14] = [
@@ -234,7 +234,7 @@ mod tests {
             ("muted.foreground", "muted.background", 4.5),
             ("primary.foreground", "primary.background", 4.5),
             ("danger.foreground", "danger.background", 4.5),
-            ("primary.background", "background", 3.),
+            ("primary.background", "background", 4.5),
             ("focus", "background", 3.),
             ("danger.background", "background", 3.),
             ("surface.background", "background", 1.08),
