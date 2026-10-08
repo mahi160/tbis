@@ -7,7 +7,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::design::overlay::{self, black, white};
-use crate::design::{color, gap, radius, shadow, size, sp, text};
+use crate::design::{gap, radius, shadow, size, sp, text};
 
 /// Top chrome: fades from black down to clear.
 pub fn top_bar() -> Div {
@@ -116,6 +116,7 @@ pub fn overlay_card(fill: Hsla) -> Div {
     v_flex()
         .p(gap::group())
         .rounded(radius::base())
+        .text_color(overlay::WHITE)
         .bg(fill)
         .border_1()
         .border_color(white(0.08))
@@ -126,7 +127,7 @@ pub type InfoGroup = (&'static str, Vec<(&'static str, String)>);
 
 /// "Playback info" card: titled groups of label/value rows.
 /// `close` sits beside the heading; the panel stays up until closed, not with the controls.
-pub fn info_panel(groups: &[InfoGroup], close: impl IntoElement, cx: &App) -> Div {
+pub fn info_panel(groups: &[InfoGroup], close: impl IntoElement) -> Div {
     overlay_card(black(0.72))
         .absolute()
         // fixed: clears the top bar
@@ -141,7 +142,7 @@ pub fn info_panel(groups: &[InfoGroup], close: impl IntoElement, cx: &App) -> Di
                 .child(
                     div()
                         .text_size(text::body())
-                        .font_weight(FontWeight::BOLD)
+                        .font_weight(FontWeight::SEMIBOLD)
                         .child("Playback info"),
                 )
                 .child(close),
@@ -155,7 +156,7 @@ pub fn info_panel(groups: &[InfoGroup], close: impl IntoElement, cx: &App) -> Di
                         .border_b_1()
                         .border_color(white(0.1))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(color::primary(cx))
+                        .text_color(overlay::WHITE)
                         .child(*heading),
                 )
                 .children(rows.iter().map(|(label, value)| {

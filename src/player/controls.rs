@@ -8,7 +8,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::components::button::{VegaSize as _, button, ghost_button, primary_button, round_icon};
-use crate::components::status::error_panel;
+use crate::components::status::{Tone, error_panel};
 use crate::components::typography::{caption, strong};
 use crate::components::video::{info_panel, overlay_banner, overlay_card, overlay_corner};
 use crate::config::SeekSteps;
@@ -625,7 +625,9 @@ impl Render for PlayerView {
             let back = button("error-back", "Go back")
                 .on_click(cx.listener(|this, _, window, cx| this.close(window, cx)))
                 .into_any_element();
-            overlay_banner(error_panel("Can't play this", error, [back], cx).p(gap::group()))
+            overlay_banner(
+                error_panel("Can't play this", error, [back], Tone::Video, cx).p(gap::group()),
+            )
         });
 
         let pip_notice = self
@@ -655,7 +657,7 @@ impl Render for PlayerView {
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.toggle_playback_info(&TogglePlaybackInfo, window, cx)
                 }));
-            info_panel(groups, close, cx)
+            info_panel(groups, close)
         });
         let up_next = self.up_next().map(|next| {
             let left = (self.playback.duration - self.playback.time).max(0.).ceil() as u64;
@@ -664,7 +666,9 @@ impl Render for PlayerView {
                     .w(design::size::up_next_w())
                     .gap(gap::item())
                     .child(strong(format!("Next: {}", next.episode_label())))
-                    .child(caption(format!("Playing in {left}s"), cx))
+                    .child(
+                        caption(format!("Playing in {left}s"), cx).text_color(overlay::TEXT_MUTED),
+                    )
                     .child(
                         h_flex()
                             .gap(gap::item())
@@ -673,12 +677,14 @@ impl Render for PlayerView {
                                     this.play_next_now(&PlayNext, window, cx)
                                 }),
                             ))
-                            .child(ghost_button("up-next-cancel", "Cancel", cx).on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.playback.next_cancelled = true;
-                                    this.refocus(window, cx);
-                                }),
-                            )),
+                            .child(
+                                ghost_button("up-next-cancel", "Cancel", cx)
+                                    .text_color(overlay::WHITE)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.playback.next_cancelled = true;
+                                        this.refocus(window, cx);
+                                    })),
+                            ),
                     ),
             )
         });

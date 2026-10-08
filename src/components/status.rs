@@ -11,7 +11,7 @@ use gpui_kit::*;
 use super::OnClick;
 use super::button::button;
 use super::logo::logo_mark;
-use crate::design::{color, gap, opacity, page, radius, size, sp, text};
+use crate::design::{color, gap, opacity, overlay, page, radius, size, sp, text};
 
 const SKELETON_COUNT: usize = 12;
 
@@ -57,25 +57,40 @@ fn empty() -> Empty {
         .border_0()
 }
 
-/// Vega `empty-description`: relaxed, muted.
-fn description(message: SharedString, cx: &App) -> EmptyDescription {
+/// Vega `empty-description`: relaxed, in `fill`.
+fn description(message: SharedString, fill: Hsla) -> EmptyDescription {
     EmptyDescription::new()
         .text_size(text::body())
         .line_height(relative(1.625))
-        .text_color(color::muted_foreground(cx))
+        .text_color(fill)
         .child(message)
+}
+
+/// Where an `error_panel` sits, so its text stays readable on that background.
+#[derive(Clone, Copy)]
+pub enum Tone {
+    /// On the app background: theme colors.
+    Theme,
+    /// Over video: fixed overlay tints.
+    Video,
 }
 
 /// Centered error block: alert icon in a muted tile, medium-weight `title`, muted
 /// `detail`, then `actions`.
-/// Shared by list screens (`full_status`) and the Player's error overlay.
+/// Shared by list screens (`full_status`, `Tone::Theme`) and the Player's error overlay
+/// (`Tone::Video`).
 pub fn error_panel(
     title: impl Into<SharedString>,
     detail: SharedString,
     actions: impl IntoIterator<Item = AnyElement>,
+    tone: Tone,
     cx: &App,
 ) -> Empty {
-    empty()
+    let (empty, detail_fill) = match tone {
+        Tone::Theme => (empty(), color::muted_foreground(cx)),
+        Tone::Video => (empty().text_color(overlay::WHITE), overlay::TEXT_MUTED),
+    };
+    empty
         .header(
             EmptyHeader::new()
                 .gap(gap::item())
@@ -96,7 +111,7 @@ pub fn error_panel(
                         .font_weight(FontWeight::MEDIUM)
                         .child(title.into()),
                 )
-                .description(description(detail, cx)),
+                .description(description(detail, detail_fill)),
         )
         .content(EmptyContent::new().child(h_flex().gap(gap::item()).children(actions)))
 }
@@ -113,7 +128,7 @@ pub fn empty_panel(message: SharedString, cx: &App) -> Empty {
                         .opacity(opacity::HALF),
                 ),
             )
-            .description(description(message, cx)),
+            .description(description(message, color::muted_foreground(cx))),
     )
 }
 
@@ -153,6 +168,7 @@ pub fn full_status(status: Status, retry: OnClick, loading: bool, cx: &App) -> A
                 .loading(loading)
                 .on_click(retry)
                 .into_any_element()],
+            Tone::Theme,
             cx,
         )
         .into_any_element(),
