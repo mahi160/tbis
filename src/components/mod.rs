@@ -2,16 +2,15 @@
 //! the app's defaults, or fills a gap gpui-kit doesn't cover (poster art, backdrops).
 //! Pages compose these; they don't hand-build UI inline.
 
-pub mod ambient;
 pub mod art;
 pub mod avatar;
+pub mod backdrop;
 pub mod button;
 pub mod card;
 pub mod chart;
 pub mod detail;
 pub mod dialog;
 pub mod episode;
-pub mod frost;
 pub mod input;
 pub mod layout;
 pub mod list;

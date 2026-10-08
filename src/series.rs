@@ -2,12 +2,12 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::{IconName, h_flex, v_flex};
 use gpui_kit::*;
 
+use crate::components::backdrop::backdrop;
 use crate::components::button::primary_button;
 use crate::components::detail::{
     cast_row, detail_header, genres_line, header_body, media_tags, meta_line,
 };
 use crate::components::episode::{EpisodeRow, episode_row};
-use crate::components::frost::{frost_backdrop, frost_card};
 use crate::components::layout::scroll_page;
 use crate::components::status::{Status, episode_skeletons, inline_status};
 use crate::components::tabs::scrolling_tabs;
@@ -340,34 +340,22 @@ impl Render for SeriesView {
             episodes.push(self.render_episode(episode, cx));
         }
 
-        div()
+        scroll_page("series-detail")
             .relative()
-            .size_full()
-            .child(frost_backdrop(
-                self.api.frost_url(&self.series),
-                self.api.backdrop_url(&self.series),
-                cx,
-            ))
-            .child(
-                scroll_page("series-detail")
-                    .track_scroll(&self.scroll)
-                    .gap(gap::group())
-                    .child(frost_card(cx).child(self.render_header(cx)))
-                    .child(
-                        frost_card(cx)
-                            .children(seasons)
-                            .children(match status {
-                                Some(Status::Loading) => {
-                                    Some(episode_skeletons().into_any_element())
-                                }
-                                status => inline_status(status, cx),
-                            })
-                            .child(v_flex().gap(gap::tight()).children(episodes)),
-                    )
-                    .children(
-                        cast_row(&self.api, &self.series, cx)
-                            .map(|cast| frost_card(cx).child(cast)),
-                    ),
+            .track_scroll(&self.scroll)
+            .gap(gap::group())
+            .children(
+                self.api
+                    .backdrop_url(&self.series)
+                    .map(|url| backdrop(url, cx)),
             )
+            .child(self.render_header(cx))
+            .children(seasons)
+            .children(match status {
+                Some(Status::Loading) => Some(episode_skeletons().into_any_element()),
+                status => inline_status(status, cx),
+            })
+            .child(v_flex().gap(gap::tight()).children(episodes))
+            .children(cast_row(&self.api, &self.series, cx))
     }
 }

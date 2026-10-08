@@ -3,10 +3,8 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{IconName, Root, TitleBar, WindowExt as _};
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::components::ambient;
 use crate::components::button::{avatar_button, surface_icon_button};
 use crate::components::dialog::vega_dialog;
 use crate::components::input::search_input;
@@ -62,7 +60,7 @@ struct Main {
     /// (e.g. Episode back to its Series).
     details: Vec<Detail>,
     player: Option<(Entity<PlayerView>, Subscription)>,
-    _subscriptions: [Subscription; 9],
+    _subscriptions: [Subscription; 8],
     /// Waits for `Api`'s 401 signal; dropped with Main so a stale one can't fire later.
     _expired: Task<()>,
 }
@@ -106,16 +104,6 @@ impl Main {
         !self.search_input.read(cx).value().trim().is_empty()
     }
 
-    /// Home opens with its first item's backdrop; a no-op elsewhere or once one shows.
-    fn seed_ambient(&self, cx: &mut App) {
-        if self.tab == Tab::Home
-            && self.details.is_empty()
-            && let Some(url) = self.home.read(cx).first_frost_url()
-        {
-            ambient::seed(url, cx);
-        }
-    }
-
     /// Reloads whatever is on screen so played state and progress are fresh.
     fn refresh_visible(&self, cx: &mut App) {
         if let Some(detail) = self.details.last() {
@@ -155,7 +143,6 @@ impl AppView {
         let config = config::load();
         cx.set_global(config.seek);
         cx.set_global(config.hide_spoilers);
-        ambient::init(cx);
         let screen = match config.session.clone() {
             Some(session) => Self::main_screen(session, &config, window, cx),
             None => Self::login_screen(&config, window, cx),
@@ -349,12 +336,6 @@ impl AppView {
                 .clean_on_escape()
         });
         let _subscriptions = [
-            // Home's first load, or a reload after an empty one, seeds its backdrop
-            cx.observe(&home, |this, _, cx| {
-                if let Screen::Main(main) = &this.screen {
-                    main.seed_ambient(cx);
-                }
-            }),
             cx.subscribe(&movies, |this, _, SortChanged(sort), _| {
                 this.config.movies_sort = *sort;
                 save_config(&this.config, "sort");
@@ -449,8 +430,6 @@ impl AppView {
         main.tab = TABS[index].0;
         main.details.clear();
         Self::clear_search(main, window, cx);
-        ambient::clear(cx);
-        main.seed_ambient(cx);
         main.refresh_visible(cx);
         cx.notify();
     }
@@ -800,15 +779,15 @@ impl Render for AppView {
                 .into_any_element();
         }
 
-        let search_shown = matches!(&self.screen, Screen::Main(main)
-            if main.searching(cx) || (main.search_open && main.search.read(cx).has_recent()));
-        // Home, Library and Search show the ambient backdrop; detail pages and Login don't
-        let browsing = search_shown
-            || matches!(&self.screen, Screen::Main(Main { details, .. }) if details.is_empty());
         let content = match &self.screen {
             Screen::Login { view, .. } => view.clone().into_any_element(),
             // focused and empty: the search view shows recent searches
-            Screen::Main(main) if search_shown => main.search.clone().into_any_element(),
+            Screen::Main(main)
+                if main.searching(cx)
+                    || (main.search_open && main.search.read(cx).has_recent()) =>
+            {
+                main.search.clone().into_any_element()
+            }
             Screen::Main(Main { details, .. }) if !details.is_empty() => {
                 details[details.len() - 1].view.clone().into_any_element()
             }
@@ -843,14 +822,7 @@ impl Render for AppView {
             )
             .on_action(|_: &ShowShortcuts, window, cx| shortcuts::open(window, cx))
             .child(self.render_title_bar(cx))
-            .child(
-                grow()
-                    .relative()
-                    .when(browsing, |this| {
-                        this.child(div().absolute().inset_0().child(ambient::layer(cx)))
-                    })
-                    .child(content),
-            )
+            .child(grow().child(content))
             .into_any_element()
     }
 }

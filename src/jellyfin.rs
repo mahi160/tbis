@@ -192,17 +192,6 @@ impl Item {
         }
     }
 
-    /// Item and tag of the own backdrop, else (an Episode's) its Series' one.
-    fn backdrop_ref(&self) -> Option<(&String, &String)> {
-        match self.backdrop_image_tags.first() {
-            Some(tag) => Some((&self.id, tag)),
-            None => Some((
-                self.parent_backdrop_item_id.as_ref()?,
-                self.parent_backdrop_image_tags.first()?,
-            )),
-        }
-    }
-
     /// Special format tags (4K, HDR kind, premium audio, surround); see `media_tags`.
     pub fn media_tags(&self) -> Vec<&'static str> {
         media_tags(&self.media_streams)
@@ -344,8 +333,8 @@ fn code_matches(code: &str, season: i32, episode: i32) -> bool {
 /// Tags needed by `Api::wide_image_url`.
 const WIDE_IMAGES: &str = "EnableImageTypes=Primary,Thumb,Backdrop&ImageTypeLimit=1";
 
-/// Tags needed by `Api::poster_url` and `Api::frost_url`, shared by every plain item listing.
-const POSTER_IMAGES: &str = "EnableImageTypes=Primary,Backdrop&ImageTypeLimit=1";
+/// Tags needed by `Api::poster_url`, shared by every plain item listing.
+const POSTER_IMAGES: &str = "EnableImageTypes=Primary&ImageTypeLimit=1";
 
 /// Item type searched on its own, so one type can't crowd out the others; also
 /// `Item::kind`, read off the server's own `Type` field.
@@ -1099,26 +1088,15 @@ impl Api {
     /// Full-width backdrop art for detail pages.
     /// Own backdrop, else (an Episode's) its Series' one.
     pub fn backdrop_url(&self, item: &Item) -> Option<String> {
-        let (id, tag) = item.backdrop_ref()?;
-        Some(format!(
-            "{}/Items/{id}/Images/Backdrop/0?fillWidth=1920&quality=85&tag={tag}",
-            self.session.server
-        ))
-    }
-
-    /// Small, heavily blurred art for frosted pages: the backdrop, else a Movie's poster.
-    /// Never an Episode's own still.
-    pub fn frost_url(&self, item: &Item) -> Option<String> {
-        let (width, blur) = (crate::design::frost::WIDTH, crate::design::frost::BLUR);
-        let (id, kind, tag) = match item.backdrop_ref() {
-            Some((id, tag)) => (id, "Backdrop/0", tag),
-            None if item.kind != Kind::Episode => {
-                (&item.id, "Primary", item.image_tags.get("Primary")?)
-            }
-            None => return None,
+        let (id, tag) = match item.backdrop_image_tags.first() {
+            Some(tag) => (&item.id, tag),
+            None => (
+                item.parent_backdrop_item_id.as_ref()?,
+                item.parent_backdrop_image_tags.first()?,
+            ),
         };
         Some(format!(
-            "{}/Items/{id}/Images/{kind}?fillWidth={width}&quality=60&blur={blur}&tag={tag}",
+            "{}/Items/{id}/Images/Backdrop/0?fillWidth=1920&quality=85&tag={tag}",
             self.session.server
         ))
     }

@@ -326,29 +326,8 @@ pub mod window {
 
 /// Opacity levels.
 pub mod opacity {
+    pub const FAINT: f32 = 0.3;
     pub const HALF: f32 = 0.5;
-}
-
-/// Frosted detail pages: strengths over the server-blurred art. `theme` tests hold text
-/// readable over any image at these values.
-pub mod frost {
-    /// Theme background over the blurred art.
-    pub const PAGE_TINT: f32 = 0.55;
-    /// Theme surface over the tinted art, for cards.
-    pub const CARD: f32 = 0.8;
-    /// Opacity of the sharp art at the very top, before the tint.
-    pub const SHARP_TOP: f32 = 0.5;
-    /// Opacity steps the sharp art fades out in.
-    pub const SHARP_STEPS: usize = 8;
-    /// Theme background over the blurred art behind Home, Library and Search, where text
-    /// sits straight on the page (no cards) and so needs a stronger tint.
-    pub const AMBIENT_TINT: f32 = 0.9;
-    /// Cross-fade between ambient backdrops.
-    pub const AMBIENT_FADE: std::time::Duration = std::time::Duration::from_millis(400);
-    /// Server blur radius.
-    pub const BLUR: u32 = 50;
-    /// Small image width; the blur hides the upscaling.
-    pub const WIDTH: u32 = 480;
 }
 
 /// Fixed tints for chrome over live video or images (Tailwind `black/60`, `white/75`).
