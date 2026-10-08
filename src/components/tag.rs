@@ -21,7 +21,7 @@ pub fn pill(label: impl Into<SharedString>, cx: &App) -> Tag {
     .child(label.into())
 }
 
-/// Warning-colored star with a one-decimal score.
+/// Primary-colored star with a one-decimal score.
 pub fn star_rating(score: f32, cx: &App) -> Div {
     h_flex()
         .gap(gap::tight())

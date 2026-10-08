@@ -110,7 +110,7 @@ pub fn ghost_button(id: impl Into<ElementId>, label: impl Into<SharedString>, cx
     ghost(base(id), cx).label(label.into())
 }
 
-/// Round ghost text button in mono type, e.g. the Player's speed.
+/// Ghost text button at the shared radius in mono type, e.g. the Player's speed.
 pub fn round_ghost_button(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -137,7 +137,7 @@ fn plain_icon(id: impl Into<ElementId>, icon: impl Into<Icon>) -> Button {
     square(plain(id).ghost().icon(icon), tokens().button.icon)
 }
 
-/// Round ghost icon button, for the Player's bars.
+/// Ghost icon button at the shared radius, for the Player's bars.
 pub fn round_icon(id: impl Into<ElementId>, icon: impl Into<Icon>) -> Button {
     // white: bars sit on video, never on theme background
     plain_icon(id, icon)
@@ -150,7 +150,7 @@ pub fn round_icon_button(id: impl Into<ElementId>, path: &'static str) -> Button
     round_icon(id, Icon::empty().path(path))
 }
 
-/// Round avatar (initials of `name`) as a ghost button at the recipe's avatar size.
+/// Avatar (initials of `name`) as a ghost button at the recipe's avatar size, on the shared radius.
 pub fn avatar_button(id: impl Into<ElementId>, name: impl Into<SharedString>, cx: &App) -> Button {
     let size = tokens().avatar.default;
     square(ghost(plain(id).with_size(Size::Small), cx), size)

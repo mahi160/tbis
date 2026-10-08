@@ -89,8 +89,8 @@ pub fn genres_line(item: &Item, cx: &App) -> Option<AnyElement> {
 
 const CAST_LIMIT: usize = 12;
 
-/// Top billed actors as a wrapping grid of compact tiles: round portrait (initials
-/// when none), name, character.
+/// Top billed actors as a wrapping grid of compact tiles: portrait at the shared
+/// radius (initials when none), name, character.
 pub fn cast_row(api: &Api, item: &Item, cx: &App) -> Option<AnyElement> {
     let muted_fg = color::muted_foreground(cx);
     let actors: Vec<AnyElement> = item

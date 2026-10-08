@@ -12,7 +12,7 @@ pub fn app_title_bar(
     trailing: impl IntoIterator<Item = AnyElement>,
     cx: &App,
 ) -> TitleBar {
-    // trailing inset = avatar's vertical inset, so its circle sits concentric with window corner
+    // trailing inset = avatar's vertical inset, so its box sits concentric with window corner
     let inset = ((window::TITLE_BAR_H - sp(tokens().avatar.default)) / 2.).max(sp(2.));
     TitleBar::new()
         // grows with tall content (big type scales)
