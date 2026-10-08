@@ -128,7 +128,12 @@ pub fn overlay_card(fill: Hsla) -> Div {
 }
 
 /// "Playback info" card: titled groups of label/value rows.
-pub fn info_panel(groups: &[(&'static str, Vec<(&'static str, String)>)], cx: &App) -> Div {
+/// `close` sits beside the heading; the panel stays up until closed, not with the controls.
+pub fn info_panel(
+    groups: &[(&'static str, Vec<(&'static str, String)>)],
+    close: impl IntoElement,
+    cx: &App,
+) -> Div {
     overlay_card(black(0.72))
         .absolute()
         // fixed: clears the top bar
@@ -138,10 +143,15 @@ pub fn info_panel(groups: &[(&'static str, Vec<(&'static str, String)>)], cx: &A
         .gap(gap::group())
         .text_size(text::meta())
         .child(
-            div()
-                .text_size(text::body())
-                .font_weight(FontWeight::BOLD)
-                .child("Playback info"),
+            h_flex()
+                .justify_between()
+                .child(
+                    div()
+                        .text_size(text::body())
+                        .font_weight(FontWeight::BOLD)
+                        .child("Playback info"),
+                )
+                .child(close),
         )
         .children(groups.iter().map(|(heading, rows)| {
             v_flex()
