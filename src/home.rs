@@ -7,8 +7,9 @@ use crate::components::button::{GhostState as _, VegaSize as _, icon_button};
 use crate::components::layout::{header_row, rows_page, scroll_row};
 use crate::components::status::{Status, error_banner, full_status};
 use crate::components::{OnClick, card, typography};
+use crate::config::HideSpoilers;
 use crate::design::{gap, page, size};
-use crate::jellyfin::{Api, Item, Kind};
+use crate::jellyfin::{Api, Item, Kind, blurred};
 use crate::nav::Nav;
 
 const PER_ROW: usize = 24;
@@ -294,13 +295,20 @@ impl Render for HomeView {
         }
 
         let api = self.api.clone();
+        let hide_spoilers = cx.global::<HideSpoilers>().0;
         let wide = |items: &[Item], cx: &mut Context<Self>| -> Vec<AnyElement> {
             items
                 .iter()
                 .map(|item| {
                     let on_play = Self::play_on_click(item, cx);
                     let on_open = Self::open_on_click(&item.detail_target(), cx);
-                    card::wide_card(&api, item, size::wide_w(), on_play, on_open, cx)
+                    // Continue Watching/Next Up stills give away unwatched Episodes
+                    let spoiler =
+                        hide_spoilers && item.kind == Kind::Episode && !item.user_data.played;
+                    let still = api
+                        .wide_image_url(item)
+                        .map(|url| if spoiler { blurred(&url) } else { url });
+                    card::wide_card(item, still, size::wide_w(), on_play, on_open, cx)
                 })
                 .collect()
         };

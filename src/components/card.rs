@@ -6,7 +6,6 @@ use gpui_kit::*;
 
 use super::OnClick;
 use super::art::{art_tile, check_badge, image, play_scrim, progress_bar};
-use crate::config::HideSpoilers;
 use crate::design::{color, gap, text};
 use crate::jellyfin::{Api, Item, Kind};
 
@@ -93,8 +92,8 @@ pub fn poster_card(
 /// 16:9 art, title, `S2E3 · Name` or year, progress bar. For Continue Watching and Next Up.
 /// Art plays (`on_play`); the title/subtitle open the detail page (`on_open`).
 pub fn wide_card(
-    api: &Api,
     item: &Item,
+    still: Option<String>,
     width: Pixels,
     on_play: OnClick,
     on_open: OnClick,
@@ -113,18 +112,6 @@ pub fn wide_card(
                 .unwrap_or_default(),
         ),
     };
-    // Continue Watching/Next Up double as spoilers: the still and the episode name
-    // both give away that an unwatched Episode exists/what happens in it.
-    let spoiler =
-        item.kind == Kind::Episode && cx.global::<HideSpoilers>().0 && !item.user_data.played;
-    // server-side blur; gpui can't blur an image
-    let still = api.wide_image_url(item).map(|url| {
-        if spoiler {
-            format!("{url}&blur=30")
-        } else {
-            url
-        }
-    });
     v_flex()
         .w(width)
         .flex_shrink_0()

@@ -11,7 +11,7 @@ use crate::components::typography::{paragraph, title};
 use crate::config::HideSpoilers;
 use crate::design::{gap, size};
 use crate::detail::{self, Toggle, UserDataView};
-use crate::jellyfin::{Api, Item, UserData};
+use crate::jellyfin::{Api, Item, UserData, blurred};
 use crate::nav::Nav;
 
 /// Series detail: header, season tabs, and the Episodes of the selected season.
@@ -232,14 +232,10 @@ impl SeriesView {
             .run_time_ticks
             .map(|t| format!("{} min", detail::minutes(t)));
         let spoiler = cx.global::<HideSpoilers>().0 && !episode.user_data.played;
-        // server-side blur; gpui can't blur an image
-        let still = self.api.poster_url(episode).map(|url| {
-            if spoiler {
-                format!("{url}&blur=30")
-            } else {
-                url
-            }
-        });
+        let still = self
+            .api
+            .poster_url(episode)
+            .map(|url| if spoiler { blurred(&url) } else { url });
 
         let row = EpisodeRow {
             id: episode.id.clone().into(),

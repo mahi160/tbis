@@ -1118,6 +1118,11 @@ impl Api {
     }
 }
 
+/// `url` (an image URL from this API) blurred server-side, for spoilers; gpui can't blur.
+pub fn blurred(url: &str) -> String {
+    format!("{url}&blur=30")
+}
+
 #[derive(Deserialize)]
 struct PublicSystemInfo {
     #[serde(rename = "Version")]
@@ -1329,7 +1334,7 @@ pub async fn quick_connect_login(
 #[cfg(test)]
 mod tests {
     use super::{
-        Api, Item, Segment, SegmentKind, Session, SessionExpired, login, normalize_server,
+        Api, Item, Segment, SegmentKind, Session, SessionExpired, blurred, login, normalize_server,
     };
     use std::io::{Read as _, Write as _};
     use std::net::TcpListener;
@@ -1340,6 +1345,14 @@ mod tests {
             "Id": "x", "Name": name, "ParentIndexNumber": season, "IndexNumber": number
         }))
         .unwrap()
+    }
+
+    #[::core::prelude::v1::test]
+    fn blurred_adds_server_blur_to_image_url() {
+        assert_eq!(
+            blurred("http://s/Items/x/Images/Primary?fillWidth=320&tag=t"),
+            "http://s/Items/x/Images/Primary?fillWidth=320&tag=t&blur=30"
+        );
     }
 
     #[::core::prelude::v1::test]
