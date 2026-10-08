@@ -15,10 +15,15 @@ use crate::config::Config;
 use crate::design;
 
 /// Theme names as in the JSON's `"name"`, also the Settings labels. First is the default.
-pub const NAMES: [&str; 4] = ["Raptor Night", "Stego Moss", "Plesio Lagoon", "Fossil Bone"];
+pub const NAMES: [&str; 4] = [
+    "Raptor Night",
+    "Stego Moss",
+    "Plesio Lagoon",
+    "Fossil Slate",
+];
 
 /// Earlier names still found in saved configs.
-const RENAMED: [(&str, &str); 1] = [("WMC", "Plesio Lagoon")];
+const RENAMED: [(&str, &str); 2] = [("WMC", "Plesio Lagoon"), ("Fossil Bone", "Fossil Slate")];
 
 /// Bundled theme `name` refers to, renames followed; the default when unknown.
 fn resolve(name: &str) -> &'static str {
@@ -183,7 +188,7 @@ pub fn apply(name: &str, cx: &mut App) {
 
 #[cfg(test)]
 mod tests {
-    use super::{FILE, ROLES, hex};
+    use super::{FILE, ROLES, hex, resolve};
 
     /// Design tokens are constants; a `"design"` key would be silently ignored.
     #[test]
@@ -196,6 +201,12 @@ mod tests {
                 theme["name"]
             );
         }
+    }
+
+    #[test]
+    fn renamed_themes_resolve() {
+        assert_eq!(resolve("Fossil Bone"), "Fossil Slate");
+        assert_eq!(resolve("WMC"), "Plesio Lagoon");
     }
 
     #[test]

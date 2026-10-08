@@ -92,32 +92,32 @@
       }
     },
     {
-      "name": "Fossil Bone",
+      "name": "Fossil Slate",
       "mode": "light",
       "font.family": "Onest",
       "mono_font.family": "Onest",
       "colors": {
-        "background": "oklch(0.96 0.012 90)",
-        "foreground": "oklch(0.22 0.018 80)",
+        "background": "oklch(0.965 0.006 255)",
+        "foreground": "oklch(0.23 0.02 255)",
 
-        "surface.background": "oklch(0.995 0.004 90)",
+        "surface.background": "oklch(0.993 0.003 255)",
 
-        "muted.background": "oklch(0.945 0.014 90)",
-        "muted.foreground": "oklch(0.49 0.018 80)",
+        "muted.background": "oklch(0.94 0.008 255)",
+        "muted.foreground": "oklch(0.48 0.02 255)",
 
-        "border": "oklch(0.86 0.025 90)",
-        "border.subtle": "oklch(0.91 0.018 90)",
+        "border": "oklch(0.86 0.012 255)",
+        "border.subtle": "oklch(0.91 0.01 255)",
 
-        "hover.background": "oklch(0.915 0.018 90)",
-        "active.background": "oklch(0.88 0.025 90)",
-        "selection.background": "oklch(0.91 0.075 48)",
+        "hover.background": "oklch(0.92 0.01 255)",
+        "active.background": "oklch(0.885 0.014 255)",
+        "selection.background": "oklch(0.90 0.05 45)",
 
-        "primary.background": "oklch(0.49 0.15 45)",
-        "primary.foreground": "oklch(0.99 0.005 90)",
-        "focus": "oklch(0.49 0.15 45)",
+        "primary.background": "oklch(0.53 0.14 42)",
+        "primary.foreground": "oklch(0.99 0.004 255)",
+        "focus": "oklch(0.53 0.14 42)",
 
-        "danger.background": "oklch(0.50 0.17 28)",
-        "danger.foreground": "oklch(0.99 0.005 90)"
+        "danger.background": "oklch(0.46 0.2 15)",
+        "danger.foreground": "oklch(0.99 0.004 255)"
       }
     }
   ]
