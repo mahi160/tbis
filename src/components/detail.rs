@@ -11,7 +11,7 @@ use super::{OnClick, art, tag, typography};
 use crate::design::{color, gap, sp, text};
 use crate::jellyfin::{Api, Item};
 
-/// Back button, `image` (URL, width, height), then `body` (title/meta/overview/actions).
+/// Back button in its own row, then `image` (URL, width, height), then `body` (title/meta/overview/actions).
 pub fn detail_header(
     image: (Option<String>, Pixels, Pixels),
     back: OnClick,
@@ -19,12 +19,18 @@ pub fn detail_header(
     cx: &App,
 ) -> impl IntoElement {
     let (url, width, height) = image;
-    h_flex()
-        .gap(gap::group())
+    v_flex()
+        .gap(gap::item())
         .items_start()
         .child(icon_button("detail-back", IconName::ArrowLeft, cx).on_click(back))
-        .child(art::thumb(url, width, height, cx))
-        .child(body)
+        .child(
+            h_flex()
+                .w_full()
+                .gap(gap::group())
+                .items_start()
+                .child(art::thumb(url, width, height, cx))
+                .child(body),
+        )
 }
 
 /// Column beside the header image holding title, meta and actions.
