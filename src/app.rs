@@ -5,6 +5,7 @@ use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{IconName, Root, TitleBar, WindowExt as _};
 use gpui_kit::*;
 
+use crate::backdrops::Backdrops;
 use crate::components::button::{avatar_button, surface_icon_button};
 use crate::components::dialog::vega_dialog;
 use crate::components::input::search_input;
@@ -54,6 +55,8 @@ struct Main {
     series: Entity<LibraryView>,
     search_input: Entity<InputState>,
     search: Entity<SearchView>,
+    /// Library backdrop behind Home, Movies and Series (Settings > Backdrops).
+    backdrops: Entity<Backdrops>,
     /// Search input expanded in title bar; collapses to an icon on blur.
     search_open: bool,
     /// Detail pages over the current tab, innermost last; Back pops one
@@ -115,6 +118,20 @@ impl Main {
                 Tab::Home => self.home.update(cx, |view, cx| view.refresh(cx)),
             }
         }
+    }
+
+    /// Points the page backdrop at the current tab's pool; nothing loads while `on` is false.
+    fn sync_backdrops(&self, on: bool, cx: &mut App) {
+        if !on {
+            return;
+        }
+        let kind = match self.tab {
+            Tab::Home => None,
+            Tab::Movies => Some(Kind::Movie),
+            Tab::Series => Some(Kind::Series),
+        };
+        self.backdrops
+            .update(cx, |backdrops, cx| backdrops.show(kind, cx));
     }
 }
 
@@ -335,6 +352,7 @@ impl AppView {
                 .placeholder("Search")
                 .clean_on_escape()
         });
+        let backdrops = cx.new(|cx| Backdrops::new(api.clone(), cx));
         let _subscriptions = [
             cx.subscribe(&movies, |this, _, SortChanged(sort), _| {
                 this.config.movies_sort = *sort;
@@ -406,7 +424,7 @@ impl AppView {
                 }
             }),
         ];
-        Screen::Main(Main {
+        let main = Main {
             session,
             api,
             tab: Tab::Home,
@@ -415,12 +433,15 @@ impl AppView {
             series,
             search_input,
             search,
+            backdrops,
             search_open: false,
             details: Vec::new(),
             player: None,
             _subscriptions,
             _expired,
-        })
+        };
+        main.sync_backdrops(config.backdrops.0, cx);
+        Screen::Main(main)
     }
 
     fn select_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -428,6 +449,7 @@ impl AppView {
             return;
         };
         main.tab = TABS[index].0;
+        main.sync_backdrops(self.config.backdrops.0, cx);
         main.details.clear();
         Self::clear_search(main, window, cx);
         main.refresh_visible(cx);
@@ -548,6 +570,12 @@ impl AppView {
                 SettingsChanged::HideSpoilers(hide) => {
                     this.config.hide_spoilers = *hide;
                     cx.set_global(*hide);
+                }
+                SettingsChanged::Backdrops(show) => {
+                    this.config.backdrops = *show;
+                    if let Screen::Main(main) = &this.screen {
+                        main.sync_backdrops(show.0, cx);
+                    }
                 }
                 SettingsChanged::Hdr(style) => this.config.hdr = *style,
                 SettingsChanged::Audio(style) => this.config.audio = *style,
@@ -779,15 +807,20 @@ impl Render for AppView {
                 .into_any_element();
         }
 
+        // focused and empty: the search view shows recent searches
+        let search_shown = matches!(&self.screen, Screen::Main(main)
+            if main.searching(cx) || (main.search_open && main.search.read(cx).has_recent()));
+        let backdrop = match &self.screen {
+            Screen::Main(main)
+                if self.config.backdrops.0 && main.details.is_empty() && !search_shown =>
+            {
+                Some(main.backdrops.clone())
+            }
+            _ => None,
+        };
         let content = match &self.screen {
             Screen::Login { view, .. } => view.clone().into_any_element(),
-            // focused and empty: the search view shows recent searches
-            Screen::Main(main)
-                if main.searching(cx)
-                    || (main.search_open && main.search.read(cx).has_recent()) =>
-            {
-                main.search.clone().into_any_element()
-            }
+            Screen::Main(main) if search_shown => main.search.clone().into_any_element(),
             Screen::Main(Main { details, .. }) if !details.is_empty() => {
                 details[details.len() - 1].view.clone().into_any_element()
             }
@@ -822,7 +855,7 @@ impl Render for AppView {
             )
             .on_action(|_: &ShowShortcuts, window, cx| shortcuts::open(window, cx))
             .child(self.render_title_bar(cx))
-            .child(grow().child(content))
+            .child(grow().relative().children(backdrop).child(content))
             .into_any_element()
     }
 }

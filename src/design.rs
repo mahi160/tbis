@@ -330,6 +330,15 @@ pub mod opacity {
     pub const HALF: f32 = 0.5;
 }
 
+/// Library backdrops behind Home, Movies and Series.
+pub mod backdrop {
+    /// Theme background over the art: about 15% visible. Very bright art can still
+    /// pull muted text under AA; user chose visibility (Jellyfin-like).
+    pub const TINT: f32 = 0.85;
+    /// Server-side blur radius (gpui can't blur): softens, art still recognizable.
+    pub const BLUR: u32 = 12;
+}
+
 /// Fixed tints for chrome over live video or images (Tailwind `black/60`, `white/75`).
 /// Not themed on purpose: they sit over arbitrary frames, not the app's background.
 pub mod overlay {

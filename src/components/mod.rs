@@ -16,6 +16,7 @@ pub mod layout;
 pub mod list;
 pub mod logo;
 pub mod menu;
+pub mod page_backdrop;
 pub mod panel;
 pub mod section;
 pub mod settings;

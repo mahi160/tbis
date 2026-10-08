@@ -1,5 +1,6 @@
 mod app;
 mod assets;
+mod backdrops;
 mod components;
 mod config;
 mod design;

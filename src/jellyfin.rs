@@ -930,6 +930,17 @@ impl Api {
         self.items(kind, sort.query(kind)).await
     }
 
+    /// Random items of `kind` (Movies and Series when `None`) that have a backdrop, for
+    /// page backdrops.
+    pub async fn random_backdrops(&self, kind: Option<Kind>, limit: usize) -> Result<Vec<Item>> {
+        let path = format!(
+            "/Items?userId={}&IncludeItemTypes={}&Recursive=true&SortBy=Random&ImageTypes=Backdrop&EnableImageTypes=Backdrop&ImageTypeLimit=1&EnableUserData=false&Limit={limit}",
+            self.session.user_id,
+            kind.map_or("Movie,Series", Kind::as_str),
+        );
+        Ok(self.get::<ItemsResult>(&path).await?.items)
+    }
+
     /// Every played Movie and Episode (no images), for Watch stats.
     pub async fn played_items(&self) -> Result<Vec<Item>> {
         let path = format!(

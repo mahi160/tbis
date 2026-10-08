@@ -9,7 +9,7 @@ use crate::components::layout::{grow, page_header};
 use crate::components::settings::{SettingField, SettingGroup, SettingItem, SettingPage, settings};
 use crate::config::{
     AudioStyle, Config, DebandLevel, HdrStyle, HideSpoilers, LanguagePref, SeekSteps,
-    SubtitleStyle, ToneMapCurve,
+    ShowBackdrops, SubtitleStyle, ToneMapCurve,
 };
 use crate::nav::Nav;
 use crate::shaders::ShaderProfile;
@@ -57,6 +57,7 @@ pub enum SettingsChanged {
     Seek(SeekSteps),
     Theme(String),
     HideSpoilers(HideSpoilers),
+    Backdrops(ShowBackdrops),
     Hdr(HdrStyle),
     Audio(AudioStyle),
 }
@@ -69,9 +70,10 @@ pub struct SettingsView {
     seek: Entity<SeekSteps>,
     theme: Entity<SharedString>,
     hide_spoilers: Entity<HideSpoilers>,
+    backdrops: Entity<ShowBackdrops>,
     hdr: Entity<HdrStyle>,
     audio: Entity<AudioStyle>,
-    _observe: [Subscription; 9],
+    _observe: [Subscription; 10],
 }
 
 impl EventEmitter<Nav> for SettingsView {}
@@ -86,6 +88,7 @@ impl SettingsView {
         let seek = cx.new(|_| config.seek);
         let theme = cx.new(|_| SharedString::from(theme::active(config)));
         let hide_spoilers = cx.new(|_| config.hide_spoilers);
+        let backdrops = cx.new(|_| config.backdrops);
         let hdr = cx.new(|_| config.hdr);
         let audio = cx.new(|_| config.audio);
         let _observe = [
@@ -112,6 +115,9 @@ impl SettingsView {
             cx.observe(&hide_spoilers, |_, hide, cx| {
                 cx.emit(SettingsChanged::HideSpoilers(*hide.read(cx)))
             }),
+            cx.observe(&backdrops, |_, show, cx| {
+                cx.emit(SettingsChanged::Backdrops(*show.read(cx)))
+            }),
             cx.observe(&hdr, |_, hdr, cx| {
                 cx.emit(SettingsChanged::Hdr(*hdr.read(cx)))
             }),
@@ -127,6 +133,7 @@ impl SettingsView {
             seek,
             theme,
             hide_spoilers,
+            backdrops,
             hdr,
             audio,
             _observe,
@@ -207,7 +214,22 @@ impl SettingsView {
             ),
         )
         .description("Blur the images and hide the descriptions of episodes you haven't watched.");
-        SettingPage::new("Appearance").group(SettingGroup::new().items([theme, spoilers]))
+        let (read, write) = (self.backdrops.clone(), self.backdrops.clone());
+        let backdrops = SettingItem::new(
+            "Backdrops",
+            SettingField::switch(
+                move |cx| read.read(cx).0,
+                move |show, cx| {
+                    write.update(cx, |value, cx| {
+                        *value = ShowBackdrops(show);
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description("Show a dimmed backdrop from your library behind Home, Movies and Series.");
+        SettingPage::new("Appearance")
+            .group(SettingGroup::new().items([theme, backdrops, spoilers]))
     }
 
     fn video_group(&self) -> SettingGroup {

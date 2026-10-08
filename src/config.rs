@@ -93,6 +93,8 @@ pub struct Config {
     pub theme: Option<String>,
     #[serde(default)]
     pub hide_spoilers: HideSpoilers,
+    #[serde(default)]
+    pub backdrops: ShowBackdrops,
     /// HDR tone-mapping and debanding (Settings), for the Player and PiP.
     #[serde(default)]
     pub hdr: HdrStyle,
@@ -108,6 +110,17 @@ pub struct Config {
 pub struct HideSpoilers(pub bool);
 
 impl gpui_kit::Global for HideSpoilers {}
+
+/// Dimmed library backdrops behind Home, Movies and Series (Settings); on by default.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ShowBackdrops(pub bool);
+
+impl Default for ShowBackdrops {
+    fn default() -> Self {
+        Self(true)
+    }
+}
 
 /// Text-subtitle styling; image subtitles (PGS/VobSub) keep their own look.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -397,6 +410,7 @@ pub fn load() -> Config {
             recent_searches: Vec::new(),
             theme: None,
             hide_spoilers: HideSpoilers::default(),
+            backdrops: ShowBackdrops::default(),
             hdr: HdrStyle::default(),
             audio: AudioStyle::default(),
         })
