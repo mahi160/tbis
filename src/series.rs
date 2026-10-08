@@ -1,8 +1,9 @@
 use gpui_kit::component::button::Button;
-use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::component::{IconName, h_flex, v_flex};
 use gpui_kit::*;
 
 use crate::components::backdrop::backdrop;
+use crate::components::button::primary_button;
 use crate::components::detail::{cast_row, detail_header, genres_line, header_body, meta_line};
 use crate::components::episode::{EpisodeRow, episode_row};
 use crate::components::layout::scroll_page;
@@ -13,7 +14,7 @@ use crate::components::typography::{paragraph, title};
 use crate::config::HideSpoilers;
 use crate::design::{gap, size};
 use crate::detail::{self, UserDataView};
-use crate::jellyfin::{Api, Item, UserData, blurred};
+use crate::jellyfin::{Api, Item, UserData, blurred, episode_code};
 use crate::nav::Nav;
 
 /// Series detail: header, season tabs, and the Episodes of the selected season.
@@ -23,11 +24,14 @@ pub struct SeriesView {
     seasons: Vec<Item>,
     selected: usize,
     episodes: Vec<Item>,
+    /// Episode the Play button targets; None when the Series is fully watched.
+    next_up: Option<Item>,
     loading: bool,
     error: Option<SharedString>,
     /// Kept by the view so Back from an Episode page lands where the user was.
     scroll: ScrollHandle,
     _load: Task<()>,
+    _next_up: Task<()>,
 }
 
 impl EventEmitter<Nav> for SeriesView {}
@@ -49,8 +53,11 @@ impl UserDataView for SeriesView {
 
     /// Whole-Series watched flips every Episode server-side; reload them.
     fn saved(&mut self, id: &str, toggle: Toggle, cx: &mut Context<Self>) {
-        if matches!(toggle, Toggle::Played) && id == self.series.id {
-            self.load_episodes(cx);
+        if matches!(toggle, Toggle::Played) {
+            if id == self.series.id {
+                self.load_episodes(cx);
+            }
+            self.load_next_up(cx);
         }
     }
 }
@@ -63,10 +70,12 @@ impl SeriesView {
             seasons: Vec::new(),
             selected: 0,
             episodes: Vec::new(),
+            next_up: None,
             loading: true,
             error: None,
             scroll: ScrollHandle::new(),
             _load: Task::ready(()),
+            _next_up: Task::ready(()),
         };
         this.load_series(cx);
         this
@@ -84,7 +93,9 @@ impl SeriesView {
                     if let Ok(details) = details {
                         this.series = details;
                     }
-                    let next_season = next_up.ok().flatten().and_then(|e| e.season_id);
+                    let next_up = next_up.ok().flatten();
+                    let next_season = next_up.as_ref().and_then(|e| e.season_id.clone());
+                    this.next_up = next_up;
                     this.selected = seasons
                         .iter()
                         .position(|s| Some(&s.id) == next_season.as_ref())
@@ -102,13 +113,28 @@ impl SeriesView {
         });
     }
 
-    /// Reloads the selected season; keeps the current list until fresh data arrives.
+    /// Reloads the selected season and Next Up; keeps the current list until fresh data arrives.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         if self.seasons.is_empty() {
             self.load_series(cx);
         } else {
             self.load_episodes(cx);
+            self.load_next_up(cx);
         }
+    }
+
+    /// Own task: `load_episodes` replaces `_load`, which would cancel this fetch.
+    fn load_next_up(&mut self, cx: &mut Context<Self>) {
+        let (api, id) = (self.api.clone(), self.series.id.clone());
+        self._next_up = cx.spawn(async move |this, cx| {
+            if let Ok(next_up) = api.next_up(&id).await {
+                this.update(cx, |this, cx| {
+                    this.next_up = next_up;
+                    cx.notify();
+                })
+                .ok();
+            }
+        });
     }
 
     fn select_season(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -181,6 +207,27 @@ impl SeriesView {
         ))
     }
 
+    /// `Resume S01E03` / `Play S01E03` for the Next Up Episode.
+    fn play_button(&self, cx: &mut Context<Self>) -> Option<Button> {
+        let episode = self.next_up.clone()?;
+        let verb = if episode.user_data.playback_position_ticks > 0 {
+            "Resume"
+        } else {
+            "Play"
+        };
+        let label = match (episode.parent_index_number, episode.index_number) {
+            (Some(season), Some(number)) => format!("{verb} {}", episode_code(season, number)),
+            _ => verb.to_string(),
+        };
+        Some(
+            primary_button("series-play", label)
+                .icon(IconName::Play)
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                    cx.emit(Nav::Play(episode.clone()))
+                })),
+        )
+    }
+
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let back = Box::new(cx.listener(|_, _, _, cx| cx.emit(Nav::Back)));
         let body = header_body()
@@ -188,10 +235,11 @@ impl SeriesView {
             .child(title(self.series.name.clone()))
             .children(meta_line(&self.series, self.seasons_label(), cx))
             .children(genres_line(&self.series, cx))
-            .children(self.series.overview.clone().map(|o| paragraph(o, 4)))
+            .children(self.series.overview.clone().map(|o| paragraph(o, 4).max_w(size::prose_max_w())))
             .child(
                 h_flex()
                     .gap(gap::item())
+                    .children(self.play_button(cx))
                     .children([Toggle::Played, Toggle::Favorite].map(|toggle| {
                         self.toggle_button(
                             &self.series,
@@ -292,9 +340,9 @@ impl Render for SeriesView {
                     .map(|url| backdrop(url, cx)),
             )
             .child(self.render_header(cx))
-            .children(cast_row(&self.api, &self.series, cx))
             .children(seasons)
             .children(inline_status(status, cx))
             .child(v_flex().gap(gap::tight()).children(episodes))
+            .children(cast_row(&self.api, &self.series, cx))
     }
 }
