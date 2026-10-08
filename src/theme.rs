@@ -188,7 +188,7 @@ pub fn apply(name: &str, cx: &mut App) {
 
 #[cfg(test)]
 mod tests {
-    use super::{FILE, ROLES, hex, resolve};
+    use super::{FILE, ROLES, design, hex, resolve};
 
     /// Design tokens are constants; a `"design"` key would be silently ignored.
     #[test]
@@ -264,6 +264,36 @@ mod tests {
                     "{}: {a} on {b} is {ratio:.2}, needs {min}",
                     theme["name"]
                 );
+            }
+        }
+    }
+
+    /// `top` at `alpha` over `bottom`, blended in sRGB as gpui does.
+    fn over(top: &str, alpha: f32, bottom: &str) -> String {
+        let channel = |i: usize| {
+            let c = |s: &str| f32::from(u8::from_str_radix(&s[i..i + 2], 16).expect("hex color"));
+            (c(top) * alpha + c(bottom) * (1. - alpha)).round() as u8
+        };
+        format!("#{:02x}{:02x}{:02x}", channel(1), channel(3), channel(5))
+    }
+
+    /// Frosted cards: whatever the image, muted text keeps AA and body text AAA.
+    #[test]
+    fn frost_cards_keep_text_readable_over_any_image() {
+        let file: serde_json::Value = serde_json::from_str(FILE).expect("theme file parses");
+        for theme in file["themes"].as_array().expect("themes array") {
+            let color = |role: &str| hex(theme["colors"][role].as_str().expect(role));
+            for image in ["#ffffff", "#000000"] {
+                let page = over(&color("background"), design::frost::PAGE_TINT, image);
+                let card = over(&color("surface.background"), design::frost::CARD, &page);
+                for (role, min) in [("muted.foreground", 4.5), ("foreground", 7.)] {
+                    let ratio = contrast(&color(role), &card);
+                    assert!(
+                        ratio >= min,
+                        "{}: {role} on a card over {image} is {ratio:.2}, needs {min}",
+                        theme["name"]
+                    );
+                }
             }
         }
     }

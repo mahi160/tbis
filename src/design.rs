@@ -330,6 +330,23 @@ pub mod opacity {
     pub const HALF: f32 = 0.5;
 }
 
+/// Frosted detail pages: strengths over the server-blurred art. `theme` tests hold text
+/// readable over any image at these values.
+pub mod frost {
+    /// Theme background over the blurred art.
+    pub const PAGE_TINT: f32 = 0.55;
+    /// Theme surface over the tinted art, for cards.
+    pub const CARD: f32 = 0.8;
+    /// Opacity of the sharp art at the very top, before the tint.
+    pub const SHARP_TOP: f32 = 0.5;
+    /// Opacity steps the sharp art fades out in.
+    pub const SHARP_STEPS: usize = 8;
+    /// Server blur radius.
+    pub const BLUR: u32 = 50;
+    /// Small image width; the blur hides the upscaling.
+    pub const WIDTH: u32 = 480;
+}
+
 /// Fixed tints for chrome over live video or images (Tailwind `black/60`, `white/75`).
 /// Not themed on purpose: they sit over arbitrary frames, not the app's background.
 pub mod overlay {

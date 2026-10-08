@@ -2,11 +2,11 @@ use gpui_kit::component::{IconName, h_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::components::backdrop::backdrop;
 use crate::components::button::primary_button;
 use crate::components::detail::{
     cast_row, detail_header, genres_line, header_body, media_tags, meta_line,
 };
+use crate::components::frost::{frost_backdrop, frost_card};
 use crate::components::layout::scroll_page;
 use crate::components::status::{Status, inline_status};
 use crate::components::toggle_button::{Toggle, toggle_button};
@@ -160,16 +160,25 @@ impl Render for MovieView {
 
         let status = Status::pick(self.error.clone(), self.loading, None);
 
-        scroll_page("movie-detail")
+        div()
             .relative()
-            .gap(gap::group())
-            .children(
-                self.api
-                    .backdrop_url(&self.movie)
-                    .map(|url| backdrop(url, cx)),
+            .size_full()
+            .child(frost_backdrop(
+                self.api.frost_url(&self.movie),
+                self.api.backdrop_url(&self.movie),
+                cx,
+            ))
+            .child(
+                scroll_page("movie-detail")
+                    .gap(gap::group())
+                    .child(
+                        frost_card(cx)
+                            .child(header)
+                            .children(inline_status(status, cx)),
+                    )
+                    .children(
+                        cast_row(&self.api, &self.movie, cx).map(|cast| frost_card(cx).child(cast)),
+                    ),
             )
-            .child(header)
-            .children(inline_status(status, cx))
-            .children(cast_row(&self.api, &self.movie, cx))
     }
 }
