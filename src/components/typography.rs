@@ -15,6 +15,14 @@ pub fn title(content: impl IntoElement) -> Div {
         .child(content)
 }
 
+/// Section heading on detail and Search pages: body size so the item's name stays largest.
+pub fn section_heading(content: impl IntoElement) -> Div {
+    div()
+        .text_size(text::body())
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(content)
+}
+
 /// shadcn `small`: label over a block (stats, panels, form fields).
 pub fn subheading(content: impl IntoElement) -> Div {
     div()

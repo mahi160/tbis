@@ -39,7 +39,7 @@ pub fn rows_page(id: impl Into<ElementId>) -> Stateful<Div> {
         // else horizontal row swipes leak into page's vertical scroll
         .lock_scroll_axis()
         .py(page())
-        .gap(gap::group())
+        .gap(page())
 }
 
 /// Centers `child` in all the available space.

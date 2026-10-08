@@ -99,7 +99,7 @@ const TOKENS: Design = Design {
     spacing: 4.,
     text: TextScale {
         meta: 11.,
-        body: 12.,
+        body: 13.,
         title: 20.,
     },
     radius: 8.,

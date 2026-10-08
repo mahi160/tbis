@@ -9,7 +9,7 @@ use crate::components::episode::{episode_result, recent_query};
 use crate::components::layout::{centered, header_row, scroll_page, wrap_grid};
 use crate::components::section::section;
 use crate::components::status::{Status, empty_panel, inline_status};
-use crate::components::typography::title;
+use crate::components::typography::section_heading;
 use crate::components::{OnClick, card};
 use crate::design::{gap, size};
 use crate::jellyfin::{Api, Item, Kind};
@@ -176,7 +176,7 @@ impl SearchView {
         v_flex()
             .max_w(size::list_max_w())
             .gap(gap::item())
-            .child(header_row(title("Recent searches"), clear))
+            .child(header_row(section_heading("Recent searches"), clear))
             .children(rows)
             .into_any_element()
     }
