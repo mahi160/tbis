@@ -1487,10 +1487,10 @@ mod tests {
         let get = |path| futures::executor::block_on(api.get::<serde_json::Value>(path));
 
         assert!(get("/Expired").unwrap_err().is::<SessionExpired>());
-        assert!(matches!(rx.try_next(), Ok(Some(()))), "401 signals expiry");
+        assert!(matches!(rx.try_recv(), Ok(())), "401 signals expiry");
 
         assert!(!get("/Missing").unwrap_err().is::<SessionExpired>());
-        assert!(rx.try_next().is_err(), "other failures don't signal");
+        assert!(rx.try_recv().is_err(), "other failures don't signal");
 
         let segments = futures::executor::block_on(api.segments("ep1")).unwrap();
         assert_eq!(
