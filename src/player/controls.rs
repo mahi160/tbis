@@ -611,8 +611,9 @@ impl PlayerView {
             .trickplay(item)
             .filter(|i| i.width > 0 && i.height > 0)?;
         let (tile, x, y) = info.thumbnail_at(seconds);
-        let scale = design::size::trickplay_w() / info.width as f32;
-        let (tile_w, tile_h) = (design::size::trickplay_w(), info.height as f32 * scale);
+        let tile_w = f32::from(design::size::trickplay_w());
+        let scale = tile_w / info.width as f32;
+        let tile_h = info.height as f32 * scale;
         let sprite_w = tile_w * info.tile_width as f32;
         let sprite_h = tile_h * info.tile_height as f32;
         let url = self.api.trickplay_tile_url(item, &info, tile);

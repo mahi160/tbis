@@ -304,9 +304,9 @@ pub mod size {
         dialog_w = 112., // vega max-w-md
         up_next_w = 80.,
     );
-    /// Scrub-preview width in px; the Player scales sprite tiles to it.
-    pub fn trickplay_w() -> f32 {
-        40. * tokens().spacing
+    /// Scrub-preview width; the Player scales sprite tiles to it.
+    pub fn trickplay_w() -> Pixels {
+        sp(40.)
     }
 }
 

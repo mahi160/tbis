@@ -15,6 +15,7 @@ use futures::channel::mpsc;
 use gpui_kit::component::slider::{SliderEvent, SliderState};
 use gpui_kit::*;
 
+use crate::components::video::InfoGroup;
 use crate::config::{AudioStyle, Config, HdrStyle, LanguagePref, SubtitleStyle, TrackPrefs};
 use crate::jellyfin::{Api, Item, PlaybackItem, Report};
 use crate::mpv::Mpv;
@@ -106,9 +107,6 @@ const HIDE_CONTROLS_AFTER: Duration = Duration::from_secs(3);
 const VOLUME_HUD_AFTER: Duration = Duration::from_millis(1200);
 const PROGRESS_EVERY: Duration = Duration::from_secs(10);
 const CLOCK_EVERY: Duration = Duration::from_secs(30);
-
-/// Playback info section: heading and its (label, value) rows.
-type InfoGroup = (&'static str, Vec<(&'static str, String)>);
 
 pub struct PlayerView {
     api: Api,

@@ -3,7 +3,7 @@
 
 use gpui_kit::*;
 
-pub use crate::components::detail::*;
+use crate::components::toggle_button::Toggle;
 use crate::jellyfin::{Api, UserData};
 
 const TICKS_PER_MINUTE: i64 = 600_000_000;
@@ -17,13 +17,6 @@ pub fn minutes(ticks: i64) -> i64 {
 pub fn runtime_label(ticks: i64) -> String {
     let minutes = minutes(ticks);
     format!("{}h {:02}m", minutes / 60, minutes % 60)
-}
-
-/// Watched/Favorite flag a detail page can flip on one of its items.
-#[derive(Clone, Copy)]
-pub enum Toggle {
-    Played,
-    Favorite,
 }
 
 /// Detail page holding items whose `UserData` a `Toggle` flips.

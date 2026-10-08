@@ -121,13 +121,12 @@ pub fn overlay_card(fill: Hsla) -> Div {
         .border_color(white(0.08))
 }
 
+/// One titled group of label/value rows in the `info_panel`.
+pub type InfoGroup = (&'static str, Vec<(&'static str, String)>);
+
 /// "Playback info" card: titled groups of label/value rows.
 /// `close` sits beside the heading; the panel stays up until closed, not with the controls.
-pub fn info_panel(
-    groups: &[(&'static str, Vec<(&'static str, String)>)],
-    close: impl IntoElement,
-    cx: &App,
-) -> Div {
+pub fn info_panel(groups: &[InfoGroup], close: impl IntoElement, cx: &App) -> Div {
     overlay_card(black(0.72))
         .absolute()
         // fixed: clears the top bar
@@ -199,7 +198,7 @@ pub fn timeline(
                         .absolute()
                         .bottom(sp(7.))
                         .left(relative(fraction))
-                        .ml(px(-size::trickplay_w() / 2.))
+                        .ml(-size::trickplay_w() / 2.)
                         .child(preview)
                 })),
         )

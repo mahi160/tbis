@@ -3,15 +3,16 @@ use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::*;
 
 use crate::components::backdrop::backdrop;
+use crate::components::detail::{cast_row, detail_header, genres_line, header_body, meta_line};
 use crate::components::episode::{EpisodeRow, episode_row};
 use crate::components::layout::scroll_page;
 use crate::components::status::{Status, inline_status};
 use crate::components::tabs::scrolling_tabs;
-use crate::components::toggle_button::toggle_button;
+use crate::components::toggle_button::{Toggle, toggle_button};
 use crate::components::typography::{paragraph, title};
 use crate::config::HideSpoilers;
 use crate::design::{gap, size};
-use crate::detail::{self, Toggle, UserDataView};
+use crate::detail::{self, UserDataView};
 use crate::jellyfin::{Api, Item, UserData, blurred};
 use crate::nav::Nav;
 
@@ -182,11 +183,11 @@ impl SeriesView {
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let back = Box::new(cx.listener(|_, _, _, cx| cx.emit(Nav::Back)));
-        let body = detail::header_body()
+        let body = header_body()
             .gap(gap::item())
             .child(title(self.series.name.clone()))
-            .children(detail::meta_line(&self.series, self.seasons_label(), cx))
-            .children(detail::genres_line(&self.series, cx))
+            .children(meta_line(&self.series, self.seasons_label(), cx))
+            .children(genres_line(&self.series, cx))
             .children(self.series.overview.clone().map(|o| paragraph(o, 4)))
             .child(
                 h_flex()
@@ -200,7 +201,7 @@ impl SeriesView {
                         )
                     })),
             );
-        detail::detail_header(
+        detail_header(
             (
                 self.api.poster_url(&self.series),
                 size::header_poster_sm_w(),
@@ -291,7 +292,7 @@ impl Render for SeriesView {
                     .map(|url| backdrop(url, cx)),
             )
             .child(self.render_header(cx))
-            .children(detail::cast_row(&self.api, &self.series, cx))
+            .children(cast_row(&self.api, &self.series, cx))
             .children(seasons)
             .children(inline_status(status, cx))
             .child(v_flex().gap(gap::tight()).children(episodes))

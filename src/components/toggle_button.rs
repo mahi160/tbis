@@ -5,8 +5,14 @@ use gpui_kit::component::button::Button;
 use gpui_kit::*;
 
 use super::button::{GhostState as _, icon_button};
-use crate::detail::Toggle;
 use crate::jellyfin::UserData;
+
+/// Watched/Favorite flag a detail page can flip on one of its items.
+#[derive(Clone, Copy)]
+pub enum Toggle {
+    Played,
+    Favorite,
+}
 
 pub fn toggle_button(
     id: impl Into<ElementId>,

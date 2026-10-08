@@ -4,12 +4,15 @@ use gpui_kit::*;
 
 use crate::components::backdrop::backdrop;
 use crate::components::button::primary_button;
+use crate::components::detail::{
+    cast_row, detail_header, genres_line, header_body, media_tags, meta_line,
+};
 use crate::components::layout::scroll_page;
 use crate::components::status::{Status, inline_status};
-use crate::components::toggle_button::toggle_button;
+use crate::components::toggle_button::{Toggle, toggle_button};
 use crate::components::typography::{caption, paragraph, title};
 use crate::design::{gap, size};
-use crate::detail::{self, Toggle, UserDataView};
+use crate::detail::{self, UserDataView};
 use crate::jellyfin::{Api, Item, Kind, UserData, episode_code};
 use crate::nav::Nav;
 
@@ -103,13 +106,13 @@ impl Render for MovieView {
 
         let episode = self.movie.kind == Kind::Episode;
         let back = Box::new(cx.listener(|_, _, _, cx| cx.emit(Nav::Back)));
-        let body = detail::header_body()
+        let body = header_body()
             .gap(gap::item())
             .when(episode, |this| this.child(self.episode_kicker(cx)))
             .child(title(self.movie.display_name().to_string()))
-            .children(detail::meta_line(&self.movie, runtime, cx))
-            .children(detail::genres_line(&self.movie, cx))
-            .children(detail::media_tags(&self.movie, cx))
+            .children(meta_line(&self.movie, runtime, cx))
+            .children(genres_line(&self.movie, cx))
+            .children(media_tags(&self.movie, cx))
             .children(
                 self.movie
                     .overview
@@ -153,7 +156,7 @@ impl Render for MovieView {
                 size::header_poster_h(),
             )
         };
-        let header = detail::detail_header(image, back, body, cx);
+        let header = detail_header(image, back, body, cx);
 
         let status = Status::pick(self.error.clone(), self.loading, None);
 
@@ -167,6 +170,6 @@ impl Render for MovieView {
             )
             .child(header)
             .children(inline_status(status, cx))
-            .children(detail::cast_row(&self.api, &self.movie, cx))
+            .children(cast_row(&self.api, &self.movie, cx))
     }
 }
