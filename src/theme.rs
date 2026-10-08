@@ -1,8 +1,7 @@
 //! App themes, backed by [`assets/themes/tbis.json`].
 //!
-//! Each theme sets the color [`ROLES`] (OKLCH or hex) and font families; an optional
-//! `"design"` object ([`Design`]) overrides the shared defaults (type, radius, gaps,
-//! heights). Before gpui-kit reads the file, [`kit_file`] converts the roles to hex and
+//! Each theme sets the color [`ROLES`] (OKLCH or hex) and font families; type, radius,
+//! gaps and heights are the shared constants in [`design::tokens`]. Before gpui-kit reads the file, [`kit_file`] converts the roles to hex and
 //! expands them into gpui-kit's own color keys, so gpui-kit components and ours draw
 //! from the same roles. The tests hold every theme to the roles and to WCAG contrast
 //! minimums.
@@ -10,11 +9,10 @@
 
 use gpui_kit::component::{Theme, ThemeRegistry, oklch};
 use gpui_kit::{App, Rgba};
-use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use crate::config::Config;
-use crate::design::{self, Design};
+use crate::design;
 
 /// Theme names as in the JSON's `"name"`, also the Settings labels. First is the default.
 pub const NAMES: [&str; 4] = ["Raptor Night", "Stego Moss", "Plesio Lagoon", "Fossil Bone"];
@@ -153,30 +151,6 @@ fn kit_file() -> String {
     file.to_string()
 }
 
-/// The parts of the theme file gpui-kit ignores: each theme's `"design"`.
-#[derive(Deserialize)]
-struct DesignSet {
-    themes: Vec<ThemeDesign>,
-}
-
-#[derive(Deserialize)]
-struct ThemeDesign {
-    name: String,
-    #[serde(default)]
-    design: Design,
-}
-
-/// Design of bundled theme `name`; the shared defaults when it sets none. Parsed once.
-fn design_of(name: &str) -> Design {
-    static SET: std::sync::OnceLock<DesignSet> = std::sync::OnceLock::new();
-    SET.get_or_init(|| serde_json::from_str(FILE).expect("bundled theme file must parse"))
-        .themes
-        .iter()
-        .find(|t| t.name == name)
-        .map(|t| t.design)
-        .unwrap_or_default()
-}
-
 /// Registers the bundled themes and activates `name`, or the default when `None` or unknown.
 pub fn init(name: Option<&str>, cx: &mut App) {
     ThemeRegistry::global_mut(cx)
@@ -193,8 +167,7 @@ pub fn apply(name: &str, cx: &mut App) {
         .get(name)
         .cloned()
         .unwrap_or_else(|| panic!("theme {name:?} not found among registered themes"));
-    let design = design_of(name);
-    design::set(design);
+    let design = design::tokens();
     // gpui-kit's own sizes follow the design: its controls use text-sm (0.875rem), so
     // rem is set to make that the body size; both kit radii are the one radius
     let kit = std::rc::Rc::make_mut(&mut config);
@@ -210,14 +183,18 @@ pub fn apply(name: &str, cx: &mut App) {
 
 #[cfg(test)]
 mod tests {
-    use super::{DesignSet, FILE, NAMES, ROLES, hex};
+    use super::{FILE, ROLES, hex};
 
+    /// Design tokens are constants; a `"design"` key would be silently ignored.
     #[test]
-    fn every_bundled_theme_has_a_design() {
-        let set: DesignSet = serde_json::from_str(FILE).expect("theme file parses");
-        for name in NAMES {
-            let theme = set.themes.iter().find(|t| t.name == name).expect(name);
-            assert!(theme.design.spacing > 0., "{name} spacing");
+    fn themes_set_no_design() {
+        let file: serde_json::Value = serde_json::from_str(FILE).expect("theme file parses");
+        for theme in file["themes"].as_array().expect("themes array") {
+            assert!(
+                theme.get("design").is_none(),
+                "{} sets design",
+                theme["name"]
+            );
         }
     }
 

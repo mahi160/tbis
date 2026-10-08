@@ -1,25 +1,19 @@
 //! Design tokens: the single source UI code reads for every visual value. Each theme in
-//! `assets/themes/tbis.json` carries its whole look: eight color roles and font
-//! families, plus a `"design"` object (parsed into [`Design`]). The system is small on
-//! purpose and the same for every theme: three type sizes (`text`), one corner radius
-//! (`radius`), three gaps (`gap`), and component heights. Missing keys fall back to the
-//! defaults below; unknown keys are rejected. `theme::apply` installs the active
-//! `Design` and derives gpui-kit's own font size, radii and colors from it. Only this
-//! file reads `cx.theme()` for visuals.
+//! `assets/themes/tbis.json` sets only colors and font families; everything else is
+//! the constant [`tokens`], the same for every theme. The system is small on purpose:
+//! three type sizes (`text`), one corner radius (`radius`), three gaps (`gap`), and
+//! component heights. `theme::apply` derives gpui-kit's own font size and radii from
+//! it. Only this file reads `cx.theme()` for visuals.
 //!
 //! Spacing between and inside things is always a `gap`. Fixed dimensions (control
-//! heights, poster widths) are multiples of the theme's spacing unit: `sp(n)`.
-
-use std::sync::RwLock;
+//! heights, poster widths) are multiples of the spacing unit: `sp(n)`.
 
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::*;
-use serde::Deserialize;
 
-/// A theme's non-color look, from its `"design"` object. `spacing`, `text`, `radius`
+/// The non-color look, shared by every theme. `spacing`, `text`, `radius`
 /// and `gap` are px; recipe sizes are spacing units.
-#[derive(Clone, Copy, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy)]
 pub struct Design {
     pub spacing: f32,
     pub text: TextScale,
@@ -35,12 +29,11 @@ pub struct Design {
     pub icon: IconRecipe,
     pub progress_height: f32,
     /// gpui-kit size of the tab strips.
-    pub tabs: KitSize,
+    pub tabs: gpui_kit::component::Size,
 }
 
 /// The three type sizes.
-#[derive(Clone, Copy, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy)]
 pub struct TextScale {
     /// Secondary details: years, episode labels, badges, descriptions.
     pub meta: f32,
@@ -51,8 +44,7 @@ pub struct TextScale {
 }
 
 /// The three gaps, px.
-#[derive(Clone, Copy, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy)]
 pub struct Gaps {
     /// Inside a control: icon to label, title to its meta line.
     pub tight: f32,
@@ -65,38 +57,14 @@ pub struct Gaps {
 }
 
 /// Icon sizes in spacing units.
-#[derive(Clone, Copy, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy)]
 pub struct IconRecipe {
     pub sm: f32,
     pub default: f32,
 }
 
-/// A gpui-kit size step, for components themed only through gpui-kit's own sizes.
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum KitSize {
-    Xs,
-    Sm,
-    Md,
-    Lg,
-}
-
-impl KitSize {
-    pub fn kit(self) -> gpui_kit::component::Size {
-        use gpui_kit::component::Size;
-        match self {
-            Self::Xs => Size::XSmall,
-            Self::Sm => Size::Small,
-            Self::Md => Size::Medium,
-            Self::Lg => Size::Large,
-        }
-    }
-}
-
 /// Heights per button size; icon-only buttons are squares.
-#[derive(Clone, Copy, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy)]
 pub struct ButtonRecipe {
     pub xs: f32,
     pub sm: f32,
@@ -106,107 +74,68 @@ pub struct ButtonRecipe {
     pub icon: f32,
 }
 
-#[derive(Clone, Copy, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy)]
 pub struct InputRecipe {
     pub height: f32,
 }
 
-#[derive(Clone, Copy, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy)]
 pub struct BadgeRecipe {
     pub height: f32,
 }
 
-#[derive(Clone, Copy, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy)]
 pub struct AvatarRecipe {
     pub default: f32,
     pub lg: f32,
 }
 
-#[derive(Clone, Copy, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy)]
 pub struct KbdRecipe {
     pub size: f32,
 }
 
-impl Default for Design {
-    fn default() -> Self {
-        Self {
-            spacing: 4.,
-            text: TextScale {
-                meta: 11.,
-                body: 12.,
-                title: 20.,
-            },
-            radius: 8.,
-            gap: Gaps {
-                tight: 4.,
-                item: 8.,
-                group: 16.,
-                page: 24.,
-            },
-            shadow_opacity: 0.1,
-            button: ButtonRecipe {
-                xs: 6.,
-                sm: 7.,
-                default: 8.,
-                lg: 9.,
-                icon_xs: 6.,
-                icon: 8.,
-            },
-            input: InputRecipe { height: 8. },
-            badge: BadgeRecipe { height: 5. },
-            avatar: AvatarRecipe {
-                default: 8.,
-                lg: 10.,
-            },
-            kbd: KbdRecipe { size: 5. },
-            icon: IconRecipe {
-                sm: 3.,
-                default: 4.,
-            },
-            progress_height: 1.,
-            tabs: KitSize::Md,
-        }
-    }
-}
+const TOKENS: Design = Design {
+    spacing: 4.,
+    text: TextScale {
+        meta: 11.,
+        body: 12.,
+        title: 20.,
+    },
+    radius: 8.,
+    gap: Gaps {
+        tight: 4.,
+        item: 8.,
+        group: 16.,
+        page: 24.,
+    },
+    shadow_opacity: 0.1,
+    button: ButtonRecipe {
+        xs: 6.,
+        sm: 7.,
+        default: 8.,
+        lg: 9.,
+        icon_xs: 6.,
+        icon: 8.,
+    },
+    input: InputRecipe { height: 8. },
+    badge: BadgeRecipe { height: 5. },
+    avatar: AvatarRecipe {
+        default: 8.,
+        lg: 10.,
+    },
+    kbd: KbdRecipe { size: 5. },
+    icon: IconRecipe {
+        sm: 3.,
+        default: 4.,
+    },
+    progress_height: 1.,
+    tabs: gpui_kit::component::Size::Medium,
+};
 
-macro_rules! default_parts {
-    ($($ty:ident . $field:ident),* $(,)?) => {
-        $(impl Default for $ty {
-            fn default() -> Self {
-                Design::default().$field
-            }
-        })*
-    };
-}
-
-default_parts!(
-    TextScale.text,
-    Gaps.gap,
-    ButtonRecipe.button,
-    InputRecipe.input,
-    BadgeRecipe.badge,
-    AvatarRecipe.avatar,
-    KbdRecipe.kbd,
-    IconRecipe.icon,
-);
-
-static ACTIVE: RwLock<Option<Design>> = RwLock::new(None);
-
-/// Installs the active theme's design; `theme::apply` calls this before redrawing.
-pub fn set(design: Design) {
-    *ACTIVE.write().unwrap_or_else(|e| e.into_inner()) = Some(design);
-}
-
-/// The active theme's design (defaults before any theme is applied).
-pub fn tokens() -> Design {
-    ACTIVE
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .unwrap_or_default()
+/// The design tokens.
+pub const fn tokens() -> Design {
+    TOKENS
 }
 
 /// `n` spacing units: fixed dimensions only; spacing between things is a `gap`.

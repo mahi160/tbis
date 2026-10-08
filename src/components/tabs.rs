@@ -15,7 +15,7 @@ pub fn tabs(
 ) -> TabBar {
     TabBar::new(id)
         .segmented()
-        .with_size(crate::design::tokens().tabs.kit())
+        .with_size(crate::design::tokens().tabs)
         .children(labels.into_iter().map(|label| label.into()))
         .selected_index(selected)
         .on_click(on_click)
