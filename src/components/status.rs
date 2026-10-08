@@ -31,8 +31,18 @@ fn skeleton_grid() -> AnyElement {
                 .w(width)
                 .gap(gap::item())
                 .child(Skeleton::new().w(width).h(width * 1.5).rounded(radius))
-                .child(Skeleton::new().h(text::body()).w(relative(0.75)).rounded(radius))
-                .child(Skeleton::new().h(text::meta()).w(relative(0.4)).rounded(radius))
+                .child(
+                    Skeleton::new()
+                        .h(text::body())
+                        .w(relative(0.75))
+                        .rounded(radius),
+                )
+                .child(
+                    Skeleton::new()
+                        .h(text::meta())
+                        .w(relative(0.4))
+                        .rounded(radius),
+                )
         }))
         .into_any_element()
 }
@@ -157,10 +167,7 @@ pub fn inline_status(status: Option<Status>, cx: &App) -> Option<AnyElement> {
             .text_color(muted_fg)
             .child("Loading…")
             .into_any_element(),
-        Status::Empty(message) => div()
-            .text_color(muted_fg)
-            .child(message)
-            .into_any_element(),
+        Status::Empty(message) => div().text_color(muted_fg).child(message).into_any_element(),
         Status::Error(message) => div()
             .text_size(text::body())
             .text_color(danger)

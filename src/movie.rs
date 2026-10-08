@@ -7,9 +7,9 @@ use crate::components::layout::scroll_page;
 use crate::components::status::{Status, inline_status};
 use crate::components::toggle_button::toggle_button;
 use crate::components::typography::{caption, paragraph, title};
+use crate::design::{gap, size};
 use crate::detail::{self, Toggle, UserDataView};
 use crate::jellyfin::{Api, Item, Kind, UserData, episode_code};
-use crate::design::{gap, size};
 use crate::nav::Nav;
 
 /// Movie or Episode detail: art, title, meta, overview, and a Play/Resume button.

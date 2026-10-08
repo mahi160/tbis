@@ -127,7 +127,7 @@ fn main() {
                 let options = WindowOptions {
                     window_bounds: Some(window_bounds),
                     window_min_size: Some(min),
-                    // recentre traffic lights in 40px title bar (app.rs)
+                    // recentre traffic lights in 52px title bar (app.rs)
                     titlebar: Some(TitlebarOptions {
                         traffic_light_position: Some(design::window::TRAFFIC_LIGHTS),
                         ..TitleBar::title_bar_options()

@@ -1,7 +1,7 @@
 //! Watched/Favorite icon button; `selected` while the flag is set.
 
-use gpui_kit::component::button::Button;
 use gpui_kit::component::Icon;
+use gpui_kit::component::button::Button;
 use gpui_kit::*;
 
 use super::button::{GhostState as _, icon_button};

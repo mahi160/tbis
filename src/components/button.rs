@@ -29,8 +29,9 @@ pub trait GhostState: Sized {
 
 impl GhostState for Button {
     fn ghost_disabled(self, disabled: bool, cx: &App) -> Self {
-        self.disabled(disabled)
-            .when(disabled, |b| b.text_color(color::muted_foreground(cx).opacity(0.5)))
+        self.disabled(disabled).when(disabled, |b| {
+            b.text_color(color::muted_foreground(cx).opacity(0.5))
+        })
     }
     fn ghost_selected(self, selected: bool, cx: &App) -> Self {
         self.selected(selected)
@@ -47,7 +48,11 @@ fn ghost(button: Button, cx: &App) -> Button {
 /// Text button `h` spacing units tall. gpui-kit Medium draws text-sm, which
 /// `theme::apply` makes the body size, so every size shares it.
 fn text_size(button: Button, h: f32) -> Button {
-    Styled::h(button.with_size(Size::Medium), text::fit(h, text::body(), px(0.))).px(gap::item())
+    Styled::h(
+        button.with_size(Size::Medium),
+        text::fit(h, text::body(), px(0.)),
+    )
+    .px(gap::item())
 }
 
 /// Icon-only button, `n` units square.
@@ -135,7 +140,9 @@ fn plain_icon(id: impl Into<ElementId>, icon: impl Into<Icon>) -> Button {
 /// Round ghost icon button, for the Player's bars.
 pub fn round_icon(id: impl Into<ElementId>, icon: impl Into<Icon>) -> Button {
     // white: bars sit on video, never on theme background
-    plain_icon(id, icon).rounded(radius::base()).text_color(overlay::WHITE)
+    plain_icon(id, icon)
+        .rounded(radius::base())
+        .text_color(overlay::WHITE)
 }
 
 /// `round_icon` with an SVG from `assets/icons`.

@@ -11,10 +11,10 @@ use crate::components::section::section;
 use crate::components::status::{Status, empty_panel, inline_status};
 use crate::components::typography::title;
 use crate::components::{OnClick, card};
+use crate::design::{gap, size};
 use crate::jellyfin::{Api, Item, Kind};
 use crate::library::LibraryView;
 use crate::nav::Nav;
-use crate::design::{gap, size};
 
 const MIN_CHARS: usize = 2;
 const DEBOUNCE: Duration = Duration::from_millis(250);
@@ -156,7 +156,8 @@ impl SearchView {
     }
 
     fn recent_section(&self, cx: &mut Context<Self>) -> AnyElement {
-        let clear = ghost_button("clear-recent", "Clear", cx).xs()
+        let clear = ghost_button("clear-recent", "Clear", cx)
+            .xs()
             .on_click(cx.listener(|this, _, _, cx| {
                 this.recent.clear();
                 cx.emit(SearchEvent::RecentChanged(Vec::new()));

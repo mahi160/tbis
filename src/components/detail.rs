@@ -132,13 +132,7 @@ pub fn cast_row(api: &Api, item: &Item, cx: &App) -> Option<AnyElement> {
         v_flex()
             .gap(gap::group())
             .child(typography::heading("Cast"))
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap(gap::group())
-                    .children(actors),
-            )
+            .child(div().flex().flex_wrap().gap(gap::group()).children(actors))
             .into_any_element(),
     )
 }

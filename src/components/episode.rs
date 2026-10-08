@@ -90,12 +90,7 @@ pub fn episode_result(
     let muted_fg = color::muted_foreground(cx);
     item(id.into(), ItemSize::Sm, cx)
         .on_click(on_open)
-        .child(art::thumb(
-            still,
-            sp(40.),
-            sp(22.5),
-            cx,
-        ))
+        .child(art::thumb(still, sp(40.), sp(22.5), cx))
         .child(
             v_flex()
                 .min_w_0()

@@ -286,7 +286,6 @@ impl AudioStyle {
 }
 
 /// Seconds per seek: `short` for arrows (and media keys), `long` for Option+arrows.
-
 /// Also an app global, so the Player and shortcuts help read the live values.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SeekSteps {

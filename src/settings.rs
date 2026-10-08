@@ -6,9 +6,7 @@ use gpui_kit::*;
 
 use crate::components::button::icon_button;
 use crate::components::layout::{grow, page_header};
-use crate::components::settings::{
-    SettingField, SettingGroup, SettingItem, SettingPage, settings,
-};
+use crate::components::settings::{SettingField, SettingGroup, SettingItem, SettingPage, settings};
 use crate::config::{
     AudioStyle, Config, DebandLevel, HdrStyle, HideSpoilers, LanguagePref, SeekSteps,
     SubtitleStyle, ToneMapCurve,

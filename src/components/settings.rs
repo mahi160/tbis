@@ -26,7 +26,11 @@ type Set<T> = Rc<dyn Fn(T, &mut App)>;
 /// The control on a setting's row.
 pub enum SettingField {
     /// `(value, label)` options; `get` is the current value.
-    Dropdown(Vec<(SharedString, SharedString)>, Get<SharedString>, Set<SharedString>),
+    Dropdown(
+        Vec<(SharedString, SharedString)>,
+        Get<SharedString>,
+        Set<SharedString>,
+    ),
     Switch(Get<bool>, Set<bool>),
 }
 
@@ -299,7 +303,11 @@ impl RenderOnce for Settings {
         });
         let (selected, selected_group, search) = {
             let s = state.read(cx);
-            (s.page.min(self.pages.len().saturating_sub(1)), s.group, s.search.clone())
+            (
+                s.page.min(self.pages.len().saturating_sub(1)),
+                s.group,
+                s.search.clone(),
+            )
         };
         let query = search.read(cx).value().to_lowercase();
 
@@ -356,14 +364,21 @@ impl RenderOnce for Settings {
                 .iter()
                 .enumerate()
                 .flat_map(|(p, page)| {
-                    page.groups.iter().enumerate().map(move |(g, group)| (p, g, group))
+                    page.groups
+                        .iter()
+                        .enumerate()
+                        .map(move |(g, group)| (p, g, group))
                 })
                 .filter_map(|(p, g, group)| {
                     let group_hit = group
                         .title
                         .as_ref()
                         .is_some_and(|t| t.to_lowercase().contains(&query));
-                    group.render(&format!("s-{p}-{g}"), |item| group_hit || item.matches(&query), cx)
+                    group.render(
+                        &format!("s-{p}-{g}"),
+                        |item| group_hit || item.matches(&query),
+                        cx,
+                    )
                 })
                 .collect()
         };

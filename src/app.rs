@@ -5,7 +5,6 @@ use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{IconName, Root, TitleBar, WindowExt as _};
 use gpui_kit::*;
 
-use crate::design;
 use crate::components::button::{avatar_button, surface_icon_button};
 use crate::components::dialog::vega_dialog;
 use crate::components::input::search_input;
@@ -13,6 +12,7 @@ use crate::components::layout::{grow, screen};
 use crate::components::tabs::tabs;
 use crate::components::title_bar::app_title_bar;
 use crate::config::{self, Config, WindowState};
+use crate::design;
 use crate::home::HomeView;
 use crate::jellyfin::{Api, Item, Kind, Session};
 use crate::library::{LibraryView, SortChanged};
@@ -651,8 +651,8 @@ impl AppView {
             selected.unwrap_or(usize::MAX),
             cx.listener(|this, index: &usize, window, cx| this.select_tab(*index, window, cx)),
         );
-        let user_menu = avatar_button("user-menu", user_name.clone(), cx)
-            .dropdown_menu(move |menu, _, _| {
+        let user_menu =
+            avatar_button("user-menu", user_name.clone(), cx).dropdown_menu(move |menu, _, _| {
                 let this = this.clone();
                 let settings = this.clone();
                 let updates = this.clone();

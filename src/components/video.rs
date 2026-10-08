@@ -36,13 +36,7 @@ pub fn bottom_bar(content: impl IntoElement) -> Div {
             linear_color_stop(black(0.78), 0.),
             linear_color_stop(overlay::CLEAR, 1.),
         ))
-        .child(
-            v_flex()
-                .w_full()
-                .max_w(sp(272.))
-                .mx_auto()
-                .child(content),
-        )
+        .child(v_flex().w_full().max_w(sp(272.)).mx_auto().child(content))
 }
 
 /// Title over an optional mono subtitle.
@@ -230,12 +224,7 @@ pub fn hover_reveal(
 }
 
 /// Scrub-preview tile cropped from a sprite sheet at `offset` px, already scaled.
-pub fn sprite_thumb(
-    url: String,
-    tile: Size<f32>,
-    sprite: Size<f32>,
-    offset: Point<f32>,
-) -> Div {
+pub fn sprite_thumb(url: String, tile: Size<f32>, sprite: Size<f32>, offset: Point<f32>) -> Div {
     div()
         .w(px(tile.width))
         .h(px(tile.height))

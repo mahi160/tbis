@@ -3,8 +3,7 @@
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::slider::{Slider, SliderEvent};
 use gpui_kit::component::{
-    Disableable as _, Icon, Selectable as _, WindowExt as _,
-    h_flex, v_flex,
+    Disableable as _, Icon, Selectable as _, WindowExt as _, h_flex, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -39,7 +38,6 @@ use super::{
 
 const INFO_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 const SPEEDS: [f64; 7] = [0.5, 0.75, 1., 1.25, 1.5, 1.75, 2.];
-/// Displayed width of the scrub-preview thumbnail; the sprite sheet scales to fit.
 
 impl PlayerView {
     pub(super) fn sync_seek_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -623,7 +621,8 @@ impl PlayerView {
                 url,
                 size(tile_w, tile_h),
                 size(sprite_w, sprite_h),
-                point(x as f32 * scale, y as f32 * scale))
+                point(x as f32 * scale, y as f32 * scale),
+            )
             .into_any_element(),
         )
     }
@@ -843,7 +842,8 @@ impl Render for PlayerView {
                         "icons/play.svg"
                     } else {
                         "icons/pause.svg"
-                    })
+                    },
+                )
                 .on_click(
                     cx.listener(|this, _, window, cx| this.toggle_pause(&TogglePause, window, cx)),
                 ),
@@ -904,7 +904,8 @@ impl Render for PlayerView {
                         "icons/minimize.svg"
                     } else {
                         "icons/maximize.svg"
-                    })
+                    },
+                )
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.toggle_fullscreen(&ToggleFullscreen, window, cx)
                 })),
@@ -959,19 +960,17 @@ impl Render for PlayerView {
                     .child(
                         h_flex()
                             .gap(gap::item())
-                            .child(
-                                primary_button("up-next-play", "Play now")
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.play_next_now(&PlayNext, window, cx)
-                                    })),
-                            )
-                            .child(
-                                ghost_button("up-next-cancel", "Cancel", cx)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.playback.next_cancelled = true;
-                                        this.refocus(window, cx);
-                                    })),
-                            ),
+                            .child(primary_button("up-next-play", "Play now").on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.play_next_now(&PlayNext, window, cx)
+                                }),
+                            ))
+                            .child(ghost_button("up-next-cancel", "Cancel", cx).on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.playback.next_cancelled = true;
+                                    this.refocus(window, cx);
+                                }),
+                            )),
                     ),
             )
         });

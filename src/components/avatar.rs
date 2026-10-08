@@ -8,7 +8,12 @@ use crate::design::{color, radius, sp, text};
 
 /// Photo at `size`; initials of `name` while missing or failing to load.
 /// Rounded on the `img` itself: a wrapper's `overflow_hidden` clips only to a rectangle.
-pub fn avatar(url: Option<String>, name: impl Into<SharedString>, size: Pixels, cx: &App) -> AnyElement {
+pub fn avatar(
+    url: Option<String>,
+    name: impl Into<SharedString>,
+    size: Pixels,
+    cx: &App,
+) -> AnyElement {
     let name: SharedString = name.into();
     let initials: SharedString = name
         .split_whitespace()
@@ -19,7 +24,12 @@ pub fn avatar(url: Option<String>, name: impl Into<SharedString>, size: Pixels, 
         .into();
     let (muted, muted_fg) = (color::muted(cx), color::muted_foreground(cx));
     // cap: big type scale must not overflow small avatar
-    let font = if size >= sp(8.) { text::body() } else { text::meta() }.min(size * 0.45);
+    let font = if size >= sp(8.) {
+        text::body()
+    } else {
+        text::meta()
+    }
+    .min(size * 0.45);
     let fallback = move || {
         div()
             .size(size)

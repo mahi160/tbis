@@ -314,7 +314,7 @@ pub mod text {
 
 /// Icon sizes, from the theme's `icon` recipe.
 pub mod icon {
-    use super::{sp, tokens, Pixels};
+    use super::{Pixels, sp, tokens};
 
     pub fn sm() -> Pixels {
         sp(tokens().icon.sm)

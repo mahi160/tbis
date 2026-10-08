@@ -73,7 +73,7 @@ pub fn check_badge(cx: &App) -> Div {
 pub fn progress_bar(id: impl Into<ElementId>, percent: f64, cx: &App) -> Progress {
     Progress::new(id)
         .with_size(gpui_kit::component::Size::Size(sp(
-            crate::design::tokens().progress_height,
+            crate::design::tokens().progress_height
         )))
         .value(percent as f32)
         .color(color::primary(cx))

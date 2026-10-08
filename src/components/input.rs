@@ -11,13 +11,16 @@ use crate::design::{color, gap, icon, input_bg, radius, shadow, sp, text, tokens
 /// Input `height` spacing units tall.
 fn input(state: &Entity<InputState>, height: f32, cx: &App) -> Input {
     // Input::h is its own multi-line height; Styled::h sets the box
-    Styled::h(Input::new(state), text::fit(height, text::body(), gap::tight()))
-        .px(gap::item())
-        .py(gap::tight())
-        .rounded(radius::base())
-        .bg(input_bg(cx))
-        .shadow(shadow::xs())
-        .text_size(text::body())
+    Styled::h(
+        Input::new(state),
+        text::fit(height, text::body(), gap::tight()),
+    )
+    .px(gap::item())
+    .py(gap::tight())
+    .rounded(radius::base())
+    .bg(input_bg(cx))
+    .shadow(shadow::xs())
+    .text_size(text::body())
 }
 
 /// Field: label (medium weight, `leading-none`) above the input.

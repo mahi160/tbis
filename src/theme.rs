@@ -110,7 +110,10 @@ const KIT_KEYS: [(&str, &str); 44] = [
 /// `#rrggbb` for a role value: hex as is, `oklch(L C H)` converted (gpui-kit reads
 /// only hex and palette names).
 fn hex(value: &str) -> String {
-    let Some(args) = value.strip_prefix("oklch(").and_then(|v| v.strip_suffix(')')) else {
+    let Some(args) = value
+        .strip_prefix("oklch(")
+        .and_then(|v| v.strip_suffix(')'))
+    else {
         return value.to_owned();
     };
     let [l, c, h] = [0, 1, 2].map(|i| {
@@ -139,7 +142,11 @@ fn kit_file() -> String {
             .map(|(kit, r)| (kit.to_string(), Value::from(role(r))))
             .collect();
         // light knob on dark tracks; on light themes the raised surface
-        let thumb = role(if dark { "foreground" } else { "surface.background" });
+        let thumb = role(if dark {
+            "foreground"
+        } else {
+            "surface.background"
+        });
         colors.insert("switch.thumb.background".into(), thumb.into());
         theme["colors"] = Value::Object(colors);
     }
@@ -225,7 +232,11 @@ mod tests {
     fn luminance(hex: &str) -> f64 {
         let channel = |i: usize| {
             let c = f64::from(u8::from_str_radix(&hex[i..i + 2], 16).expect("hex color")) / 255.;
-            if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
         };
         0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5)
     }
@@ -260,7 +271,11 @@ mod tests {
             let color = |role: &str| hex(theme["colors"][role].as_str().expect(role));
             for (a, b, min) in PAIRS {
                 let ratio = contrast(&color(a), &color(b));
-                assert!(ratio >= min, "{}: {a} on {b} is {ratio:.2}, needs {min}", theme["name"]);
+                assert!(
+                    ratio >= min,
+                    "{}: {a} on {b} is {ratio:.2}, needs {min}",
+                    theme["name"]
+                );
             }
         }
     }
@@ -274,7 +289,11 @@ mod tests {
                 assert!(colors.contains_key(role), "{} misses {role}", theme["name"]);
             }
             for key in colors.keys() {
-                assert!(ROLES.contains(&key.as_str()), "{} sets non-role {key}", theme["name"]);
+                assert!(
+                    ROLES.contains(&key.as_str()),
+                    "{} sets non-role {key}",
+                    theme["name"]
+                );
             }
         }
     }
