@@ -9,7 +9,7 @@ use super::art;
 use super::list::{ItemSize, item};
 use super::tag::star_rating;
 use super::typography::paragraph;
-use crate::design::{color, gap, icon, radius, sp, text};
+use crate::design::{color, gap, icon, sp, text};
 
 /// What an Episode row shows; the page decides spoilers and formatting.
 pub struct EpisodeRow {
@@ -32,20 +32,13 @@ pub fn episode_row(
     trailing: impl IntoElement,
     cx: &App,
 ) -> AnyElement {
-    let (muted, muted_fg) = (color::muted(cx), color::muted_foreground(cx));
+    let muted_fg = color::muted_foreground(cx);
     item(row.id.clone(), ItemSize::Sm, cx)
         .on_click(on_open)
         .child(
-            div()
+            art::art_tile("episode-still", sp(48.), sp(27.), cx)
                 .id(ElementId::Name(format!("episode-play-{}", row.id).into()))
-                .group("episode-still")
-                .relative()
-                .w(sp(48.))
-                .h(sp(27.))
                 .flex_shrink_0()
-                .rounded(radius::base())
-                .overflow_hidden()
-                .bg(muted)
                 .on_click(on_play)
                 .child(art::image(row.still, cx))
                 .child(art::play_scrim("episode-still", cx))

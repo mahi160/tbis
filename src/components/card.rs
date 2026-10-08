@@ -18,11 +18,11 @@ fn poster_art(
     on_play: Option<OnClick>,
     cx: &App,
 ) -> AnyElement {
-    art_tile(width, width * 1.5, cx)
+    art_tile("poster-art", width, width * 1.5, cx)
         .id(ElementId::Name(format!("poster-art-{}", item.id).into()))
         .child(image(api.poster_url(item), cx))
         .when_some(on_play, |this, on_play| {
-            this.on_click(on_play).child(play_scrim("card", cx))
+            this.on_click(on_play).child(play_scrim("poster-art", cx))
         })
         .when(item.user_data.played, |this| this.child(check_badge(cx)))
         .into_any_element()
@@ -76,14 +76,16 @@ pub fn poster_card(
         Some(on_open) => title
             .hover(|this| this.text_color(primary))
             .on_click(on_open),
-        None => title.group_hover("card", |this| this.text_color(primary)),
+        None => title.group_hover("poster", |this| this.text_color(primary)),
     };
     v_flex()
         .id(SharedString::from(item.id.clone()))
         .w(width)
         .gap(gap::item())
         .cursor_pointer()
-        .when_some(card_click, |this, on_open| this.on_click(on_open))
+        .when_some(card_click, |this, on_open| {
+            this.group("poster").on_click(on_open)
+        })
         .child(poster_art(api, item, width, on_play, cx))
         .child(caption_stack(title, poster_meta(item, cx)))
         .into_any_element()
@@ -117,12 +119,12 @@ pub fn wide_card(
         .flex_shrink_0()
         .gap(gap::item())
         .child(
-            art_tile(width, width * (9. / 16.), cx)
+            art_tile("wide-art", width, width * (9. / 16.), cx)
                 .id(ElementId::Name(format!("wide-art-{}", item.id).into()))
                 .cursor_pointer()
                 .on_click(on_play)
                 .child(image(still, cx))
-                .child(play_scrim("card", cx))
+                .child(play_scrim("wide-art", cx))
                 .when_some(
                     item.user_data.played_percentage.filter(|p| *p > 0.),
                     |this, p| {

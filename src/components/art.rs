@@ -9,11 +9,12 @@ use super::logo::logo_mark;
 use crate::design::overlay::black;
 use crate::design::{color, gap, icon, opacity, radius, shadow, sp};
 
-/// Poster/thumbnail base: relative, rounded, clipped, lifts on hover.
-/// `group` scopes the hover to this one card, not every card sharing the name.
-pub fn art_tile(width: Pixels, height: Pixels, cx: &App) -> Div {
+/// Poster/thumbnail base: relative, rounded, clipped, lifts while `group` is hovered.
+/// gpui resolves `group` to the nearest ancestor of that name, so each tile hovers alone;
+/// pass the same name to its `play_scrim`.
+pub fn art_tile(group: &'static str, width: Pixels, height: Pixels, cx: &App) -> Div {
     div()
-        .group("card")
+        .group(group)
         .relative()
         .w(width)
         .h(height)
@@ -21,7 +22,7 @@ pub fn art_tile(width: Pixels, height: Pixels, cx: &App) -> Div {
         .overflow_hidden()
         .bg(color::muted(cx))
         .shadow(shadow::sm())
-        .group_hover("card", |this| this.shadow(shadow::lg()))
+        .group_hover(group, |this| this.shadow(shadow::lg()))
 }
 
 /// Centered play button that fades in over the art while `group` is hovered
