@@ -197,6 +197,7 @@ impl SearchView {
                 &self.api,
                 item,
                 size::poster_min_w(),
+                None,
                 on_click,
                 cx,
             ));

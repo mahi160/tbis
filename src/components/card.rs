@@ -10,7 +10,7 @@ use crate::config::HideSpoilers;
 use crate::design::{color, gap, text};
 use crate::jellyfin::{Api, Item, Kind};
 
-/// Art tile shared by `poster_card` and `poster_card_playable`; `on_play` wires the art's own
+/// `poster_card` art; `on_play` wires the art's own
 /// click (and play scrim) when the poster itself should start playback.
 fn poster_art(
     api: &Api,
@@ -29,7 +29,7 @@ fn poster_art(
         .into_any_element()
 }
 
-/// Year row shared by `poster_card` and `poster_card_playable`.
+/// `poster_card` year row.
 fn poster_meta(item: &Item, cx: &App) -> AnyElement {
     div()
         .h(text::line(text::meta()))
@@ -50,66 +50,43 @@ fn caption_stack(title: impl IntoElement, meta: impl IntoElement) -> Div {
 }
 
 /// 2:3 poster, title, year; check badge when played. Fixed height so grid rows stay uniform.
-/// The whole card opens the detail page.
+/// With `on_play` the art plays and only the title opens (Home's Movies/Series rows);
+/// without it the whole card opens (`on_open`).
 pub fn poster_card(
     api: &Api,
     item: &Item,
     width: Pixels,
+    on_play: Option<OnClick>,
     on_open: OnClick,
     cx: &App,
 ) -> AnyElement {
     let primary = color::primary(cx);
     let name: SharedString = item.name.clone().into();
+    let (title_click, card_click) = match on_play {
+        Some(_) => (Some(on_open), None),
+        None => (None, Some(on_open)),
+    };
+    let title = div()
+        .id(ElementId::Name(format!("poster-title-{}", item.id).into()))
+        .h(text::line(text::body()))
+        .line_height(text::line(text::body()))
+        .text_size(text::body())
+        .truncate()
+        .child(name);
+    let title = match title_click {
+        Some(on_open) => title
+            .hover(|this| this.text_color(primary))
+            .on_click(on_open),
+        None => title.group_hover("card", |this| this.text_color(primary)),
+    };
     v_flex()
         .id(SharedString::from(item.id.clone()))
         .w(width)
         .gap(gap::item())
         .cursor_pointer()
-        .on_click(on_open)
-        .child(poster_art(api, item, width, None, cx))
-        .child(caption_stack(
-            div()
-                .h(text::line(text::body()))
-                .line_height(text::line(text::body()))
-                .text_size(text::body())
-                .truncate()
-                .group_hover("card", |this| this.text_color(primary))
-                .child(name),
-            poster_meta(item, cx),
-        ))
-        .into_any_element()
-}
-
-/// As `poster_card`, but the art plays (`on_play`) and only the title opens (`on_open`) — for
-/// rows where clicking the poster itself should start playback (Home's Movies/Series rows).
-pub fn poster_card_playable(
-    api: &Api,
-    item: &Item,
-    width: Pixels,
-    on_play: OnClick,
-    on_open: OnClick,
-    cx: &App,
-) -> AnyElement {
-    let primary = color::primary(cx);
-    let name: SharedString = item.name.clone().into();
-    v_flex()
-        .id(SharedString::from(item.id.clone()))
-        .w(width)
-        .gap(gap::item())
-        .cursor_pointer()
-        .child(poster_art(api, item, width, Some(on_play), cx))
-        .child(caption_stack(
-            div()
-                .id(ElementId::Name(format!("poster-title-{}", item.id).into()))
-                .h(text::line(text::body()))
-                .line_height(text::line(text::body()))
-                .text_size(text::body())
-                .truncate()
-                .hover(|this| this.text_color(primary))
-                .on_click(on_open)
-                .child(name),
-            poster_meta(item, cx),
-        ))
+        .when_some(card_click, |this, on_open| this.on_click(on_open))
+        .child(poster_art(api, item, width, on_play, cx))
+        .child(caption_stack(title, poster_meta(item, cx)))
         .into_any_element()
 }
 

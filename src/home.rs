@@ -310,7 +310,7 @@ impl Render for HomeView {
                 .map(|item| {
                     let on_play = self.poster_play_on_click(item, cx);
                     let on_open = Self::open_on_click(item, cx);
-                    card::poster_card_playable(&api, item, size::poster_w(), on_play, on_open, cx)
+                    card::poster_card(&api, item, size::poster_w(), Some(on_play), on_open, cx)
                 })
                 .collect()
         };
