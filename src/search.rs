@@ -6,7 +6,7 @@ use gpui_kit::*;
 
 use crate::components::button::{VegaSize as _, ghost_button};
 use crate::components::episode::{episode_result, recent_query};
-use crate::components::layout::{centered, header_row, scroll_page, wrap_grid};
+use crate::components::layout::{card_grid, centered, header_row, poster_columns, scroll_page};
 use crate::components::section::section;
 use crate::components::status::{Status, empty_panel, inline_status};
 use crate::components::typography::section_heading;
@@ -185,6 +185,7 @@ impl SearchView {
         &self,
         title: &'static str,
         items: &[Item],
+        (columns, card_width): (usize, Pixels),
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let mut cards = Vec::with_capacity(items.len());
@@ -198,15 +199,10 @@ impl SearchView {
                 cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Play(item_.clone()))),
             );
             cards.push(card::poster_card(
-                &self.api,
-                item,
-                size::poster_min_w(),
-                on_play,
-                on_click,
-                cx,
+                &self.api, item, card_width, on_play, on_click, cx,
             ));
         }
-        section(title, wrap_grid(cards))
+        section(title, card_grid(cards, columns))
     }
 
     fn episode_section(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -240,7 +236,8 @@ fn merge(mut shown: Vec<Item>, server: Vec<Item>) -> Vec<Item> {
 }
 
 impl Render for SearchView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let grid = poster_columns(window);
         let short = self.query.chars().count() < MIN_CHARS;
         let message = if short && self.query.is_empty() && self.has_recent() {
             None
@@ -259,10 +256,10 @@ impl Render for SearchView {
             sections.push(self.recent_section(cx));
         }
         if !self.results.movies.is_empty() {
-            sections.push(self.poster_section("Movies", &self.results.movies, cx));
+            sections.push(self.poster_section("Movies", &self.results.movies, grid, cx));
         }
         if !self.results.series.is_empty() {
-            sections.push(self.poster_section("Series", &self.results.series, cx));
+            sections.push(self.poster_section("Series", &self.results.series, grid, cx));
         }
         if !self.results.episodes.is_empty() {
             sections.push(self.episode_section(cx));

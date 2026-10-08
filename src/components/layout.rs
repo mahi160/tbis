@@ -4,7 +4,7 @@ use gpui_kit::component::{InteractiveElementExt as _, h_flex, v_flex};
 use gpui_kit::*;
 
 use super::typography::title;
-use crate::design::{color, gap, page, text};
+use crate::design::{color, gap, page, size, text};
 
 /// App root: full size, theme background and text color.
 pub fn screen(cx: &App) -> Div {
@@ -120,11 +120,25 @@ pub fn grid_row(cards: Vec<AnyElement>) -> Div {
         .children(cards)
 }
 
-/// Wrapping card grid.
-pub fn wrap_grid(cards: Vec<AnyElement>) -> Div {
-    h_flex()
-        .flex_wrap()
-        .gap(gap::group())
-        .items_start()
-        .children(cards)
+/// Poster grid columns and card width for the current window: as many
+/// `poster_min_w` cards as fit inside the page gutter, stretched to fill the row.
+pub fn poster_columns(window: &Window) -> (usize, Pixels) {
+    let (gap, min_card) = (gap::group().as_f32(), size::poster_min_w().as_f32());
+    let available = window.viewport_size().width.as_f32() - page().as_f32() * 2.;
+    let columns = (((available + gap) / (min_card + gap)).floor() as usize).max(1);
+    (
+        columns,
+        px((available - gap * (columns - 1) as f32) / columns as f32),
+    )
+}
+
+/// Card grid in rows of `columns`, no gutter of its own.
+pub fn card_grid(cards: Vec<AnyElement>, columns: usize) -> Div {
+    let mut cards = cards.into_iter().peekable();
+    let mut grid = v_flex().gap(gap::group());
+    while cards.peek().is_some() {
+        let row: Vec<_> = cards.by_ref().take(columns).collect();
+        grid = grid.child(h_flex().gap(gap::group()).items_start().children(row));
+    }
+    grid
 }

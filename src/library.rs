@@ -6,7 +6,7 @@ use gpui_kit::*;
 use crate::components::OnClick;
 use crate::components::button::menu_button;
 use crate::components::card::poster_card;
-use crate::components::layout::{counted_title, grid_row, grow, header_row};
+use crate::components::layout::{counted_title, grid_row, grow, header_row, poster_columns};
 use crate::components::menu::choice_menu;
 use crate::components::status::{Placeholder, Status, error_banner, full_status};
 use crate::design::{gap, page, size};
@@ -143,10 +143,7 @@ impl LibraryView {
 
 impl Render for LibraryView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (gap, min_card) = (gap::group().as_f32(), size::poster_min_w().as_f32());
-        let available = window.viewport_size().width.as_f32() - page().as_f32() * 2.;
-        self.columns = (((available + gap) / (min_card + gap)).floor() as usize).max(1);
-        self.card_width = px((available - gap * (self.columns - 1) as f32) / self.columns as f32);
+        (self.columns, self.card_width) = poster_columns(window);
 
         let count = (!self.items.is_empty()).then_some(self.items.len());
         let header = header_row(
