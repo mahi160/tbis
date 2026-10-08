@@ -164,7 +164,13 @@ impl Render for LibraryView {
             ) {
             let retry: OnClick = Box::new(cx.listener(|this, _, _, cx| this.refresh(cx)));
             grow()
-                .child(full_status(status, Placeholder::Grid, retry, self.loading, cx))
+                .child(full_status(
+                    status,
+                    Placeholder::Grid,
+                    retry,
+                    self.loading,
+                    cx,
+                ))
                 .into_any_element()
         } else {
             let rows = self.items.len().div_ceil(self.columns);

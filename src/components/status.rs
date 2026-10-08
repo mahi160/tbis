@@ -113,12 +113,7 @@ pub fn episode_skeletons() -> Div {
                                 .w(size::wide_w())
                                 .rounded(radius),
                         )
-                        .child(
-                            Skeleton::new()
-                                .h(text::meta())
-                                .w(sp(30.))
-                                .rounded(radius),
-                        ),
+                        .child(Skeleton::new().h(text::meta()).w(sp(30.)).rounded(radius)),
                 )
         }))
 }

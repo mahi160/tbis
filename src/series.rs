@@ -224,9 +224,11 @@ impl SeriesView {
         Some(
             primary_button("series-play", label)
                 .icon(IconName::Play)
-                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                    cx.emit(Nav::Play(episode.clone()))
-                })),
+                .on_click(
+                    cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        cx.emit(Nav::Play(episode.clone()))
+                    }),
+                ),
         )
     }
 
@@ -238,7 +240,12 @@ impl SeriesView {
             .children(meta_line(&self.series, self.seasons_label(), cx))
             .children(genres_line(&self.series, cx))
             .children(media_tags(&self.series, cx))
-            .children(self.series.overview.clone().map(|o| paragraph(o, 4).max_w(size::prose_max_w())))
+            .children(
+                self.series
+                    .overview
+                    .clone()
+                    .map(|o| paragraph(o, 4).max_w(size::prose_max_w())),
+            )
             .child(
                 h_flex()
                     .gap(gap::item())
