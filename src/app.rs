@@ -26,7 +26,10 @@ use crate::settings::{SettingsChanged, SettingsView};
 use crate::shortcuts::{self, ShowShortcuts};
 use crate::update;
 
-actions!(tbis, [FocusSearch]);
+actions!(
+    tbis,
+    [FocusSearch, GoBack, ShowHome, ShowMovies, ShowSeries]
+);
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -476,6 +479,20 @@ impl AppView {
         }
     }
 
+    /// Pops one detail page; with none open, clears an active search.
+    fn go_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Screen::Main(main) = &mut self.screen else {
+            return;
+        };
+        if !main.details.is_empty() {
+            self.on_nav(&Nav::Back, window, cx);
+        } else if main.search_open || main.searching(cx) {
+            main.search_open = false;
+            Self::clear_search(main, window, cx);
+            cx.notify();
+        }
+    }
+
     /// Opens `view` as the detail page: subscribes it to Nav, remembers how to refresh it.
     fn set_detail<V: Render + EventEmitter<Nav>>(
         &mut self,
@@ -776,6 +793,18 @@ impl Render for AppView {
             .font_features(tabular_figures())
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::focus_search))
+            .on_action(cx.listener(|this, _: &GoBack, window, cx| this.go_back(window, cx)))
+            .on_action(cx.listener(|this, _: &ShowHome, window, cx| this.select_tab(0, window, cx)))
+            .on_action(
+                cx.listener(|this, _: &ShowMovies, window, cx| this.select_tab(1, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &ShowSeries, window, cx| this.select_tab(2, window, cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Back),
+                cx.listener(|this, _, window, cx| this.go_back(window, cx)),
+            )
             .on_action(|_: &ShowShortcuts, window, cx| shortcuts::open(window, cx))
             .child(self.render_title_bar(cx))
             .child(grow().child(content))

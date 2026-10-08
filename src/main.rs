@@ -102,6 +102,10 @@ fn main() {
             cx.bind_keys([
                 KeyBinding::new("cmd-q", Quit, None),
                 KeyBinding::new("cmd-f", app::FocusSearch, None),
+                KeyBinding::new("cmd-[", app::GoBack, Some("!Input")),
+                KeyBinding::new("cmd-1", app::ShowHome, Some("!Input")),
+                KeyBinding::new("cmd-2", app::ShowMovies, Some("!Input")),
+                KeyBinding::new("cmd-3", app::ShowSeries, Some("!Input")),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
             player::bind_keys(cx);
