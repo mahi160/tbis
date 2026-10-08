@@ -1,6 +1,7 @@
 //! Video Player. Split by concern: this file is lifecycle (open/load/close/quit) and
 //! the `PlayerView` type itself; [`playback`] is the current item's state and its
-//! server reports; [`controls`] is the bars, menus, up-next card and `Render` impl;
+//! server reports; [`controls`] is the actions, overlays and `Render` impl, with the
+//! top and bottom bars and their menus in `controls::chrome`;
 //! [`clock`] is the small pure time-formatting helpers.
 
 mod clock;
