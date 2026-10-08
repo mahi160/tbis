@@ -88,14 +88,6 @@ fn skeleton_rows() -> AnyElement {
         .overflow_hidden()
         .py(page())
         .gap(page())
-        .child(
-            div().px(page()).child(
-                Skeleton::new()
-                    .w_full()
-                    .h(size::hero_h())
-                    .rounded(radius::base()),
-            ),
-        )
         .child(block(size::wide_w(), size::wide_w() * (9. / 16.)))
         .child(block(size::poster_w(), size::poster_w() * 1.5))
         .into_any_element()

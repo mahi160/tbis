@@ -11,7 +11,6 @@ pub mod chart;
 pub mod detail;
 pub mod dialog;
 pub mod episode;
-pub mod hero;
 pub mod input;
 pub mod layout;
 pub mod list;

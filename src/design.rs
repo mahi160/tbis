@@ -280,7 +280,6 @@ pub mod size {
         poster_w = 44.,
         poster_min_w = 37.5,
         wide_w = 72.,
-        hero_h = 60.,
         header_poster_w = 40.,
         header_poster_h = 60.,
         header_poster_sm_w = 30.,
