@@ -9,7 +9,7 @@ use crate::components::detail::{
 };
 use crate::components::episode::{EpisodeRow, episode_row};
 use crate::components::layout::scroll_page;
-use crate::components::status::{Status, inline_status};
+use crate::components::status::{Status, episode_skeletons, inline_status};
 use crate::components::tabs::scrolling_tabs;
 use crate::components::toggle_button::{Toggle, toggle_button};
 use crate::components::typography::{paragraph, title};
@@ -344,7 +344,10 @@ impl Render for SeriesView {
             )
             .child(self.render_header(cx))
             .children(seasons)
-            .children(inline_status(status, cx))
+            .children(match status {
+                Some(Status::Loading) => Some(episode_skeletons().into_any_element()),
+                status => inline_status(status, cx),
+            })
             .child(v_flex().gap(gap::tight()).children(episodes))
             .children(cast_row(&self.api, &self.series, cx))
     }

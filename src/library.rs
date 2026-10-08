@@ -8,7 +8,7 @@ use crate::components::button::menu_button;
 use crate::components::card::poster_card;
 use crate::components::layout::{counted_title, grid_row, grow, header_row};
 use crate::components::menu::choice_menu;
-use crate::components::status::{Status, error_banner, full_status};
+use crate::components::status::{Placeholder, Status, error_banner, full_status};
 use crate::design::{gap, page, size};
 use crate::jellyfin::{Api, Item, Kind, Sort};
 use crate::nav::Nav;
@@ -164,7 +164,7 @@ impl Render for LibraryView {
             ) {
             let retry: OnClick = Box::new(cx.listener(|this, _, _, cx| this.refresh(cx)));
             grow()
-                .child(full_status(status, retry, self.loading, cx))
+                .child(full_status(status, Placeholder::Grid, retry, self.loading, cx))
                 .into_any_element()
         } else {
             let rows = self.items.len().div_ceil(self.columns);

@@ -14,37 +14,113 @@ use super::logo::logo_mark;
 use crate::design::{color, gap, opacity, overlay, page, radius, size, sp, text};
 
 const SKELETON_COUNT: usize = 12;
+const ROW_SKELETON_COUNT: usize = 8;
+const EPISODE_SKELETON_COUNT: usize = 3;
+
+/// Which loaded layout a loading `full_status` stands in for.
+#[derive(Clone, Copy)]
+pub enum Placeholder {
+    /// Wrapping poster grid (Library).
+    Grid,
+    /// Wide-card row, then poster row, each under a heading (Home).
+    Rows,
+}
+
+/// Art block with a title bar and a meta bar under it, like a loaded card.
+/// Vega Skeleton is `bg-muted`, here at the one radius.
+fn card_skeleton(width: Pixels, art_height: Pixels) -> Div {
+    let radius = radius::base();
+    v_flex()
+        .w(width)
+        .flex_shrink_0()
+        .gap(gap::item())
+        .child(Skeleton::new().w(width).h(art_height).rounded(radius))
+        .child(
+            Skeleton::new()
+                .h(text::body())
+                .w(relative(0.75))
+                .rounded(radius),
+        )
+        .child(
+            Skeleton::new()
+                .h(text::meta())
+                .w(relative(0.4))
+                .rounded(radius),
+        )
+}
 
 /// Poster-shaped placeholders standing in for a grid that hasn't loaded yet, so the
 /// page doesn't jump when real cards replace them.
-/// Vega Skeleton is `bg-muted`, here at the one radius.
 fn skeleton_grid() -> AnyElement {
-    let (width, radius) = (size::poster_min_w(), radius::base());
+    let width = size::poster_min_w();
     div()
         .size_full()
         .flex()
         .flex_wrap()
         .gap(gap::group())
         .p(page())
-        .children((0..SKELETON_COUNT).map(|_| {
-            v_flex()
-                .w(width)
+        .children((0..SKELETON_COUNT).map(|_| card_skeleton(width, width * 1.5)))
+        .into_any_element()
+}
+
+/// Home-shaped placeholders: same page padding and gaps as `rows_page`/`scroll_row`.
+fn skeleton_rows() -> AnyElement {
+    let block = |width: Pixels, art_height: Pixels| {
+        v_flex()
+            .gap(gap::item())
+            .child(
+                Skeleton::new()
+                    .h(text::title())
+                    .w(size::wide_w())
+                    .rounded(radius::base())
+                    .ml(page()),
+            )
+            .child(
+                h_flex()
+                    .px(page())
+                    .gap(gap::group())
+                    .items_start()
+                    .children((0..ROW_SKELETON_COUNT).map(|_| card_skeleton(width, art_height))),
+            )
+    };
+    v_flex()
+        .size_full()
+        .overflow_hidden()
+        .py(page())
+        .gap(page())
+        .child(block(size::wide_w(), size::wide_w() * (9. / 16.)))
+        .child(block(size::poster_w(), size::poster_w() * 1.5))
+        .into_any_element()
+}
+
+/// Episode-row-shaped placeholders for a season whose Episodes are still loading.
+pub fn episode_skeletons() -> Div {
+    let radius = radius::base();
+    v_flex()
+        .gap(gap::tight())
+        .children((0..EPISODE_SKELETON_COUNT).map(|_| {
+            h_flex()
                 .gap(gap::item())
-                .child(Skeleton::new().w(width).h(width * 1.5).rounded(radius))
+                .px(gap::item())
+                .py(gap::item())
+                .child(Skeleton::new().w(sp(48.)).h(sp(27.)).rounded(radius))
                 .child(
-                    Skeleton::new()
-                        .h(text::body())
-                        .w(relative(0.75))
-                        .rounded(radius),
-                )
-                .child(
-                    Skeleton::new()
-                        .h(text::meta())
-                        .w(relative(0.4))
-                        .rounded(radius),
+                    v_flex()
+                        .gap(gap::tight())
+                        .child(
+                            Skeleton::new()
+                                .h(text::body())
+                                .w(size::wide_w())
+                                .rounded(radius),
+                        )
+                        .child(
+                            Skeleton::new()
+                                .h(text::meta())
+                                .w(sp(30.))
+                                .rounded(radius),
+                        ),
                 )
         }))
-        .into_any_element()
 }
 
 /// gpui-kit Empty overridden: group gap and padding, the one radius, no dashed border.
@@ -156,10 +232,22 @@ impl Status {
 }
 
 /// Full-screen centered placeholder, replacing a list's content while it's empty.
-/// Error shows a Retry button; `loading` puts it in its spinner state while refreshing.
-pub fn full_status(status: Status, retry: OnClick, loading: bool, cx: &App) -> AnyElement {
+/// Loading shows `placeholder`-shaped skeletons. Error shows a Retry button; `loading`
+/// puts it in its spinner state while refreshing.
+pub fn full_status(
+    status: Status,
+    placeholder: Placeholder,
+    retry: OnClick,
+    loading: bool,
+    cx: &App,
+) -> AnyElement {
     let body = match status {
-        Status::Loading => return skeleton_grid(),
+        Status::Loading => {
+            return match placeholder {
+                Placeholder::Grid => skeleton_grid(),
+                Placeholder::Rows => skeleton_rows(),
+            };
+        }
         Status::Empty(message) => empty_panel(message, cx).into_any_element(),
         Status::Error(message) => error_panel(
             "Something went wrong",

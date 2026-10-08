@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use crate::components::button::{GhostState as _, VegaSize as _, icon_button};
 use crate::components::layout::{header_row, rows_page, scroll_row};
-use crate::components::status::{Status, error_banner, full_status};
+use crate::components::status::{Placeholder, Status, error_banner, full_status};
 use crate::components::{OnClick, card, typography};
 use crate::config::HideSpoilers;
 use crate::design::{gap, page, size};
@@ -255,11 +255,11 @@ impl Render for HomeView {
             && let Some(status) = Status::pick(
                 self.error.clone(),
                 self.loading,
-                Some("Nothing here yet".into()),
+                Some("No movies or series on this server yet".into()),
             )
         {
             let retry: OnClick = Box::new(cx.listener(|this, _, _, cx| this.refresh(cx)));
-            return full_status(status, retry, self.loading, cx);
+            return full_status(status, Placeholder::Rows, retry, self.loading, cx);
         }
 
         let api = self.api.clone();
