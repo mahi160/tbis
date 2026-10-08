@@ -14,7 +14,7 @@ fn poster_art(api: &Api, item: &Item, width: Pixels, on_play: OnClick, cx: &App)
     art_tile("poster-art", width, width * 1.5, cx)
         .id(ElementId::Name(format!("poster-art-{}", item.id).into()))
         .child(image(api.poster_url(item), cx))
-        .child(play_scrim("poster-art", Some(on_play), cx))
+        .child(play_scrim("poster-art", Some(on_play)))
         .when(item.user_data.played, |this| this.child(check_badge()))
         .into_any_element()
 }
@@ -104,7 +104,7 @@ pub fn wide_card(
                 .cursor_pointer()
                 .on_click(on_play)
                 .child(image(still, cx))
-                .child(play_scrim("wide-art", None, cx))
+                .child(play_scrim("wide-art", None))
                 .when_some(
                     item.user_data.played_percentage.filter(|p| *p > 0.),
                     |this, p| {

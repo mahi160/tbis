@@ -1,6 +1,8 @@
 //! Art building blocks: the rounded tile, image with placeholder, and overlays
 //! (play scrim, watched check, progress) shared by cards and episode rows.
 
+use std::time::{Duration, Instant};
+
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::{Icon, IconName, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -27,39 +29,115 @@ pub fn art_tile(group: &'static str, width: Pixels, height: Pixels, cx: &App) ->
         .group_hover(group, |this| this.shadow(shadow::lg()))
 }
 
-/// Centered play button that fades in over the art while `group` is hovered
-/// (Photon's play scrim). With `on_play` the button itself is clickable and
-/// swallows the click so a parent's click (open) doesn't also fire.
-pub fn play_scrim(group: &'static str, on_play: Option<OnClick>, cx: &App) -> AnyElement {
-    div()
-        .absolute()
-        .inset_0()
-        .rounded(radius::base())
-        .flex()
-        .items_center()
-        .justify_center()
-        .bg(black(0.35))
-        .opacity(0.)
-        .group_hover(group, |this| this.opacity(1.))
-        .child(
-            div()
-                .id(ElementId::Name(format!("{group}-play").into()))
-                .size(sp(11.))
-                .rounded(radius::base())
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(color::primary(cx))
-                .text_color(color::primary_foreground(cx))
-                .when_some(on_play, |this, on_play| {
-                    this.cursor_pointer().on_click(move |event, window, cx| {
-                        cx.stop_propagation();
-                        on_play(event, window, cx)
-                    })
+const FADE_IN: Duration = Duration::from_millis(150);
+const FADE_OUT: Duration = Duration::from_millis(120);
+
+/// Per-tile scrim fade. `generation` 0 means never hovered: static, no animation.
+struct Fade {
+    generation: u64,
+    visible: bool,
+    from: f32,
+    since: Instant,
+}
+
+impl Fade {
+    /// Opacity right now, mid-fade included, so a reversal starts where the eye is.
+    fn current(&self) -> f32 {
+        let (target, dur) = if self.visible {
+            (1., FADE_IN)
+        } else {
+            (0., FADE_OUT)
+        };
+        let t = (self.since.elapsed().as_secs_f32() / dur.as_secs_f32()).min(1.);
+        self.from + (target - self.from) * ease_out_quint()(t)
+    }
+}
+
+/// Centered play button over the art that fades in on hover and out on leave
+/// (Photon's play scrim). gpui has no hover transitions, so each hover change
+/// restarts an animation under a new element id. With `on_play` the button
+/// itself is clickable and swallows the click so a parent's click (open) doesn't
+/// also fire. `group` only namespaces element ids.
+#[derive(IntoElement)]
+pub struct PlayScrim {
+    group: &'static str,
+    on_play: Option<OnClick>,
+}
+
+pub fn play_scrim(group: &'static str, on_play: Option<OnClick>) -> PlayScrim {
+    PlayScrim { group, on_play }
+}
+
+impl RenderOnce for PlayScrim {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let group = self.group;
+        let fade = window.use_keyed_state(
+            ElementId::Name(format!("{group}-fade").into()),
+            cx,
+            |_, _| Fade {
+                generation: 0,
+                visible: false,
+                from: 0.,
+                since: Instant::now(),
+            },
+        );
+        let (generation, visible, from) = {
+            let f = fade.read(cx);
+            (f.generation, f.visible, f.from)
+        };
+        let target = if visible { 1. } else { 0. };
+
+        let scrim = div()
+            .id(ElementId::Name(format!("{group}-scrim").into()))
+            .absolute()
+            .inset_0()
+            .rounded(radius::base())
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(black(0.35))
+            .on_hover(move |hovered, _, cx| {
+                fade.update(cx, |f, cx| {
+                    if f.visible != *hovered {
+                        (f.from, f.since) = (f.current(), Instant::now());
+                        f.visible = *hovered;
+                        f.generation += 1;
+                        cx.notify();
+                    }
                 })
-                .child(Icon::new(IconName::Play)),
-        )
-        .into_any_element()
+            })
+            .child(
+                div()
+                    .id(ElementId::Name(format!("{group}-play").into()))
+                    .size(sp(11.))
+                    .rounded(radius::base())
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(color::primary(cx))
+                    .text_color(color::primary_foreground(cx))
+                    .when_some(self.on_play, |this, on_play| {
+                        this.cursor_pointer().on_click(move |event, window, cx| {
+                            cx.stop_propagation();
+                            on_play(event, window, cx)
+                        })
+                    })
+                    .child(Icon::new(IconName::Play)),
+            );
+
+        if generation == 0 {
+            return scrim.opacity(0.).into_any_element();
+        }
+        let animation =
+            Animation::new(if visible { FADE_IN } else { FADE_OUT }).with_easing(ease_out_quint());
+        scrim
+            .with_animation(
+                ElementId::NamedInteger(format!("{group}-fade").into(), generation),
+                animation,
+                move |this, delta| this.opacity(from + (target - from) * delta),
+            )
+            .into_any_element()
+    }
 }
 
 /// Dark tinted check in the top-right corner of a relative image box.
