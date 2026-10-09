@@ -76,20 +76,24 @@ impl Backdrops {
         let api = self.api.clone();
         self._load = cx.spawn(async move |this, cx| {
             // failure leaves the pool unloaded, so the next visit retries
-            let items = match api.random_backdrops(kind, POOL).await {
-                Ok(items) => items,
+            let urls = match api.random_backdrops(kind, POOL).await {
+                Ok(items) => Some(
+                    items
+                        .iter()
+                        .filter_map(|i| api.backdrop_url(i))
+                        .map(|url| format!("{url}&blur={BLUR}"))
+                        .collect(),
+                ),
                 Err(err) => {
                     eprintln!("backdrops failed to load: {err}");
-                    return;
+                    None
                 }
             };
-            let urls = items
-                .iter()
-                .filter_map(|i| api.backdrop_url(i))
-                .map(|url| format!("{url}&blur={BLUR}"))
-                .collect();
             this.update(cx, |this, cx| {
-                this.pools[slot] = Some(urls);
+                if urls.is_some() {
+                    this.pools[slot] = urls;
+                }
+                // unloaded pool is empty: swap drops the previous tab's backdrop
                 if this.slot == slot {
                     this.swap(cx);
                 }
