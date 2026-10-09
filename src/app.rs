@@ -478,12 +478,18 @@ impl AppView {
                 let (api, series) = (main.api.clone(), item.clone());
                 cx.spawn_in(window, async move |this, cx| {
                     let next = api.next_up(&series.id).await;
-                    this.update_in(cx, |this, window, cx| match next {
-                        Ok(Some(episode)) => this.open_player(&episode, window, cx),
-                        Ok(None) => this.open_series(&series, window, cx),
-                        Err(err) => {
-                            eprintln!("next up lookup failed: {err}");
-                            this.open_series(&series, window, cx)
+                    this.update_in(cx, |this, window, cx| {
+                        // slow lookup or double-click: a player is already up
+                        if matches!(&this.screen, Screen::Main(m) if m.player.is_some()) {
+                            return;
+                        }
+                        match next {
+                            Ok(Some(episode)) => this.open_player(&episode, window, cx),
+                            Ok(None) => this.open_series(&series, window, cx),
+                            Err(err) => {
+                                eprintln!("next up lookup failed: {err}");
+                                this.open_series(&series, window, cx)
+                            }
                         }
                     })
                     .ok();
