@@ -22,15 +22,8 @@ pub const NAMES: [&str; 4] = [
     "Fossil Slate",
 ];
 
-/// Earlier names still found in saved configs.
-const RENAMED: [(&str, &str); 2] = [("WMC", "Plesio Lagoon"), ("Fossil Bone", "Fossil Slate")];
-
-/// Bundled theme `name` refers to, renames followed; the default when unknown.
+/// Bundled theme `name` refers to; the default when unknown.
 fn resolve(name: &str) -> &'static str {
-    let name = RENAMED
-        .iter()
-        .find(|(old, _)| *old == name)
-        .map_or(name, |(_, new)| new);
     NAMES.into_iter().find(|n| *n == name).unwrap_or(NAMES[0])
 }
 
@@ -188,7 +181,7 @@ pub fn apply(name: &str, cx: &mut App) {
 
 #[cfg(test)]
 mod tests {
-    use super::{FILE, ROLES, hex, resolve};
+    use super::{FILE, NAMES, ROLES, hex, resolve};
 
     /// Design tokens are constants; a `"design"` key would be silently ignored.
     #[test]
@@ -204,9 +197,8 @@ mod tests {
     }
 
     #[test]
-    fn renamed_themes_resolve() {
-        assert_eq!(resolve("Fossil Bone"), "Fossil Slate");
-        assert_eq!(resolve("WMC"), "Plesio Lagoon");
+    fn unknown_theme_resolves_to_default() {
+        assert_eq!(resolve("Fossil Bone"), NAMES[0]);
     }
 
     #[test]
