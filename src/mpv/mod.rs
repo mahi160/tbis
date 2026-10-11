@@ -12,7 +12,7 @@ mod platform;
 use std::ffi::{CStr, CString, c_void};
 use std::os::raw::{c_char, c_int};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, mpsc};
+use std::sync::{Arc, Condvar, Mutex, PoisonError, mpsc};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -177,7 +177,7 @@ impl Mpv {
 
     /// Video size in device pixels.
     pub fn set_size(&self, width: i32, height: i32) {
-        *self.size.lock().unwrap() = (width, height);
+        *self.size.lock().unwrap_or_else(PoisonError::into_inner) = (width, height);
         self.waker.notify();
     }
 
@@ -529,16 +529,16 @@ struct Waker {
 
 impl Waker {
     fn notify(&self) {
-        *self.ready.lock().unwrap() = true;
+        *self.ready.lock().unwrap_or_else(PoisonError::into_inner) = true;
         self.cv.notify_one();
     }
 
     fn wait(&self, timeout: Duration) {
-        let guard = self.ready.lock().unwrap();
+        let guard = self.ready.lock().unwrap_or_else(PoisonError::into_inner);
         let (mut guard, _) = self
             .cv
             .wait_timeout_while(guard, timeout, |ready| !*ready)
-            .unwrap();
+            .unwrap_or_else(PoisonError::into_inner);
         *guard = false;
     }
 }
@@ -652,7 +652,7 @@ fn render_thread(
         waker.wait(Duration::from_millis(250));
         let flags = unsafe { mpv_render_context_update(ctx) };
         let new_frame = flags & mpv_render_update_flag_MPV_RENDER_UPDATE_FRAME as u64 != 0;
-        let (w, h) = *size.lock().unwrap();
+        let (w, h) = *size.lock().unwrap_or_else(PoisonError::into_inner);
         if w <= 0 || h <= 0 {
             if new_frame {
                 skip_frame(ctx); // drain, else mpv stalls waiting for render

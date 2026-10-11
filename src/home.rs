@@ -1,25 +1,19 @@
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{
-    Disableable as _, IconName, InteractiveElementExt as _, Sizable as _, h_flex, v_flex,
-};
+use gpui_kit::component::button::Button;
+use gpui_kit::component::{IconName, h_flex, v_flex};
 use gpui_kit::*;
 use std::time::{Duration, Instant};
 
-use crate::card::{self, OnClick};
-use crate::detail::PAD;
-use crate::jellyfin::{Api, Item, Kind};
+use crate::components::button::{GhostState as _, VegaSize as _, icon_button};
+use crate::components::layout::{header_row, rows_page, scroll_row};
+use crate::components::status::{Placeholder, Status, error_banner, full_status};
+use crate::components::{OnClick, card, typography};
+use crate::config::HideSpoilers;
+use crate::design::{gap, page, size};
+use crate::jellyfin::{Api, Item, Kind, blurred};
 use crate::nav::Nav;
-use crate::status::{Status, full_status, inline_status};
 
 const PER_ROW: usize = 24;
 const PAGE_ANIMATION: Duration = Duration::from_millis(350);
-// Photon's row card widths (11rem / 18rem).
-const POSTER_WIDTH: f32 = 176.;
-const WIDE_WIDTH: f32 = 288.;
-/// Page gutter, shared with every other page (`detail::PAD`).
-fn gutter(_: &Window) -> Pixels {
-    px(PAD)
-}
 
 #[derive(Default)]
 struct Rows {
@@ -126,30 +120,6 @@ impl HomeView {
         Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Play(item.clone()))))
     }
 
-    /// Movie plays itself; Series plays its Next Up Episode, else opens its page.
-    fn poster_play_on_click(&self, item: &Item, cx: &mut Context<Self>) -> OnClick {
-        if item.kind != Kind::Series {
-            return Self::play_on_click(item, cx);
-        }
-        let (api, series) = (self.api.clone(), item.clone());
-        Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| {
-            let (api, series) = (api.clone(), series.clone());
-            cx.spawn(async move |this, cx| {
-                let next = api.next_up(&series.id).await;
-                this.update(cx, |_, cx| match next {
-                    Ok(Some(episode)) => cx.emit(Nav::Play(episode)),
-                    Ok(None) => cx.emit(Nav::Open(series)),
-                    Err(err) => {
-                        eprintln!("next up lookup failed: {err}");
-                        cx.emit(Nav::Open(series))
-                    }
-                })
-                .ok();
-            })
-            .detach();
-        }))
-    }
-
     fn open_on_click(item: &Item, cx: &mut Context<Self>) -> OnClick {
         let item = item.clone();
         Box::new(cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Open(item.clone()))))
@@ -157,7 +127,8 @@ impl HomeView {
 
     /// Slides row `row` about one viewport forward (`next`) or back, snapping so a card
     /// starts at the left gutter: forward brings the first cropped card there.
-    fn page(&mut self, row: usize, next: bool, gutter: Pixels, window: &mut Window) {
+    fn page(&mut self, row: usize, next: bool, window: &mut Window) {
+        let gutter = page();
         let scroll = &self.scroll[row];
         let viewport = scroll.bounds();
         // card lefts/rights in content coords (child bounds are unscrolled)
@@ -201,15 +172,12 @@ impl HomeView {
         row: usize,
         next: bool,
         disabled: bool,
-        gutter: Pixels,
         cx: &mut Context<Self>,
     ) -> Button {
-        Button::new(ElementId::Name(id.into()))
-            .ghost()
-            .xsmall()
-            .icon(icon)
-            .disabled(disabled)
-            .on_click(cx.listener(move |this, _, window, _| this.page(row, next, gutter, window)))
+        icon_button(ElementId::Name(id.into()), icon, cx)
+            .icon_xs()
+            .ghost_disabled(disabled, cx)
+            .on_click(cx.listener(move |this, _, window, _| this.page(row, next, window)))
     }
 
     /// Moves the sliding row one frame along; requests the next frame until done.
@@ -240,7 +208,6 @@ impl HomeView {
         cards: Vec<AnyElement>,
         row: usize,
         scroll: ScrollHandle,
-        gutter: Pixels,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         if cards.is_empty() {
@@ -251,47 +218,32 @@ impl HomeView {
         let at_end = max > px(0.) && offset <= -max;
         Some(
             v_flex()
-                .gap_4()
+                .gap(gap::item())
                 .child(
-                    h_flex()
-                        .px(gutter)
-                        .justify_between()
-                        .child(div().text_2xl().font_weight(FontWeight::BOLD).child(title))
-                        .child(
-                            h_flex()
-                                .gap_1()
-                                .child(Self::page_button(
-                                    format!("{id}-prev"),
-                                    IconName::ChevronLeft,
-                                    row,
-                                    false,
-                                    offset >= px(0.),
-                                    gutter,
-                                    cx,
-                                ))
-                                .child(Self::page_button(
-                                    format!("{id}-next"),
-                                    IconName::ChevronRight,
-                                    row,
-                                    true,
-                                    at_end,
-                                    gutter,
-                                    cx,
-                                )),
-                        ),
+                    header_row(
+                        typography::title(title),
+                        h_flex()
+                            .gap(gap::tight())
+                            .child(Self::page_button(
+                                format!("{id}-prev"),
+                                IconName::ChevronLeft,
+                                row,
+                                false,
+                                offset >= px(0.),
+                                cx,
+                            ))
+                            .child(Self::page_button(
+                                format!("{id}-next"),
+                                IconName::ChevronRight,
+                                row,
+                                true,
+                                at_end,
+                                cx,
+                            )),
+                    )
+                    .px(page()),
                 )
-                .child(
-                    h_flex()
-                        .id(id)
-                        .overflow_x_scroll()
-                        // else vertical swipes with slight x drift scroll the row
-                        .lock_scroll_axis()
-                        .track_scroll(&scroll)
-                        .px(gutter)
-                        .gap_4()
-                        .items_start()
-                        .children(cards),
-                )
+                .child(scroll_row(id, &scroll, cards))
                 .into_any_element(),
         )
     }
@@ -299,25 +251,32 @@ impl HomeView {
 
 impl Render for HomeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let gutter = gutter(window);
-        if self.rows.is_empty() {
-            let status = match self.error.clone() {
-                Some(error) => Status::Error(error),
-                None if self.loading => Status::Loading,
-                None => Status::Empty("Nothing here yet".into()),
-            };
+        if self.rows.is_empty()
+            && let Some(status) = Status::pick(
+                self.error.clone(),
+                self.loading,
+                Some("No movies or series on this server yet".into()),
+            )
+        {
             let retry: OnClick = Box::new(cx.listener(|this, _, _, cx| this.refresh(cx)));
-            return full_status(status, retry, self.loading, cx);
+            return full_status(status, Placeholder::Rows, retry, self.loading, cx);
         }
 
         let api = self.api.clone();
+        let hide_spoilers = cx.global::<HideSpoilers>().0;
         let wide = |items: &[Item], cx: &mut Context<Self>| -> Vec<AnyElement> {
             items
                 .iter()
                 .map(|item| {
                     let on_play = Self::play_on_click(item, cx);
                     let on_open = Self::open_on_click(&item.detail_target(), cx);
-                    card::wide_card(&api, item, px(WIDE_WIDTH), on_play, on_open, cx)
+                    // Continue Watching/Next Up stills give away unwatched Episodes
+                    let spoiler =
+                        hide_spoilers && item.kind == Kind::Episode && !item.user_data.played;
+                    let still = api
+                        .wide_image_url(item)
+                        .map(|url| if spoiler { blurred(&url) } else { url });
+                    card::wide_card(item, still, size::wide_w(), on_play, on_open, cx)
                 })
                 .collect()
         };
@@ -325,9 +284,9 @@ impl Render for HomeView {
             items
                 .iter()
                 .map(|item| {
-                    let on_play = self.poster_play_on_click(item, cx);
+                    let on_play = Self::play_on_click(item, cx);
                     let on_open = Self::open_on_click(item, cx);
-                    card::poster_card_playable(&api, item, px(POSTER_WIDTH), on_play, on_open, cx)
+                    card::poster_card(&api, item, size::poster_w(), on_play, on_open, cx)
                 })
                 .collect()
         };
@@ -339,24 +298,15 @@ impl Render for HomeView {
         self.advance_paging(window, cx);
         let row = |title, id, cards, ix: usize, cx: &mut Context<Self>| {
             let scroll = self.scroll[ix].clone();
-            Self::row(title, id, cards, ix, scroll, gutter, cx)
+            Self::row(title, id, cards, ix, scroll, cx)
         };
         // shown while a background refresh fails but the rows still have the old data
-        let banner = self.error.clone().map(|error| {
-            div()
-                .px(gutter)
-                .children(inline_status(Some(Status::Error(error)), cx))
-        });
-        // Photon's `.page { padding-block: 1.5rem 3rem }` + `.section` gap (2.75rem).
-        v_flex()
-            .id("home")
-            .size_full()
-            .overflow_y_scroll()
-            // else horizontal row swipes leak into page's vertical scroll
-            .lock_scroll_axis()
-            .pt(px(24.))
-            .pb(px(48.))
-            .gap(px(44.))
+        let retry: OnClick = Box::new(cx.listener(|this, _, _, cx| this.refresh(cx)));
+        let banner = self
+            .error
+            .clone()
+            .map(|error| error_banner(error, retry, self.loading, cx).px(page()));
+        rows_page("home")
             .children(banner)
             .children(row(
                 "Continue Watching",

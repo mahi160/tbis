@@ -1,15 +1,23 @@
 use gpui_kit::component::button::Button;
-use gpui_kit::component::tab::TabBar;
-use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::component::{IconName, h_flex, v_flex};
 use gpui_kit::*;
 
-use crate::card;
+use crate::components::backdrop::backdrop;
+use crate::components::button::primary_button;
+use crate::components::detail::{
+    cast_row, detail_header, genres_line, header_body, media_tags, meta_line,
+};
+use crate::components::episode::{EpisodeRow, episode_row};
+use crate::components::layout::scroll_page;
+use crate::components::status::{Status, episode_skeletons, inline_status};
+use crate::components::tabs::scrolling_tabs;
+use crate::components::toggle_button::{Toggle, toggle_button};
+use crate::components::typography::{paragraph, title};
 use crate::config::HideSpoilers;
-use crate::detail::{self, PAD, Toggle, UserDataView};
-use crate::jellyfin::{Api, Item, UserData};
+use crate::design::{gap, size};
+use crate::detail::{self, UserDataView};
+use crate::jellyfin::{Api, Item, UserData, blurred, episode_code};
 use crate::nav::Nav;
-use crate::status::{Status, inline_status};
 
 /// Series detail: header, season tabs, and the Episodes of the selected season.
 pub struct SeriesView {
@@ -18,11 +26,14 @@ pub struct SeriesView {
     seasons: Vec<Item>,
     selected: usize,
     episodes: Vec<Item>,
+    /// Episode the Play button targets; None when the Series is fully watched.
+    next_up: Option<Item>,
     loading: bool,
     error: Option<SharedString>,
     /// Kept by the view so Back from an Episode page lands where the user was.
     scroll: ScrollHandle,
     _load: Task<()>,
+    _next_up: Task<()>,
 }
 
 impl EventEmitter<Nav> for SeriesView {}
@@ -44,8 +55,11 @@ impl UserDataView for SeriesView {
 
     /// Whole-Series watched flips every Episode server-side; reload them.
     fn saved(&mut self, id: &str, toggle: Toggle, cx: &mut Context<Self>) {
-        if matches!(toggle, Toggle::Played) && id == self.series.id {
-            self.load_episodes(cx);
+        if matches!(toggle, Toggle::Played) {
+            if id == self.series.id {
+                self.load_episodes(cx);
+            }
+            self.load_next_up(cx);
         }
     }
 }
@@ -58,10 +72,12 @@ impl SeriesView {
             seasons: Vec::new(),
             selected: 0,
             episodes: Vec::new(),
+            next_up: None,
             loading: true,
             error: None,
             scroll: ScrollHandle::new(),
             _load: Task::ready(()),
+            _next_up: Task::ready(()),
         };
         this.load_series(cx);
         this
@@ -79,7 +95,9 @@ impl SeriesView {
                     if let Ok(details) = details {
                         this.series = details;
                     }
-                    let next_season = next_up.ok().flatten().and_then(|e| e.season_id);
+                    let next_up = next_up.ok().flatten();
+                    let next_season = next_up.as_ref().and_then(|e| e.season_id.clone());
+                    this.next_up = next_up;
                     this.selected = seasons
                         .iter()
                         .position(|s| Some(&s.id) == next_season.as_ref())
@@ -97,13 +115,28 @@ impl SeriesView {
         });
     }
 
-    /// Reloads the selected season; keeps the current list until fresh data arrives.
+    /// Reloads the selected season and Next Up; keeps the current list until fresh data arrives.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         if self.seasons.is_empty() {
             self.load_series(cx);
         } else {
             self.load_episodes(cx);
+            self.load_next_up(cx);
         }
+    }
+
+    /// Own task: `load_episodes` replaces `_load`, which would cancel this fetch.
+    fn load_next_up(&mut self, cx: &mut Context<Self>) {
+        let (api, id) = (self.api.clone(), self.series.id.clone());
+        self._next_up = cx.spawn(async move |this, cx| {
+            if let Ok(next_up) = api.next_up(&id).await {
+                this.update(cx, |this, cx| {
+                    this.next_up = next_up;
+                    cx.notify();
+                })
+                .ok();
+            }
+        });
     }
 
     fn select_season(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -166,7 +199,7 @@ impl SeriesView {
         cx: &mut Context<Self>,
     ) -> Button {
         let id = item.id.clone();
-        detail::toggle_button(element_id, toggle, &item.user_data).on_click(cx.listener(
+        toggle_button(element_id, toggle, &item.user_data, cx).on_click(cx.listener(
             move |this, _, _, cx| {
                 // gpui-kit Button doesn't stop the click; Episode row would play
                 cx.stop_propagation();
@@ -176,29 +209,47 @@ impl SeriesView {
         ))
     }
 
+    /// `Resume S01E03` / `Play S01E03` for the Next Up Episode.
+    fn play_button(&self, cx: &mut Context<Self>) -> Option<Button> {
+        let episode = self.next_up.clone()?;
+        let verb = if episode.user_data.playback_position_ticks > 0 {
+            "Resume"
+        } else {
+            "Play"
+        };
+        let label = match (episode.parent_index_number, episode.index_number) {
+            (Some(season), Some(number)) => format!("{verb} {}", episode_code(season, number)),
+            _ => verb.to_string(),
+        };
+        Some(
+            primary_button("series-play", label)
+                .icon(IconName::Play)
+                .on_click(
+                    cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        cx.emit(Nav::Play(episode.clone()))
+                    }),
+                ),
+        )
+    }
+
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let back = Box::new(cx.listener(|_, _, _, cx| cx.emit(Nav::Back)));
-        let body = v_flex()
-            .flex_1()
-            .min_w_0()
-            .gap_2()
-            .child(
-                div()
-                    .text_2xl()
-                    .font_weight(FontWeight::BOLD)
-                    .child(self.series.name.clone()),
-            )
-            .children(detail::meta_line(&self.series, self.seasons_label(), cx))
-            .children(detail::genres_line(&self.series, cx))
+        let body = header_body()
+            .gap(gap::item())
+            .child(title(self.series.name.clone()))
+            .children(meta_line(&self.series, self.seasons_label(), cx))
+            .children(genres_line(&self.series, cx))
+            .children(media_tags(&self.series, cx))
             .children(
                 self.series
                     .overview
                     .clone()
-                    .map(|o| div().text_sm().line_clamp(4).text_ellipsis().child(o)),
+                    .map(|o| paragraph(o, 4).max_w(size::prose_max_w())),
             )
             .child(
                 h_flex()
-                    .gap_2()
+                    .gap(gap::item())
+                    .children(self.play_button(cx))
                     .children([Toggle::Played, Toggle::Favorite].map(|toggle| {
                         self.toggle_button(
                             &self.series,
@@ -208,8 +259,12 @@ impl SeriesView {
                         )
                     })),
             );
-        detail::detail_header(
-            (self.api.poster_url(&self.series), px(120.), px(180.)),
+        detail_header(
+            (
+                self.api.poster_url(&self.series),
+                size::header_poster_sm_w(),
+                size::header_poster_sm_h(),
+            ),
             back,
             body,
             cx,
@@ -217,7 +272,6 @@ impl SeriesView {
     }
 
     fn render_episode(&self, episode: &Item, cx: &mut Context<Self>) -> AnyElement {
-        let (muted, muted_fg) = (cx.theme().muted, cx.theme().muted_foreground);
         let open = {
             let episode = episode.clone();
             cx.listener(move |_, _: &ClickEvent, _, cx| cx.emit(Nav::Open(episode.clone())))
@@ -237,138 +291,71 @@ impl SeriesView {
         let runtime = episode
             .run_time_ticks
             .map(|t| format!("{} min", detail::minutes(t)));
-        let rating = episode.community_rating.map(|score| {
-            h_flex()
-                .gap_1()
-                .child(
-                    Icon::new(IconName::Star)
-                        .small()
-                        .text_color(cx.theme().warning),
-                )
-                .child(format!("{score:.1}"))
-        });
         let spoiler = cx.global::<HideSpoilers>().0 && !episode.user_data.played;
-        // server-side blur; gpui can't blur an image
-        let still = self.api.poster_url(episode).map(|url| {
-            if spoiler {
-                format!("{url}&blur=30")
-            } else {
-                url
-            }
-        });
+        let still = self
+            .api
+            .poster_url(episode)
+            .map(|url| if spoiler { blurred(&url) } else { url });
 
-        h_flex()
-            .id(SharedString::from(episode.id.clone()))
-            .gap_4()
-            .p_2()
-            .rounded(cx.theme().radius_lg)
-            .cursor_pointer()
-            .hover(|this| this.bg(muted))
-            .on_click(open)
-            .child(
-                div()
-                    .id(ElementId::Name(
-                        format!("episode-play-{}", episode.id).into(),
-                    ))
-                    .group("episode-still")
-                    .relative()
-                    .w(px(192.))
-                    .h(px(108.))
-                    .flex_shrink_0()
-                    .rounded(cx.theme().radius_lg)
-                    .overflow_hidden()
-                    .bg(muted)
-                    .on_click(play)
-                    .child(card::image(still, cx))
-                    .child(card::play_scrim("episode-still", cx))
-                    .when_some(progress, |this, percent| {
-                        this.child(card::progress_bar(percent, cx))
-                    })
-                    .when(episode.user_data.played, |this| {
-                        this.child(card::check_badge(cx))
-                    }),
-            )
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_1()
-                    .child(
-                        div()
-                            .truncate()
-                            .child(format!("{number}{}", episode.display_name())),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_3()
-                            .text_sm()
-                            .text_color(muted_fg)
-                            .children(runtime)
-                            .children(rating),
-                    )
-                    .children(episode.overview.clone().filter(|_| !spoiler).map(|o| {
-                        div()
-                            .text_sm()
-                            .text_color(muted_fg)
-                            .line_clamp(2)
-                            .text_ellipsis()
-                            .child(o)
-                    })),
-            )
-            .child(self.toggle_button(
-                episode,
-                ElementId::Name(format!("episode-played-{}", episode.id).into()),
-                Toggle::Played,
-                cx,
-            ))
-            .into_any_element()
+        let row = EpisodeRow {
+            id: episode.id.clone().into(),
+            still,
+            title: format!("{number}{}", episode.display_name()),
+            runtime,
+            rating: episode.community_rating,
+            overview: episode.overview.clone().filter(|_| !spoiler),
+            progress,
+            played: episode.user_data.played,
+        };
+        let toggle = self.toggle_button(
+            episode,
+            ElementId::Name(format!("episode-played-{}", episode.id).into()),
+            Toggle::Played,
+            cx,
+        );
+        episode_row(row, Box::new(open), Box::new(play), toggle, cx)
     }
 }
 
 impl Render for SeriesView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let seasons = (!self.seasons.is_empty()).then(|| {
-            div().id("season-tabs").overflow_x_scroll().child(
-                TabBar::new("seasons")
-                    .pill()
-                    .children(self.seasons.iter().map(Self::season_label))
-                    .selected_index(self.selected)
-                    .on_click(
-                        cx.listener(|this, index: &usize, _, cx| this.select_season(*index, cx)),
-                    ),
+            scrolling_tabs(
+                "seasons",
+                self.seasons.iter().map(Self::season_label),
+                self.selected,
+                cx.listener(|this, index: &usize, _, cx| this.select_season(*index, cx)),
             )
         });
 
-        let status = if let Some(error) = self.error.clone() {
-            Some(Status::Error(error))
-        } else if self.episodes.is_empty() {
-            Some(if self.loading {
-                Status::Loading
-            } else {
-                Status::Empty("No episodes".into())
-            })
-        } else {
-            None
-        };
+        let none = self.episodes.is_empty();
+        let status = Status::pick(
+            self.error.clone(),
+            self.loading && none,
+            none.then(|| "No episodes".into()),
+        );
 
         let mut episodes = Vec::with_capacity(self.episodes.len());
         for episode in &self.episodes {
             episodes.push(self.render_episode(episode, cx));
         }
 
-        v_flex()
-            .id("series-detail")
-            .size_full()
+        scroll_page("series-detail")
             .relative()
-            .overflow_y_scroll()
             .track_scroll(&self.scroll)
-            .p(px(PAD))
-            .gap_6()
-            .children(detail::backdrop(&self.api, &self.series, cx))
+            .gap(gap::group())
+            .children(
+                self.api
+                    .backdrop_url(&self.series)
+                    .map(|url| backdrop(url, cx)),
+            )
             .child(self.render_header(cx))
-            .children(detail::cast_row(&self.api, &self.series, cx))
             .children(seasons)
-            .children(inline_status(status, cx))
-            .child(v_flex().gap_1().children(episodes))
+            .children(match status {
+                Some(Status::Loading) => Some(episode_skeletons().into_any_element()),
+                status => inline_status(status, cx),
+            })
+            .child(v_flex().gap(gap::tight()).children(episodes))
+            .children(cast_row(&self.api, &self.series, cx))
     }
 }

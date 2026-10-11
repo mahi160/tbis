@@ -866,11 +866,13 @@ impl Api {
         tile: i32,
     ) -> String {
         format!(
-            "{}/Videos/{}/Trickplay/{}/{tile}.jpg?mediaSourceId={}",
+            // img() can't send headers; trickplay (unlike Images) requires auth
+            "{}/Videos/{}/Trickplay/{}/{tile}.jpg?mediaSourceId={}&api_key={}",
             self.session.server,
             item.id,
             info.width,
-            item.media_source_id()
+            item.media_source_id(),
+            self.session.token
         )
     }
 
@@ -926,6 +928,17 @@ impl Api {
     /// Every item of one kind (Movie or Series) from all Libraries.
     pub async fn library(&self, kind: Kind, sort: Sort) -> Result<Vec<Item>> {
         self.items(kind, sort.query(kind)).await
+    }
+
+    /// Random items of `kind` (Movies and Series when `None`) that have a backdrop, for
+    /// page backdrops.
+    pub async fn random_backdrops(&self, kind: Option<Kind>, limit: usize) -> Result<Vec<Item>> {
+        let path = format!(
+            "/Items?userId={}&IncludeItemTypes={}&Recursive=true&SortBy=Random&ImageTypes=Backdrop&EnableImageTypes=Backdrop&ImageTypeLimit=1&EnableUserData=false&Limit={limit}",
+            self.session.user_id,
+            kind.map_or("Movie,Series", Kind::as_str),
+        );
+        Ok(self.get::<ItemsResult>(&path).await?.items)
     }
 
     /// Every played Movie and Episode (no images), for Watch stats.
@@ -1114,6 +1127,11 @@ impl Api {
             self.session.server, item.id
         ))
     }
+}
+
+/// `url` (an image URL from this API) blurred server-side, for spoilers; gpui can't blur.
+pub fn blurred(url: &str) -> String {
+    format!("{url}&blur=30")
 }
 
 #[derive(Deserialize)]
@@ -1327,7 +1345,7 @@ pub async fn quick_connect_login(
 #[cfg(test)]
 mod tests {
     use super::{
-        Api, Item, Segment, SegmentKind, Session, SessionExpired, login, normalize_server,
+        Api, Item, Segment, SegmentKind, Session, SessionExpired, blurred, login, normalize_server,
     };
     use std::io::{Read as _, Write as _};
     use std::net::TcpListener;
@@ -1338,6 +1356,14 @@ mod tests {
             "Id": "x", "Name": name, "ParentIndexNumber": season, "IndexNumber": number
         }))
         .unwrap()
+    }
+
+    #[::core::prelude::v1::test]
+    fn blurred_adds_server_blur_to_image_url() {
+        assert_eq!(
+            blurred("http://s/Items/x/Images/Primary?fillWidth=320&tag=t"),
+            "http://s/Items/x/Images/Primary?fillWidth=320&tag=t&blur=30"
+        );
     }
 
     #[::core::prelude::v1::test]
@@ -1472,10 +1498,10 @@ mod tests {
         let get = |path| futures::executor::block_on(api.get::<serde_json::Value>(path));
 
         assert!(get("/Expired").unwrap_err().is::<SessionExpired>());
-        assert!(matches!(rx.try_next(), Ok(Some(()))), "401 signals expiry");
+        assert!(matches!(rx.try_recv(), Ok(())), "401 signals expiry");
 
         assert!(!get("/Missing").unwrap_err().is::<SessionExpired>());
-        assert!(rx.try_next().is_err(), "other failures don't signal");
+        assert!(rx.try_recv().is_err(), "other failures don't signal");
 
         let segments = futures::executor::block_on(api.segments("ep1")).unwrap();
         assert_eq!(

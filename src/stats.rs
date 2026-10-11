@@ -1,17 +1,23 @@
-//! Watch stats (Settings > Stats), computed from the server's played items.
+//! Watch stats page (user menu > Watch stats), computed from the server's played items.
 //! The server keeps only each item's last play date and play count, so the
 //! 7/30-day totals and the weekly chart count each item once, at its last play.
 
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use gpui_kit::component::chart::BarChart;
-use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
+use gpui_kit::component::{IconName, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::components::button::icon_button;
+use crate::components::chart::bar_chart;
+use crate::components::layout::{grow, page_header, scroll_page};
+use crate::components::panel::stat_tile;
+use crate::components::status::{Status, inline_status};
+use crate::components::typography::{caption, key_value, subheading};
+use crate::design::{gap, size};
 use crate::jellyfin::{Api, Item, Kind};
-use crate::status::{Status, inline_status};
+use crate::nav::Nav;
 
 const WEEKS: i64 = 12;
 const TOP_SERIES: usize = 5;
@@ -170,91 +176,97 @@ impl StatsView {
     }
 }
 
-fn tile(label: &'static str, value: String, cx: &App) -> impl IntoElement {
-    v_flex()
-        .flex_1()
-        .min_w(px(120.))
-        .gap_1()
-        .p_3()
-        .rounded(cx.theme().radius_lg)
-        .border_1()
-        .border_color(cx.theme().border)
-        .child(
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(label),
-        )
-        .child(
-            div()
-                .text_xl()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(value),
-        )
-}
-
 impl Render for StatsView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let status = match (&self.error, &self.stats) {
-            (Some(error), _) => Some(Status::Error(error.clone())),
-            (None, None) => Some(Status::Loading),
-            (None, Some(s)) if s.movies + s.episodes == 0 => {
-                Some(Status::Empty("Nothing watched yet".into()))
-            }
-            _ => None,
-        };
+        let status = Status::pick(
+            self.error.clone(),
+            self.stats.is_none(),
+            self.stats
+                .as_ref()
+                .filter(|s| s.movies + s.episodes == 0)
+                .map(|_| "Nothing watched yet".into()),
+        );
         let Some(stats) = self.stats.as_ref().filter(|_| status.is_none()) else {
             return v_flex().children(inline_status(status, cx));
         };
-        let muted_fg = cx.theme().muted_foreground;
-        let heading = |text: &'static str| {
-            div()
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(text)
-        };
         v_flex()
-            .gap_5()
+            .gap(gap::group())
             .child(
                 h_flex()
                     .flex_wrap()
-                    .gap_3()
-                    .child(tile("Last 7 days", hours_label(stats.last_7_days), cx))
-                    .child(tile("Last 30 days", hours_label(stats.last_30_days), cx))
-                    .child(tile("All time", hours_label(stats.all_time), cx))
-                    .child(tile("Movies", stats.movies.to_string(), cx))
-                    .child(tile("Episodes", stats.episodes.to_string(), cx)),
+                    .gap(gap::item())
+                    .child(stat_tile("Last 7 days", hours_label(stats.last_7_days), cx))
+                    .child(stat_tile(
+                        "Last 30 days",
+                        hours_label(stats.last_30_days),
+                        cx,
+                    ))
+                    .child(stat_tile("All time", hours_label(stats.all_time), cx))
+                    .child(stat_tile("Movies", stats.movies.to_string(), cx))
+                    .child(stat_tile("Episodes", stats.episodes.to_string(), cx)),
             )
             .child(
-                v_flex().gap_2().child(heading("Hours per week")).child(
-                    div().h(px(180.)).child(
-                        BarChart::new(stats.weekly.clone())
-                            .id("weekly-hours")
-                            .name("Hours")
-                            .band(|(week, _)| SharedString::from(week.clone()))
-                            .value(|(_, hours)| (hours * 10.).round() / 10.),
-                    ),
-                ),
+                v_flex()
+                    .gap(gap::item())
+                    .child(subheading("Hours per week"))
+                    .child(bar_chart(
+                        "weekly-hours",
+                        "Hours",
+                        stats.weekly.clone(),
+                        size::chart_h(),
+                    )),
             )
             .when(!stats.top_series.is_empty(), |this| {
                 this.child(
                     v_flex()
-                        .gap_2()
-                        .child(heading("Most-watched Series"))
+                        .gap(gap::item())
+                        .child(subheading("Most-watched Series"))
                         .children(stats.top_series.iter().map(|(name, count)| {
-                            h_flex()
-                                .justify_between()
-                                .text_sm()
-                                .child(div().truncate().child(name.clone()))
-                                .child(
-                                    div()
-                                        .flex_shrink_0()
-                                        .text_color(muted_fg)
-                                        .child(format!("{count} episodes")),
-                                )
+                            key_value(name.clone(), format!("{count} episodes"), cx)
                         })),
                 )
             })
+    }
+}
+
+/// Own page with a Back button, opened from the user menu.
+pub struct StatsPage {
+    stats: Entity<StatsView>,
+}
+
+impl EventEmitter<Nav> for StatsPage {}
+
+impl StatsPage {
+    pub fn new(api: Api, cx: &mut Context<Self>) -> Self {
+        Self {
+            stats: cx.new(|cx| StatsView::new(api, cx)),
+        }
+    }
+}
+
+impl Render for StatsPage {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .size_full()
+            .child(page_header(
+                Some(
+                    icon_button("stats-back", IconName::ArrowLeft, cx)
+                        .on_click(cx.listener(|_, _, _, cx| cx.emit(Nav::Back))),
+                ),
+                "Watch stats",
+            ))
+            .child(
+                grow().child(
+                    scroll_page("stats")
+                        .pt(gap::item())
+                        .gap(gap::group())
+                        .child(caption(
+                            "From the server's play history. Recent totals count each item at its last play.",
+                            cx,
+                        ))
+                        .child(self.stats.clone()),
+                ),
+            )
     }
 }
 

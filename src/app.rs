@@ -1,15 +1,19 @@
-use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::DialogButtonProps;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
-use gpui_kit::component::tab::TabBar;
-use gpui_kit::component::{
-    ActiveTheme as _, Icon, IconName, Root, Sizable as _, TitleBar, WindowExt as _, h_flex, v_flex,
-};
+use gpui_kit::component::{IconName, Root, TitleBar, WindowExt as _};
 use gpui_kit::*;
 
+use crate::backdrops::Backdrops;
+use crate::components::button::{avatar_button, surface_icon_button};
+use crate::components::dialog::vega_dialog;
+use crate::components::input::search_input;
+use crate::components::layout::{grow, screen};
+use crate::components::tabs::tabs;
+use crate::components::title_bar::app_title_bar;
 use crate::config::{self, Config, WindowState};
+use crate::design;
 use crate::home::HomeView;
 use crate::jellyfin::{Api, Item, Kind, Session};
 use crate::library::{LibraryView, SortChanged};
@@ -21,9 +25,13 @@ use crate::search::{SearchEvent, SearchView};
 use crate::series::SeriesView;
 use crate::settings::{SettingsChanged, SettingsView};
 use crate::shortcuts::{self, ShowShortcuts};
+use crate::stats::StatsPage;
 use crate::update;
 
-actions!(tbis, [FocusSearch]);
+actions!(
+    tbis,
+    [FocusSearch, GoBack, ShowHome, ShowMovies, ShowSeries]
+);
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -47,6 +55,8 @@ struct Main {
     series: Entity<LibraryView>,
     search_input: Entity<InputState>,
     search: Entity<SearchView>,
+    /// Library backdrop behind Home, Movies and Series (Settings > Backdrops).
+    backdrops: Entity<Backdrops>,
     /// Search input expanded in title bar; collapses to an icon on blur.
     search_open: bool,
     /// Detail pages over the current tab, innermost last; Back pops one
@@ -108,6 +118,20 @@ impl Main {
                 Tab::Home => self.home.update(cx, |view, cx| view.refresh(cx)),
             }
         }
+    }
+
+    /// Points the page backdrop at the current tab's pool; nothing loads while `on` is false.
+    fn sync_backdrops(&self, on: bool, cx: &mut App) {
+        if !on {
+            return;
+        }
+        let kind = match self.tab {
+            Tab::Home => None,
+            Tab::Movies => Some(Kind::Movie),
+            Tab::Series => Some(Kind::Series),
+        };
+        self.backdrops
+            .update(cx, |backdrops, cx| backdrops.show(kind, cx));
     }
 }
 
@@ -232,7 +256,7 @@ impl AppView {
         let this = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |alert, _, _| {
             let (this, update) = (this.clone(), update.clone());
-            alert
+            vega_dialog(alert)
                 .title(format!("tbis {} is available", update.version))
                 .description(format!(
                     "You have {}. tbis restarts to finish updating.",
@@ -328,6 +352,7 @@ impl AppView {
                 .placeholder("Search")
                 .clean_on_escape()
         });
+        let backdrops = cx.new(|cx| Backdrops::new(api.clone(), cx));
         let _subscriptions = [
             cx.subscribe(&movies, |this, _, SortChanged(sort), _| {
                 this.config.movies_sort = *sort;
@@ -399,7 +424,7 @@ impl AppView {
                 }
             }),
         ];
-        Screen::Main(Main {
+        let main = Main {
             session,
             api,
             tab: Tab::Home,
@@ -408,12 +433,15 @@ impl AppView {
             series,
             search_input,
             search,
+            backdrops,
             search_open: false,
             details: Vec::new(),
             player: None,
             _subscriptions,
             _expired,
-        })
+        };
+        main.sync_backdrops(config.backdrops.0, cx);
+        Screen::Main(main)
     }
 
     fn select_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -421,6 +449,7 @@ impl AppView {
             return;
         };
         main.tab = TABS[index].0;
+        main.sync_backdrops(self.config.backdrops.0, cx);
         main.details.clear();
         Self::clear_search(main, window, cx);
         main.refresh_visible(cx);
@@ -442,6 +471,31 @@ impl AppView {
                 // Episode detail shares the Movie page; Other would be a server data bug
                 Kind::Movie | Kind::Episode | Kind::Other => self.open_movie(item, window, cx),
             },
+            Nav::Play(item) if item.kind == Kind::Series => {
+                let Screen::Main(main) = &self.screen else {
+                    return;
+                };
+                let (api, series) = (main.api.clone(), item.clone());
+                cx.spawn_in(window, async move |this, cx| {
+                    let next = api.next_up(&series.id).await;
+                    this.update_in(cx, |this, window, cx| {
+                        // slow lookup or double-click: a player is already up
+                        if matches!(&this.screen, Screen::Main(m) if m.player.is_some()) {
+                            return;
+                        }
+                        match next {
+                            Ok(Some(episode)) => this.open_player(&episode, window, cx),
+                            Ok(None) => this.open_series(&series, window, cx),
+                            Err(err) => {
+                                eprintln!("next up lookup failed: {err}");
+                                this.open_series(&series, window, cx)
+                            }
+                        }
+                    })
+                    .ok();
+                })
+                .detach();
+            }
             Nav::Play(item) => self.open_player(item, window, cx),
             Nav::Back => {
                 let Screen::Main(main) = &mut self.screen else {
@@ -451,6 +505,20 @@ impl AppView {
                 main.refresh_visible(cx);
                 cx.notify();
             }
+        }
+    }
+
+    /// Pops one detail page; with none open, clears an active search.
+    fn go_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Screen::Main(main) = &mut self.screen else {
+            return;
+        };
+        if !main.details.is_empty() {
+            self.on_nav(&Nav::Back, window, cx);
+        } else if main.search_open || main.searching(cx) {
+            main.search_open = false;
+            Self::clear_search(main, window, cx);
+            cx.notify();
         }
     }
 
@@ -493,11 +561,7 @@ impl AppView {
     }
 
     fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Screen::Main(main) = &self.screen else {
-            return;
-        };
-        let (config, api) = (&self.config, main.api.clone());
-        let view = cx.new(|cx| SettingsView::new(config, api, cx));
+        let view = cx.new(|cx| SettingsView::new(&self.config, cx));
         let changed = cx.subscribe(&view, |this, _, changed: &SettingsChanged, cx| {
             match changed {
                 SettingsChanged::Language(language) => this.config.language = language.clone(),
@@ -513,6 +577,12 @@ impl AppView {
                     this.config.hide_spoilers = *hide;
                     cx.set_global(*hide);
                 }
+                SettingsChanged::Backdrops(show) => {
+                    this.config.backdrops = *show;
+                    if let Screen::Main(main) = &this.screen {
+                        main.sync_backdrops(show.0, cx);
+                    }
+                }
                 SettingsChanged::Hdr(style) => this.config.hdr = *style,
                 SettingsChanged::Audio(style) => this.config.audio = *style,
             }
@@ -524,6 +594,15 @@ impl AppView {
         {
             detail._subscriptions.push(changed);
         }
+    }
+
+    fn open_stats(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Screen::Main(main) = &self.screen else {
+            return;
+        };
+        let api = main.api.clone();
+        let view = cx.new(|cx| StatsPage::new(api, cx));
+        self.set_detail(view, |_| {}, window, cx);
     }
 
     fn open_movie(&mut self, movie: &Item, window: &mut Window, cx: &mut Context<Self>) {
@@ -616,13 +695,14 @@ impl AppView {
         let Screen::Main(main) = &self.screen else {
             return TitleBar::new();
         };
-        // Search and Settings belong to no tab; Movie/Series details stay under theirs
+        // Search, Settings and Watch stats belong to no tab; Movie/Series details stay under theirs
         let off_tab = main.searching(cx)
             || (main.search_open && main.search.read(cx).has_recent())
-            || main
-                .details
-                .last()
-                .is_some_and(|d| d.view.entity_type() == std::any::TypeId::of::<SettingsView>());
+            || main.details.last().is_some_and(|d| {
+                let page = d.view.entity_type();
+                page == std::any::TypeId::of::<SettingsView>()
+                    || page == std::any::TypeId::of::<StatsPage>()
+            });
         let selected = TABS
             .iter()
             .position(|(t, _)| *t == main.tab)
@@ -632,20 +712,9 @@ impl AppView {
         let user_name = main.session.user_name.clone();
 
         let search = if main.search_open || main.searching(cx) {
-            div()
-                .w(px(200.))
-                .child(
-                    Input::new(&main.search_input)
-                        .small()
-                        .cleanable(true)
-                        .prefix(Icon::new(IconName::Search).small()),
-                )
-                .into_any_element()
+            search_input(&main.search_input, cx).into_any_element()
         } else {
-            Button::new("search")
-                .ghost()
-                .small()
-                .icon(IconName::Search)
+            surface_icon_button("search", IconName::Search, cx)
                 .tooltip_with_action("Search", &FocusSearch, None)
                 .on_click(
                     cx.listener(|this, _, window, cx| this.focus_search(&FocusSearch, window, cx)),
@@ -653,95 +722,52 @@ impl AppView {
                 .into_any_element()
         };
 
-        TitleBar::new()
-            .h(px(40.))
-            .border_b_0()
-            .bg(cx.theme().background)
-            .child(
-                h_flex()
-                    .gap_1p5()
-                    .child(
-                        // mark's own aspect ratio (1707x1440), so it isn't squashed
-                        svg()
-                            .path("icons/tbis-mark.svg")
-                            .w(px(19.))
-                            .h(px(16.))
-                            .text_color(cx.theme().primary),
-                    )
-                    .child(
-                        div()
-                            .text_base()
-                            .font_weight(FontWeight::BOLD)
-                            .child("tbis"),
-                    ),
-            )
-            // spans whole window width so tabs sit at true center; offset cancels TitleBar left padding
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .left(px(if cfg!(target_os = "macos") {
-                        -80.
-                    } else {
-                        -12.
-                    }))
-                    .right_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        TabBar::new("nav")
-                            .pill()
-                            .small()
-                            .children(TABS.map(|(_, label)| label))
-                            .selected_index(selected.unwrap_or(usize::MAX))
-                            .on_click(cx.listener(|this, index: &usize, window, cx| {
-                                this.select_tab(*index, window, cx)
-                            })),
-                    ),
-            )
-            .child(
-                h_flex().pr_2().gap_1().child(search).child(
-                    Button::new("user-menu")
-                        .ghost()
-                        .small()
-                        .child(initials(&user_name, cx))
-                        .dropdown_caret(true)
-                        .dropdown_menu(move |menu, _, _| {
-                            let this = this.clone();
-                            let settings = this.clone();
-                            let updates = this.clone();
-                            menu.label(user_name.clone())
-                                .separator()
-                                .item(PopupMenuItem::new("Settings").on_click(
-                                    move |_, window, cx| {
-                                        settings
-                                            .update(cx, |this, cx| this.open_settings(window, cx))
-                                            .ok();
-                                    },
-                                ))
-                                .item(PopupMenuItem::new("Check for Updates\u{2026}").on_click(
-                                    move |_, window, cx| {
-                                        updates
-                                            .update(cx, |this, cx| {
-                                                this.check_for_updates(true, window, cx)
-                                            })
-                                            .ok();
-                                    },
-                                ))
-                                .item(
-                                    PopupMenuItem::new("Keyboard shortcuts")
-                                        .on_click(|_, window, cx| shortcuts::open(window, cx)),
-                                )
-                                .item(PopupMenuItem::new("Log out").on_click(
-                                    move |_, window, cx| {
-                                        this.update(cx, |this, cx| this.log_out(window, cx)).ok();
-                                    },
-                                ))
+        let nav = tabs(
+            "nav",
+            TABS.map(|(_, label)| label),
+            selected.unwrap_or(usize::MAX),
+            cx.listener(|this, index: &usize, window, cx| this.select_tab(*index, window, cx)),
+        );
+        let user_menu =
+            avatar_button("user-menu", user_name.clone(), cx).dropdown_menu(move |menu, _, _| {
+                let this = this.clone();
+                let settings = this.clone();
+                let stats = this.clone();
+                let updates = this.clone();
+                menu.label(user_name.clone())
+                    .separator()
+                    .item(
+                        PopupMenuItem::new("Settings").on_click(move |_, window, cx| {
+                            settings
+                                .update(cx, |this, cx| this.open_settings(window, cx))
+                                .ok();
                         }),
-                ),
-            )
+                    )
+                    .item(
+                        PopupMenuItem::new("Watch stats").on_click(move |_, window, cx| {
+                            stats
+                                .update(cx, |this, cx| this.open_stats(window, cx))
+                                .ok();
+                        }),
+                    )
+                    .item(PopupMenuItem::new("Check for Updates\u{2026}").on_click(
+                        move |_, window, cx| {
+                            updates
+                                .update(cx, |this, cx| this.check_for_updates(true, window, cx))
+                                .ok();
+                        },
+                    ))
+                    .item(
+                        PopupMenuItem::new("Keyboard shortcuts")
+                            .on_click(|_, window, cx| shortcuts::open(window, cx)),
+                    )
+                    .item(
+                        PopupMenuItem::new("Log out").on_click(move |_, window, cx| {
+                            this.update(cx, |this, cx| this.log_out(window, cx)).ok();
+                        }),
+                    )
+            });
+        app_title_bar(nav, [search, user_menu.into_any_element()], cx)
     }
 }
 
@@ -761,25 +787,10 @@ fn set_video_background(video: bool, window: &mut Window, cx: &mut App) {
     });
     if let Some(Some(root)) = window.root::<Root>() {
         root.update(cx, |root, cx| {
-            root.style().background = video.then(|| hsla(0., 0., 0., 0.).into());
+            root.style().background = video.then(|| design::overlay::CLEAR.into());
             cx.notify();
         });
     }
-}
-
-/// User menu badge: first two letters of the name on the theme's accent.
-fn initials(name: &str, cx: &App) -> Div {
-    div()
-        .size_6()
-        .rounded_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .bg(cx.theme().primary)
-        .text_color(cx.theme().primary_foreground)
-        .text_xs()
-        .font_weight(FontWeight::BOLD)
-        .child(name.chars().take(2).collect::<String>().to_uppercase())
 }
 
 /// Fixed-width digits app-wide, so timecodes and counters don't jitter as they tick.
@@ -788,7 +799,7 @@ fn tabular_figures() -> FontFeatures {
 }
 
 impl Render for AppView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Screen::Main(Main {
             player: Some((player, _)),
             ..
@@ -799,20 +810,23 @@ impl Render for AppView {
                 .font_features(tabular_figures())
                 .on_action(|_: &ShowShortcuts, window, cx| shortcuts::open(window, cx))
                 .child(player.clone())
-                .children(Root::render_dialog_layer(window, cx))
-                .children(Root::render_notification_layer(window, cx))
                 .into_any_element();
         }
 
+        // focused and empty: the search view shows recent searches
+        let search_shown = matches!(&self.screen, Screen::Main(main)
+            if main.searching(cx) || (main.search_open && main.search.read(cx).has_recent()));
+        let backdrop = match &self.screen {
+            Screen::Main(main)
+                if self.config.backdrops.0 && main.details.is_empty() && !search_shown =>
+            {
+                Some(main.backdrops.clone())
+            }
+            _ => None,
+        };
         let content = match &self.screen {
             Screen::Login { view, .. } => view.clone().into_any_element(),
-            // focused and empty: the search view shows recent searches
-            Screen::Main(main)
-                if main.searching(cx)
-                    || (main.search_open && main.search.read(cx).has_recent()) =>
-            {
-                main.search.clone().into_any_element()
-            }
+            Screen::Main(main) if search_shown => main.search.clone().into_any_element(),
             Screen::Main(Main { details, .. }) if !details.is_empty() => {
                 details[details.len() - 1].view.clone().into_any_element()
             }
@@ -829,18 +843,25 @@ impl Render for AppView {
             Screen::Main(Main { home, .. }) => home.clone().into_any_element(),
         };
 
-        v_flex()
-            .size_full()
+        screen(cx)
             .font_features(tabular_figures())
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::focus_search))
+            .on_action(cx.listener(|this, _: &GoBack, window, cx| this.go_back(window, cx)))
+            .on_action(cx.listener(|this, _: &ShowHome, window, cx| this.select_tab(0, window, cx)))
+            .on_action(
+                cx.listener(|this, _: &ShowMovies, window, cx| this.select_tab(1, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &ShowSeries, window, cx| this.select_tab(2, window, cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Back),
+                cx.listener(|this, _, window, cx| this.go_back(window, cx)),
+            )
             .on_action(|_: &ShowShortcuts, window, cx| shortcuts::open(window, cx))
-            .bg(cx.theme().background)
-            .text_color(cx.theme().foreground)
             .child(self.render_title_bar(cx))
-            .child(div().flex_1().min_h_0().child(content))
-            .children(Root::render_dialog_layer(window, cx))
-            .children(Root::render_notification_layer(window, cx))
+            .child(grow().relative().children(backdrop).child(content))
             .into_any_element()
     }
 }

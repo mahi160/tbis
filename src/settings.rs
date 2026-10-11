@@ -1,22 +1,18 @@
 //! Settings screen: opened from the title-bar user menu as a detail page. One
 //! `SettingPage` per area; add a setting by adding a `SettingItem` to a group.
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::setting::{
-    SettingField, SettingGroup, SettingItem, SettingPage, Settings,
-};
-use gpui_kit::component::{IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{IconName, v_flex};
 use gpui_kit::*;
 
+use crate::components::button::icon_button;
+use crate::components::layout::{grow, page_header};
+use crate::components::settings::{SettingField, SettingGroup, SettingItem, SettingPage, settings};
 use crate::config::{
     AudioStyle, Config, DebandLevel, HdrStyle, HideSpoilers, LanguagePref, SeekSteps,
-    SubtitleStyle, ToneMapCurve,
+    ShowBackdrops, SubtitleStyle, ToneMapCurve,
 };
-use crate::detail::PAD;
-use crate::jellyfin::Api;
 use crate::nav::Nav;
 use crate::shaders::ShaderProfile;
-use crate::stats::StatsView;
 use crate::theme;
 
 /// Languages offered in Settings: canonical code (ISO 639-2/B, as most containers
@@ -61,6 +57,7 @@ pub enum SettingsChanged {
     Seek(SeekSteps),
     Theme(String),
     HideSpoilers(HideSpoilers),
+    Backdrops(ShowBackdrops),
     Hdr(HdrStyle),
     Audio(AudioStyle),
 }
@@ -73,18 +70,17 @@ pub struct SettingsView {
     seek: Entity<SeekSteps>,
     theme: Entity<SharedString>,
     hide_spoilers: Entity<HideSpoilers>,
+    backdrops: Entity<ShowBackdrops>,
     hdr: Entity<HdrStyle>,
     audio: Entity<AudioStyle>,
-    stats: Entity<StatsView>,
-    _observe: [Subscription; 9],
+    _observe: [Subscription; 10],
 }
 
 impl EventEmitter<Nav> for SettingsView {}
 impl EventEmitter<SettingsChanged> for SettingsView {}
 
 impl SettingsView {
-    pub fn new(config: &Config, api: Api, cx: &mut Context<Self>) -> Self {
-        let stats = cx.new(|cx| StatsView::new(api, cx));
+    pub fn new(config: &Config, cx: &mut Context<Self>) -> Self {
         let language = cx.new(|_| config.language.clone());
         let subtitles = cx.new(|_| config.subtitles.clone());
         let max_bitrate = cx.new(|_| config.max_bitrate_mbps);
@@ -92,6 +88,7 @@ impl SettingsView {
         let seek = cx.new(|_| config.seek);
         let theme = cx.new(|_| SharedString::from(theme::active(config)));
         let hide_spoilers = cx.new(|_| config.hide_spoilers);
+        let backdrops = cx.new(|_| config.backdrops);
         let hdr = cx.new(|_| config.hdr);
         let audio = cx.new(|_| config.audio);
         let _observe = [
@@ -118,6 +115,9 @@ impl SettingsView {
             cx.observe(&hide_spoilers, |_, hide, cx| {
                 cx.emit(SettingsChanged::HideSpoilers(*hide.read(cx)))
             }),
+            cx.observe(&backdrops, |_, show, cx| {
+                cx.emit(SettingsChanged::Backdrops(*show.read(cx)))
+            }),
             cx.observe(&hdr, |_, hdr, cx| {
                 cx.emit(SettingsChanged::Hdr(*hdr.read(cx)))
             }),
@@ -133,9 +133,9 @@ impl SettingsView {
             seek,
             theme,
             hide_spoilers,
+            backdrops,
             hdr,
             audio,
-            stats,
             _observe,
         }
     }
@@ -214,17 +214,22 @@ impl SettingsView {
             ),
         )
         .description("Blur the images and hide the descriptions of episodes you haven't watched.");
-        SettingPage::new("Appearance").group(SettingGroup::new().items([theme, spoilers]))
-    }
-
-    fn stats_page(&self) -> SettingPage {
-        let stats = self.stats.clone();
-        SettingPage::new("Stats").group(
-            SettingGroup::new()
-                .title("Watch stats")
-                .description("From the server's play history. Recent totals count each item at its last play.")
-                .item(SettingItem::render(move |_, _, _| stats.clone())),
+        let (read, write) = (self.backdrops.clone(), self.backdrops.clone());
+        let backdrops = SettingItem::new(
+            "Backdrops",
+            SettingField::switch(
+                move |cx| read.read(cx).0,
+                move |show, cx| {
+                    write.update(cx, |value, cx| {
+                        *value = ShowBackdrops(show);
+                        cx.notify();
+                    })
+                },
+            ),
         )
+        .description("Show a dimmed backdrop from your library behind Home, Movies and Series.");
+        SettingPage::new("Appearance")
+            .group(SettingGroup::new().items([theme, backdrops, spoilers]))
     }
 
     fn video_group(&self) -> SettingGroup {
@@ -459,7 +464,7 @@ impl SettingsView {
         let (audio_get, audio_set) = (self.language.clone(), self.language.clone());
         let audio = SettingItem::new(
             "Audio language",
-            SettingField::scrollable_dropdown(
+            SettingField::dropdown(
                 Self::language_options(&[(NO_PREFERENCE, "No preference")]),
                 move |cx| {
                     audio_get
@@ -482,7 +487,7 @@ impl SettingsView {
         let (subs_get, subs_set) = (self.language.clone(), self.language.clone());
         let subtitles = SettingItem::new(
             "Subtitle language",
-            SettingField::scrollable_dropdown(
+            SettingField::dropdown(
                 Self::language_options(&[(NO_PREFERENCE, "No preference"), (OFF, "Off")]),
                 move |cx| {
                     let pref = subs_get.read(cx);
@@ -506,7 +511,7 @@ impl SettingsView {
         )
         .description("Used when an item has no remembered subtitle track.");
 
-        SettingPage::new("Playback").default_open(true).groups([
+        SettingPage::new("Playback").groups([
             SettingGroup::new()
                 .title("Language")
                 .items([audio, subtitles]),
@@ -524,33 +529,17 @@ impl Render for SettingsView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .size_full()
+            .child(page_header(
+                Some(
+                    icon_button("settings-back", IconName::ArrowLeft, cx)
+                        .on_click(cx.listener(|_, _, _, cx| cx.emit(Nav::Back))),
+                ),
+                "Settings",
+            ))
             .child(
-                h_flex()
-                    .p(px(PAD))
-                    .pb_2()
-                    .gap_3()
-                    .child(
-                        Button::new("settings-back")
-                            .ghost()
-                            .icon(IconName::ArrowLeft)
-                            .on_click(cx.listener(|_, _, _, cx| cx.emit(Nav::Back))),
-                    )
-                    .child(
-                        div()
-                            .text_2xl()
-                            .font_weight(FontWeight::BOLD)
-                            .child("Settings"),
-                    ),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(Settings::new("settings").small().pages([
-                        self.playback_page(),
-                        self.appearance_page(),
-                        self.stats_page(),
-                    ])),
+                grow().child(
+                    settings("settings").pages([self.playback_page(), self.appearance_page()]),
+                ),
             )
     }
 }

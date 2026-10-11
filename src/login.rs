@@ -1,11 +1,17 @@
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use std::time::Duration;
 
-use gpui_kit::component::{ActiveTheme as _, Disableable as _, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{Disableable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::components::button::{VegaSize as _, outline_button, primary_button};
+use crate::components::input::text_field;
+use crate::components::layout::centered_scroll;
+use crate::components::logo::brand_hero;
+use crate::components::panel::panel;
+use crate::components::typography::{caption, error_text, title};
+use crate::design::{gap, size};
 use crate::jellyfin::{self, PublicUser, Session};
 
 /// Wait after typing in Server before asking it for users.
@@ -231,139 +237,72 @@ impl LoginView {
 
 impl Render for LoginView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let field = |label: &'static str, input: &Entity<InputState>| {
-            v_flex()
-                .gap_1()
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(label),
-                )
-                .child(Input::new(input).disabled(self.busy))
-        };
+        let busy = self.busy;
+        let field = |label, input, cx: &App| text_field(label, input, busy, cx);
 
-        div()
-            .size_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(
-                v_flex()
-                    .w(px(360.))
-                    .gap_6()
-                    .child(
-                        v_flex()
+        centered_scroll(
+            "login",
+            v_flex()
+                .w(size::form_w())
+                .gap(gap::group())
+                .child(brand_hero("Sign in to your Jellyfin server", cx))
+                .child(panel(cx).map(|this| {
+                    match &self.quick_connect {
+                        Some(quick_connect) => this
                             .items_center()
-                            .gap_2()
+                            .gap(gap::item())
+                            .child(caption(
+                                "Enter this code on a device you're signed in on",
+                                cx,
+                            ))
+                            .child(title(quick_connect.code.clone()))
+                            .child(caption("Waiting for approval\u{2026}", cx))
+                            .children(self.error.clone().map(|error| error_text(error, cx)))
                             .child(
-                                // mark's own aspect ratio (1707x1440), so it isn't squashed
-                                svg()
-                                    .path("icons/tbis-mark.svg")
-                                    .w(px(57.))
-                                    .h(px(48.))
-                                    .text_color(cx.theme().primary),
-                            )
-                            .child(div().text_3xl().font_weight(FontWeight::BOLD).child("tbis"))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("Sign in to your Jellyfin server"),
+                                outline_button("quick-connect-cancel", "Cancel", cx)
+                                    .mt(gap::item())
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.quick_connect_cancel(cx)),
+                                    ),
                             ),
-                    )
-                    .child(
-                        v_flex()
-                            .p_6()
-                            .gap_4()
-                            .rounded(cx.theme().radius_lg)
-                            .bg(cx.theme().secondary)
-                            .border_1()
-                            .border_color(cx.theme().border)
-                            .map(|this| match &self.quick_connect {
-                                Some(quick_connect) => this
-                                    .items_center()
-                                    .gap_2()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(
-                                                "Enter this code on a device you're signed in on",
-                                            ),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_3xl()
-                                            .font_weight(FontWeight::BOLD)
-                                            .child(quick_connect.code.clone()),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child("Waiting for approval\u{2026}"),
-                                    )
-                                    .children(self.error.clone().map(|error| {
-                                        div().text_sm().text_color(cx.theme().danger).child(error)
-                                    }))
-                                    .child(
-                                        Button::new("quick-connect-cancel")
-                                            .outline()
-                                            .mt_2()
-                                            .label("Cancel")
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.quick_connect_cancel(cx)
-                                            })),
-                                    ),
-                                None => this
-                                    .child(field("Server address", &self.server))
-                                    .when(!self.users.is_empty(), |this| {
-                                        this.child(h_flex().flex_wrap().gap_2().children(
-                                            self.users.iter().enumerate().map(|(i, user)| {
-                                                let picked = user.clone();
-                                                Button::new(("user", i))
-                                                    .outline()
-                                                    .small()
-                                                    .label(user.name.clone())
-                                                    .disabled(self.busy)
-                                                    .on_click(cx.listener(
-                                                        move |this, _, window, cx| {
-                                                            this.pick_user(&picked, window, cx)
-                                                        },
-                                                    ))
-                                            }),
-                                        ))
-                                    })
-                                    .child(field("Username", &self.username))
-                                    .child(field("Password", &self.password))
-                                    .children(self.error.clone().map(|error| {
-                                        div().text_sm().text_color(cx.theme().danger).child(error)
-                                    }))
-                                    .child(
-                                        Button::new("sign-in")
-                                            .primary()
-                                            .large()
-                                            .mt_2()
-                                            .label("Sign in")
-                                            .loading(self.busy)
+                        None => this
+                            .child(field("Server address", &self.server, cx))
+                            .when(!self.users.is_empty(), |this| {
+                                this.child(h_flex().flex_wrap().gap(gap::item()).children(
+                                    self.users.iter().enumerate().map(|(i, user)| {
+                                        let picked = user.clone();
+                                        outline_button(("user", i), user.name.clone(), cx)
+                                            .sm()
                                             .disabled(self.busy)
-                                            .on_click(cx.listener(|this, _, window, cx| {
-                                                this.submit(window, cx)
-                                            })),
-                                    )
-                                    .child(
-                                        Button::new("quick-connect")
-                                            .outline()
-                                            .large()
-                                            .label("Sign in with Quick Connect")
-                                            .disabled(self.busy)
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.quick_connect_start(cx)
-                                            })),
+                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                                this.pick_user(&picked, window, cx)
+                                            }))
+                                    }),
+                                ))
+                            })
+                            .child(field("Username", &self.username, cx))
+                            .child(field("Password", &self.password, cx))
+                            .children(self.error.clone().map(|error| error_text(error, cx)))
+                            .child(
+                                primary_button("sign-in", "Sign in")
+                                    .lg()
+                                    .mt(gap::item())
+                                    .loading(self.busy)
+                                    .disabled(self.busy)
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| this.submit(window, cx)),
                                     ),
-                            }),
-                    ),
-            )
+                            )
+                            .child(
+                                outline_button("quick-connect", "Sign in with Quick Connect", cx)
+                                    .lg()
+                                    .disabled(self.busy)
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.quick_connect_start(cx)),
+                                    ),
+                            ),
+                    }
+                })),
+        )
     }
 }

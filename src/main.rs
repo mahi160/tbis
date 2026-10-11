@@ -1,7 +1,9 @@
 mod app;
 mod assets;
-mod card;
+mod backdrops;
+mod components;
 mod config;
+mod design;
 mod detail;
 mod embed;
 mod fonts;
@@ -21,7 +23,6 @@ mod settings;
 mod shaders;
 mod shortcuts;
 mod stats;
-mod status;
 mod support_dir;
 mod theme;
 mod update;
@@ -102,6 +103,10 @@ fn main() {
             cx.bind_keys([
                 KeyBinding::new("cmd-q", Quit, None),
                 KeyBinding::new("cmd-f", app::FocusSearch, None),
+                KeyBinding::new("cmd-[", app::GoBack, Some("!Input")),
+                KeyBinding::new("cmd-1", app::ShowHome, Some("!Input")),
+                KeyBinding::new("cmd-2", app::ShowMovies, Some("!Input")),
+                KeyBinding::new("cmd-3", app::ShowSeries, Some("!Input")),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
             player::bind_keys(cx);
@@ -110,7 +115,7 @@ fn main() {
             cx.on_window_closed(|cx, _| cx.quit()).detach();
 
             cx.spawn(async move |cx| {
-                let min = size(px(800.), px(560.));
+                let min = design::window::MIN;
                 let saved = config::load().window;
                 let window_bounds = cx.update(|cx| {
                     let displays: Vec<_> = cx.displays().iter().map(|d| d.bounds()).collect();
@@ -119,7 +124,7 @@ fn main() {
                         .unwrap_or_else(|| {
                             WindowBounds::Windowed(Bounds::centered(
                                 None,
-                                size(px(1200.), px(800.)),
+                                design::window::DEFAULT,
                                 cx,
                             ))
                         })
@@ -127,9 +132,9 @@ fn main() {
                 let options = WindowOptions {
                     window_bounds: Some(window_bounds),
                     window_min_size: Some(min),
-                    // recentre traffic lights in 40px title bar (app.rs)
+                    // recentre traffic lights in 52px title bar (app.rs)
                     titlebar: Some(TitlebarOptions {
-                        traffic_light_position: Some(point(px(13.), px(13.))),
+                        traffic_light_position: Some(design::window::TRAFFIC_LIGHTS),
                         ..TitleBar::title_bar_options()
                     }),
                     ..TitleBar::window_options()
