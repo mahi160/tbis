@@ -22,6 +22,8 @@ use crate::jellyfin::{Api, Item, PlaybackItem, Report};
 use crate::mpv::Mpv;
 use crate::now_playing::{NowPlaying, RemoteCommand};
 use crate::pip::Pip;
+use crate::platform::cursor::hide as hide_cursor;
+use crate::platform::power::Awake;
 use crate::shaders::ShaderProfile;
 use playback::Playback;
 
@@ -425,48 +427,3 @@ impl PlayerView {
         });
     }
 }
-
-/// Holds off display/idle sleep while alive (macOS power assertion via NSProcessInfo).
-#[cfg(target_os = "macos")]
-struct Awake(
-    objc2::rc::Retained<objc2::runtime::ProtocolObject<dyn objc2_foundation::NSObjectProtocol>>,
-);
-
-#[cfg(target_os = "macos")]
-impl Awake {
-    fn new() -> Self {
-        use objc2_foundation::{NSActivityOptions, NSProcessInfo, ns_string};
-        Self(
-            NSProcessInfo::processInfo().beginActivityWithOptions_reason(
-                NSActivityOptions::UserInitiated | NSActivityOptions::IdleDisplaySleepDisabled,
-                ns_string!("Playing video"),
-            ),
-        )
-    }
-}
-
-#[cfg(target_os = "macos")]
-impl Drop for Awake {
-    fn drop(&mut self) {
-        // SAFETY: token came from beginActivityWithOptions_reason
-        unsafe { objc2_foundation::NSProcessInfo::processInfo().endActivity(&self.0) };
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-struct Awake;
-
-#[cfg(not(target_os = "macos"))]
-impl Awake {
-    fn new() -> Self {
-        Self
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn hide_cursor() {
-    objc2_app_kit::NSCursor::setHiddenUntilMouseMoves(true);
-}
-
-#[cfg(not(target_os = "macos"))]
-fn hide_cursor() {}

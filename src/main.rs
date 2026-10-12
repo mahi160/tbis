@@ -16,6 +16,7 @@ mod mpv;
 mod nav;
 mod now_playing;
 mod pip;
+mod platform;
 mod player;
 mod search;
 mod series;
@@ -55,35 +56,6 @@ fn raise_open_file_limit() {
     }
 }
 
-/// gpui's Metal layer carries no colorspace, so macOS sends its sRGB values to the
-/// display raw and wide-gamut (P3) screens oversaturate every color and poster.
-/// Tagging it sRGB makes macOS color-match, as browsers do.
-#[cfg(target_os = "macos")]
-fn tag_srgb(window: &Window) {
-    use objc2_app_kit::NSView;
-    use objc2_core_graphics::{CGColorSpace, kCGColorSpaceSRGB};
-    use objc2_quartz_core::CAMetalLayer;
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-
-    // trait method, not gpui's inherent `Window::window_handle`
-    let Ok(handle) = HasWindowHandle::window_handle(window) else {
-        return;
-    };
-    let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
-        return;
-    };
-    // SAFETY: gpui keeps its view alive as long as the window; non-owning borrow
-    let view: &NSView = unsafe { &*(appkit.ns_view.as_ptr() as *const NSView) };
-    let Some(layer) = view.layer() else {
-        return;
-    };
-    let Ok(layer) = layer.downcast::<CAMetalLayer>() else {
-        return;
-    };
-    let srgb = CGColorSpace::with_name(Some(unsafe { kCGColorSpaceSRGB }));
-    layer.setColorspace(srgb.as_deref());
-}
-
 fn main() {
     #[cfg(unix)]
     raise_open_file_limit();
@@ -101,12 +73,13 @@ fn main() {
             theme::init(config::load().theme.as_deref(), cx);
 
             cx.bind_keys([
-                KeyBinding::new("cmd-q", Quit, None),
-                KeyBinding::new("cmd-f", app::FocusSearch, None),
-                KeyBinding::new("cmd-[", app::GoBack, Some("!Input")),
-                KeyBinding::new("cmd-1", app::ShowHome, Some("!Input")),
-                KeyBinding::new("cmd-2", app::ShowMovies, Some("!Input")),
-                KeyBinding::new("cmd-3", app::ShowSeries, Some("!Input")),
+                // secondary: cmd on macOS, ctrl elsewhere
+                KeyBinding::new("secondary-q", Quit, None),
+                KeyBinding::new("secondary-f", app::FocusSearch, None),
+                KeyBinding::new("secondary-[", app::GoBack, Some("!Input")),
+                KeyBinding::new("secondary-1", app::ShowHome, Some("!Input")),
+                KeyBinding::new("secondary-2", app::ShowMovies, Some("!Input")),
+                KeyBinding::new("secondary-3", app::ShowSeries, Some("!Input")),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
             player::bind_keys(cx);
@@ -140,8 +113,7 @@ fn main() {
                     ..TitleBar::window_options()
                 };
                 cx.open_window(options, |window, cx| {
-                    #[cfg(target_os = "macos")]
-                    tag_srgb(window);
+                    platform::window::prepare(window);
                     let view = cx.new(|cx| app::AppView::new(window, cx));
                     cx.new(|cx| Root::new(view, window, cx))
                 })

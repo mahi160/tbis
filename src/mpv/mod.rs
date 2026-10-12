@@ -1,13 +1,10 @@
-//! In-process libmpv (ADR-0001, macOS only). This file holds the part shared with a
-//! future platform module: mpv handle, options, commands, event thread, and the render
-//! loop driving mpv's OpenGL render API. `platform` (`mac.rs`) supplies the on-screen
-//! surface and the GL/present side of a frame.
+//! In-process libmpv (ADR-0001). This file holds the part shared by every platform
+//! module: mpv handle, options, commands, event thread, and the render loop driving
+//! mpv's OpenGL render API. `platform::video` supplies the on-screen surface and the
+//! GL/present side of a frame; it calls back into `create_gl_render_context` and
+//! `render_gl` here.
 
-#[cfg(not(target_os = "macos"))]
-compile_error!("tbis only supports macOS today (ADR-0001); config.rs/fonts.rs also assume it");
-
-#[path = "mac.rs"]
-mod platform;
+use crate::platform::video;
 
 use std::ffi::{CStr, CString, c_void};
 use std::os::raw::{c_char, c_int};
@@ -18,7 +15,16 @@ use std::time::Duration;
 
 use futures::channel::mpsc::UnboundedSender;
 use libmpv_sys::*;
-use raw_window_handle::HasWindowHandle;
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+
+/// Where the video goes: device pixels, plus the window's scale for platforms whose
+/// compositor wants the logical size too.
+#[derive(Clone, Copy, PartialEq, Default)]
+pub struct Extent {
+    pub width: i32,
+    pub height: i32,
+    pub scale: f32,
+}
 
 pub enum MpvEvent {
     TimePos(f64),
@@ -63,8 +69,8 @@ pub struct Track {
 
 pub struct Mpv {
     handle: Handle,
-    surface: Option<platform::Surface>,
-    size: Arc<Mutex<(i32, i32)>>,
+    surface: Option<video::Surface>,
+    size: Arc<Mutex<Extent>>,
     waker: Arc<Waker>,
     stop: Arc<AtomicBool>,
     events: Option<JoinHandle<()>>,
@@ -74,7 +80,7 @@ pub struct Mpv {
 impl Mpv {
     /// Must run on the main thread. `auth_header` goes on every HTTP request mpv makes.
     pub fn new(
-        window: &impl HasWindowHandle,
+        window: &(impl HasWindowHandle + HasDisplayHandle),
         auth_header: &str,
         events: UnboundedSender<MpvEvent>,
     ) -> Result<Self, String> {
@@ -86,7 +92,7 @@ impl Mpv {
             unsafe { mpv_terminate_destroy(handle.0) };
             return Err(err);
         }
-        let (surface, renderer) = match platform::Surface::attach(window) {
+        let (surface, renderer) = match video::Surface::attach(window) {
             Ok(parts) => parts,
             Err(err) => {
                 unsafe { mpv_terminate_destroy(handle.0) };
@@ -94,7 +100,7 @@ impl Mpv {
             }
         };
 
-        let size = Arc::new(Mutex::new((0, 0)));
+        let size = Arc::new(Mutex::new(Extent::default()));
         let waker = Arc::new(Waker::default());
         let stop = Arc::new(AtomicBool::new(false));
 
@@ -175,9 +181,13 @@ impl Mpv {
         self.handle.set_property(kind.property(), &value)
     }
 
-    /// Video size in device pixels.
-    pub fn set_size(&self, width: i32, height: i32) {
-        *self.size.lock().unwrap_or_else(PoisonError::into_inner) = (width, height);
+    /// Video size in device pixels, and the window scale it was derived with.
+    pub fn set_size(&self, width: i32, height: i32, scale: f32) {
+        *self.size.lock().unwrap_or_else(PoisonError::into_inner) = Extent {
+            width,
+            height,
+            scale,
+        };
         self.waker.notify();
     }
 
@@ -268,7 +278,7 @@ const EMBEDDING: [(&str, &str); 5] = [
     ("osc", "no"),
 ];
 
-/// `~/Library/Application Support/tbis/mpv` when it holds an `mpv.conf`: the user's
+/// `<app support dir>/mpv` (`support_dir.rs`) when it holds an `mpv.conf`: the user's
 /// own mpv config for the Player and PiP (scripts/shaders it names resolve there too).
 /// Absent: mpv runs exactly as without it.
 pub fn user_config_dir() -> Option<std::path::PathBuf> {
@@ -277,7 +287,7 @@ pub fn user_config_dir() -> Option<std::path::PathBuf> {
 }
 
 #[derive(Clone, Copy)]
-struct Handle(*mut mpv_handle);
+pub(crate) struct Handle(*mut mpv_handle);
 
 // mpv client API is thread-safe; Mpv::drop joins every thread before destroying handle
 unsafe impl Send for Handle {}
@@ -290,7 +300,7 @@ impl Handle {
             .map(|(name, value)| (*name, value.to_string()))
             .collect();
         options.extend([
-            ("hwdec", "auto-safe".to_string()),
+            ("hwdec", video::HWDEC.to_string()),
             ("ytdl", "no".to_string()), // plain Jellyfin URLs; skip youtube-dl hook
             ("sub-font", crate::fonts::FAMILY.to_string()),
         ]);
@@ -548,18 +558,23 @@ unsafe extern "C" fn on_render_update(ctx: *mut c_void) {
 }
 
 /// mpv render context for the OpenGL API, created with the platform's GL context current.
-type GetProcAddress = unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void;
+pub(crate) type GetProcAddress = unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_void;
 
-fn create_gl_render_context(
+/// Display connection hardware-decode interop needs on X11/Wayland: the render param
+/// (`MPV_RENDER_PARAM_WL_DISPLAY` / `_X11_DISPLAY`) and the native pointer. `None` elsewhere.
+pub(crate) type NativeDisplay = Option<(mpv_render_param_type, *mut c_void)>;
+
+pub(crate) fn create_gl_render_context(
     mpv: Handle,
     get_proc_address: GetProcAddress,
+    native_display: NativeDisplay,
 ) -> Result<*mut mpv_render_context, String> {
     let mut init = mpv_opengl_init_params {
         get_proc_address: Some(get_proc_address),
         get_proc_address_ctx: std::ptr::null_mut(),
         extra_exts: std::ptr::null(),
     };
-    let mut params = [
+    let mut params = vec![
         param(
             mpv_render_param_type_MPV_RENDER_PARAM_API_TYPE,
             c"opengl".as_ptr() as *mut c_void,
@@ -568,11 +583,12 @@ fn create_gl_render_context(
             mpv_render_param_type_MPV_RENDER_PARAM_OPENGL_INIT_PARAMS,
             &mut init as *mut _ as *mut c_void,
         ),
-        param(
-            mpv_render_param_type_MPV_RENDER_PARAM_INVALID,
-            std::ptr::null_mut(),
-        ),
     ];
+    params.extend(native_display.map(|(kind, display)| param(kind, display)));
+    params.push(param(
+        mpv_render_param_type_MPV_RENDER_PARAM_INVALID,
+        std::ptr::null_mut(),
+    ));
     let mut ctx = std::ptr::null_mut();
     unsafe {
         check(
@@ -587,18 +603,30 @@ fn param(type_: mpv_render_param_type, data: *mut c_void) -> mpv_render_param {
     mpv_render_param { type_, data }
 }
 
-/// Renders into an OpenGL framebuffer `fbo` of size `w`×`h`. Returns false if no frame was drawn.
-fn render_gl(ctx: *mut mpv_render_context, fbo: c_int, w: i32, h: i32) -> bool {
+/// Renders into an OpenGL framebuffer `fbo` of size `w`×`h`; `flip_y` for the default
+/// framebuffer (fbo 0), whose origin is bottom-left. Returns false if no frame was drawn.
+pub(crate) fn render_gl(
+    ctx: *mut mpv_render_context,
+    fbo: c_int,
+    w: i32,
+    h: i32,
+    flip_y: bool,
+) -> bool {
     let mut target = mpv_opengl_fbo {
         fbo,
         w,
         h,
         internal_format: 0,
     };
+    let mut flip: c_int = flip_y.into();
     let mut params = [
         param(
             mpv_render_param_type_MPV_RENDER_PARAM_OPENGL_FBO,
             &mut target as *mut _ as *mut c_void,
+        ),
+        param(
+            mpv_render_param_type_MPV_RENDER_PARAM_FLIP_Y,
+            &mut flip as *mut _ as *mut c_void,
         ),
         param(
             mpv_render_param_type_MPV_RENDER_PARAM_INVALID,
@@ -625,8 +653,8 @@ fn skip_frame(ctx: *mut mpv_render_context) {
 
 fn render_thread(
     mpv: Handle,
-    mut renderer: platform::Renderer,
-    size: Arc<Mutex<(i32, i32)>>,
+    mut renderer: video::Renderer,
+    size: Arc<Mutex<Extent>>,
     waker: Arc<Waker>,
     stop: Arc<AtomicBool>,
     ready: mpsc::Sender<Result<(), String>>,
@@ -647,20 +675,20 @@ fn render_thread(
     };
     let _ = ready.send(Ok(()));
 
-    let mut drawn_size = (0, 0);
+    let mut drawn_size = Extent::default();
     while !stop.load(Ordering::SeqCst) {
         waker.wait(Duration::from_millis(250));
         let flags = unsafe { mpv_render_context_update(ctx) };
         let new_frame = flags & mpv_render_update_flag_MPV_RENDER_UPDATE_FRAME as u64 != 0;
-        let (w, h) = *size.lock().unwrap_or_else(PoisonError::into_inner);
-        if w <= 0 || h <= 0 {
+        let extent = *size.lock().unwrap_or_else(PoisonError::into_inner);
+        if extent.width <= 0 || extent.height <= 0 {
             if new_frame {
                 skip_frame(ctx); // drain, else mpv stalls waiting for render
             }
             continue;
         }
-        if (new_frame || drawn_size != (w, h)) && renderer.draw(ctx, w, h) {
-            drawn_size = (w, h);
+        if (new_frame || drawn_size != extent) && renderer.draw(ctx, extent) {
+            drawn_size = extent;
             unsafe { mpv_render_context_report_swap(ctx) };
         }
     }

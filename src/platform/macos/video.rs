@@ -25,9 +25,12 @@ use objc2_metal::{
     MTLTextureDescriptor, MTLTextureUsage,
 };
 use objc2_quartz_core::{CAMetalDrawable, CAMetalLayer};
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
 
-use super::{Handle, create_gl_render_context, render_gl};
+use crate::mpv::{Extent, Handle, create_gl_render_context, render_gl};
+
+/// mpv's `hwdec` option for this platform.
+pub const HWDEC: &str = "auto-safe";
 
 /// Main-thread side: the view holding the video layer.
 pub struct Surface {
@@ -35,7 +38,9 @@ pub struct Surface {
 }
 
 impl Surface {
-    pub fn attach(window: &impl HasWindowHandle) -> Result<(Self, Renderer), String> {
+    pub fn attach(
+        window: &(impl HasWindowHandle + HasDisplayHandle),
+    ) -> Result<(Self, Renderer), String> {
         let RawWindowHandle::AppKit(appkit) =
             window.window_handle().map_err(|e| e.to_string())?.as_raw()
         else {
@@ -124,7 +129,7 @@ impl Renderer {
         .ok_or("NSOpenGLContext creation failed")?;
         gl.makeCurrentContext();
 
-        let ctx = create_gl_render_context(mpv, gl_get_proc_address)?;
+        let ctx = create_gl_render_context(mpv, gl_get_proc_address, None)?;
         self.gpu = Some(Gpu {
             gl,
             device,
@@ -135,7 +140,12 @@ impl Renderer {
     }
 
     /// Draws current frame at `w`×`h` device pixels. Returns true if a frame was presented.
-    pub fn draw(&mut self, ctx: *mut mpv_render_context, w: i32, h: i32) -> bool {
+    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> bool {
+        let Extent {
+            width: w,
+            height: h,
+            ..
+        } = extent;
         let Some(gpu) = &mut self.gpu else {
             return false;
         };
@@ -159,7 +169,7 @@ impl Renderer {
             glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
             glViewport(0, 0, w, h);
         }
-        if !render_gl(ctx, t.fbo as c_int, w, h) {
+        if !render_gl(ctx, t.fbo as c_int, w, h, false) {
             return false;
         }
         unsafe { glFlush() }; // GL writes land before Metal reads same IOSurface

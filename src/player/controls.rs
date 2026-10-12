@@ -361,9 +361,7 @@ impl PlayerView {
         // position as h-mm-ss: `:` and `/` are not filename-safe on macOS
         let at = format_time(self.playback.time).replace(':', "-");
         let file = format!("{name} {at}.png").replace(['/', ':'], "-");
-        let dir = std::path::Path::new(&std::env::var_os("HOME").unwrap_or_default())
-            .join("Pictures")
-            .join("tbis");
+        let dir = dirs::picture_dir().unwrap_or_default().join("tbis");
         let result = std::fs::create_dir_all(&dir)
             .map_err(|err| err.to_string())
             .and_then(|()| mpv.screenshot(&dir.join(&file).to_string_lossy()));
@@ -613,6 +611,7 @@ impl Render for PlayerView {
             mpv.set_size(
                 (size.width.as_f32() * scale).round() as i32,
                 (size.height.as_f32() * scale).round() as i32,
+                scale,
             );
         }
 

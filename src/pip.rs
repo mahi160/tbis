@@ -1,14 +1,21 @@
 //! PiP (ADR-0003): hands playback to a spawned standalone `mpv` window, talks to it over JSON IPC.
 
+#[cfg(unix)]
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
+#[cfg(unix)]
 use std::path::PathBuf;
+#[cfg(unix)]
 use std::process::{Child, Command, Stdio};
+#[cfg(unix)]
 use std::time::Duration;
 
 use futures::channel::mpsc::UnboundedSender;
+#[cfg(unix)]
 use serde_json::{Value, json};
 
+#[cfg(unix)]
 const POLL_EVERY: Duration = Duration::from_millis(500);
 
 pub enum PipEvent {
@@ -30,11 +37,26 @@ pub struct PipStart<'a> {
     pub options: &'a [(&'static str, String)],
 }
 
+/// No PiP off Unix yet: IPC is a Unix socket (Windows needs a named pipe).
+#[cfg(not(unix))]
+pub struct Pip;
+
+#[cfg(not(unix))]
+impl Pip {
+    pub fn start(_: PipStart, _: UnboundedSender<PipEvent>) -> Result<Self, String> {
+        Err("Picture-in-picture is not supported on this platform yet".into())
+    }
+
+    pub fn stop(&mut self) {}
+}
+
 /// Running PiP window; dropping it closes the window.
+#[cfg(unix)]
 pub struct Pip {
     child: Child,
 }
 
+#[cfg(unix)]
 impl Pip {
     pub fn start(args: PipStart, events: UnboundedSender<PipEvent>) -> Result<Self, String> {
         // unique per start, not just per process: an old poll thread tearing down a
@@ -108,6 +130,7 @@ impl Pip {
     }
 }
 
+#[cfg(unix)]
 impl Drop for Pip {
     fn drop(&mut self) {
         let _ = self.child.kill();
@@ -116,6 +139,7 @@ impl Drop for Pip {
 }
 
 /// Sends setup commands, then polls time-pos until mpv exits. Returns last position.
+#[cfg(unix)]
 fn poll(socket: &PathBuf, setup: &[Value], start: f64, events: &UnboundedSender<PipEvent>) -> f64 {
     // mpv creates socket shortly after spawn
     let mut stream = None;
@@ -160,12 +184,14 @@ fn poll(socket: &PathBuf, setup: &[Value], start: f64, events: &UnboundedSender<
     }
 }
 
+#[cfg(unix)]
 struct Ipc {
     writer: UnixStream,
     reader: BufReader<UnixStream>,
     next_id: u64,
 }
 
+#[cfg(unix)]
 impl Ipc {
     /// One command and its reply, skipping unprompted event lines. `None` once mpv is gone.
     fn request(&mut self, command: &Value) -> Option<Value> {
@@ -189,6 +215,7 @@ impl Ipc {
 
 /// The `.app`'s bundled mpv next to our executable (ADR-0004), else Homebrew's:
 /// Finder/Dock launches lack the shell PATH, so its paths are tried explicitly.
+#[cfg(unix)]
 fn mpv_binary() -> PathBuf {
     let bundled = std::env::current_exe()
         .ok()
