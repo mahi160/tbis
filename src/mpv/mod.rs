@@ -30,6 +30,8 @@ pub enum MpvEvent {
     TimePos(f64),
     Duration(f64),
     Pause(bool),
+    /// mpv's `core-idle`: not advancing (paused, buffering, seeking, opening).
+    CoreIdle(bool),
     FileLoaded,
     /// `Ok(true)` reached end of file, `Ok(false)` stopped otherwise.
     EndFile(Result<bool, String>),
@@ -338,6 +340,7 @@ impl Handle {
             ("time-pos", mpv_format_MPV_FORMAT_DOUBLE),
             ("duration", mpv_format_MPV_FORMAT_DOUBLE),
             ("pause", mpv_format_MPV_FORMAT_FLAG),
+            ("core-idle", mpv_format_MPV_FORMAT_FLAG),
             ("volume", mpv_format_MPV_FORMAT_DOUBLE),
             ("mute", mpv_format_MPV_FORMAT_FLAG),
             ("track-list", mpv_format_MPV_FORMAT_NONE),
@@ -411,6 +414,9 @@ fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent
                     b"time-pos" => send(MpvEvent::TimePos(unsafe { *(prop.data as *const f64) })),
                     b"duration" => send(MpvEvent::Duration(unsafe { *(prop.data as *const f64) })),
                     b"pause" => send(MpvEvent::Pause(
+                        unsafe { *(prop.data as *const c_int) } != 0,
+                    )),
+                    b"core-idle" => send(MpvEvent::CoreIdle(
                         unsafe { *(prop.data as *const c_int) } != 0,
                     )),
                     b"hwdec-current" => {

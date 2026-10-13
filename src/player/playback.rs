@@ -145,6 +145,7 @@ impl PlayerView {
                 }
                 self.show_controls(window, cx);
             }
+            MpvEvent::CoreIdle(idle) => self.core_idle = idle,
             MpvEvent::Volume(volume) => {
                 self.volume = volume;
                 let shown = self.volume_slider.read(cx).value().end() as f64;

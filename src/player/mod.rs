@@ -118,6 +118,8 @@ pub struct PlayerView {
     /// Standalone mpv window playing instead of this Player.
     pip: Option<Pip>,
     paused: bool,
+    /// mpv not advancing; with `!paused`, means buffering.
+    core_idle: bool,
     speed: f64,
     volume: f64,
     muted: bool,
@@ -266,6 +268,7 @@ impl PlayerView {
             playback,
             pip: None,
             paused: false,
+            core_idle: true,
             speed: 1.,
             volume,
             muted,

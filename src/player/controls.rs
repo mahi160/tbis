@@ -10,7 +10,9 @@ use gpui_kit::*;
 use crate::components::button::{VegaSize as _, button, ghost_button, primary_button, round_icon};
 use crate::components::status::{Tone, error_panel};
 use crate::components::typography::{caption, strong};
-use crate::components::video::{info_panel, overlay_banner, overlay_card, overlay_corner};
+use crate::components::video::{
+    info_panel, overlay_banner, overlay_card, overlay_corner, overlay_spinner,
+};
 use crate::config::SeekSteps;
 use crate::design::{self, gap, overlay};
 use crate::jellyfin::SegmentKind;
@@ -633,6 +635,11 @@ impl Render for PlayerView {
             .pip
             .is_some()
             .then(|| overlay_banner("Playing in Picture-in-Picture \u{b7} press P to return"));
+        let buffering = (self.core_idle
+            && !self.paused
+            && self.pip.is_none()
+            && self.playback.error.is_none())
+        .then(overlay_spinner);
         // up-next card's Play now already covers skipping credits
         let skip = self
             .active_segment()
@@ -731,6 +738,7 @@ impl Render for PlayerView {
             }))
             .children(error)
             .children(pip_notice)
+            .children(buffering)
             // stays up until closed (x or i), independent of the controls
             .children(info)
             .children(up_next)

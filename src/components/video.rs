@@ -2,7 +2,8 @@
 //! Colors are the fixed `design::overlay` tints, not theme colors: they sit over
 //! mpv's frame, not the app's own background.
 
-use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::component::spinner::Spinner;
+use gpui_kit::component::{Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -98,6 +99,18 @@ pub fn overlay_banner(content: impl IntoElement) -> AnyElement {
                 .bg(black(0.6))
                 .child(content),
         )
+        .into_any_element()
+}
+
+/// Spinner centered on the video, for buffering.
+pub fn overlay_spinner() -> AnyElement {
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(Spinner::new().large().color(overlay::WHITE))
         .into_any_element()
 }
 
