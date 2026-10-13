@@ -28,6 +28,21 @@ You only need to do this once. The app bundles everything it needs, including mp
 
 tbis checks for a newer release each time it starts, and you can check yourself with **Check for Updates…** in the user menu. When you accept an update, tbis downloads it, checks it against the checksum GitHub records for the release, replaces the app, and restarts. Updates installed this way don't need the Gatekeeper step again. If tbis is in a folder you can't write to, the update fails and you can download it from Releases instead.
 
+## Performance
+
+This compares tbis with Photon during playback of the same movie, fullscreen, on macOS. Each app was sampled once for 60 seconds with `top -l 31 -s 2`, and only the main process was measured.
+
+| Metric | tbis | Photon |
+|---|---|---|
+| CPU average | 10.7% | 37.1% |
+| CPU peak | 28.7% | 101.7% |
+| Energy Impact average | 10.7 | 37.3 |
+| Memory footprint | 1385 MB | 409 MB |
+| Resident memory (RSS) | 247 MB | 277 MB |
+| Threads | 27 | 44 |
+
+These numbers are rough. Energy Impact is an estimate from macOS, not a measurement in watts. The run did not confirm that both apps used the same codec, resolution, or hardware decoding. tbis had been running for a while before the test, so its memory footprint may include cached images.
+
 ## Build from source
 
 You need Rust and Homebrew's mpv (`brew install mpv`).
