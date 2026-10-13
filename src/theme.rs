@@ -16,9 +16,9 @@ use crate::design;
 
 /// Theme names as in the JSON's `"name"`, also the Settings labels. First is the default.
 pub const NAMES: [&str; 4] = [
+    "Plesio Lagoon",
     "Raptor Night",
     "Stego Moss",
-    "Plesio Lagoon",
     "Fossil Slate",
 ];
 
