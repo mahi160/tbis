@@ -204,7 +204,9 @@ impl Mpv {
         select: bool,
     ) -> Result<(), String> {
         let flag = if select { "select" } else { "auto" };
-        self.handle.command(&["sub-add", url, flag, title, lang])
+        // async: sub-add downloads url; sync call froze UI on slow server
+        self.handle
+            .command_async(&["sub-add", url, flag, title, lang])
     }
 
     /// Nudges subtitle/audio timing by `delta` seconds (mpv's own `add <prop>` idiom).
@@ -353,13 +355,21 @@ impl Handle {
     }
 
     fn command(self, args: &[&str]) -> Result<(), String> {
-        let args: Vec<CString> = args
-            .iter()
-            .map(|a| CString::new(*a).map_err(|e| e.to_string()))
-            .collect::<Result<_, _>>()?;
-        let mut ptrs: Vec<*const c_char> = args.iter().map(|a| a.as_ptr()).collect();
-        ptrs.push(std::ptr::null());
+        let args = c_args(args)?;
+        let mut ptrs = c_ptrs(&args);
         unsafe { check(mpv_command(self.0, ptrs.as_mut_ptr()), "mpv_command") }
+    }
+
+    /// Returns once queued; failure arrives as `MPV_EVENT_COMMAND_REPLY` on the event thread.
+    fn command_async(self, args: &[&str]) -> Result<(), String> {
+        let args = c_args(args)?;
+        let mut ptrs = c_ptrs(&args);
+        unsafe {
+            check(
+                mpv_command_async(self.0, 0, ptrs.as_mut_ptr()),
+                "mpv_command_async",
+            )
+        }
     }
 
     fn set_property(self, name: &str, value: &str) -> Result<(), String> {
@@ -371,6 +381,19 @@ impl Handle {
             )
         }
     }
+}
+
+fn c_args(args: &[&str]) -> Result<Vec<CString>, String> {
+    args.iter()
+        .map(|a| CString::new(*a).map_err(|e| e.to_string()))
+        .collect()
+}
+
+/// Null-terminated argv borrowing `args`.
+fn c_ptrs(args: &[CString]) -> Vec<*const c_char> {
+    let mut ptrs: Vec<*const c_char> = args.iter().map(|a| a.as_ptr()).collect();
+    ptrs.push(std::ptr::null());
+    ptrs
 }
 
 fn cstrings(a: &str, b: &str) -> Result<(CString, CString), String> {
@@ -425,6 +448,10 @@ fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent
                     }
                     _ => {}
                 }
+            }
+            mpv_event_id_MPV_EVENT_COMMAND_REPLY if event.error < 0 => {
+                let msg = unsafe { CStr::from_ptr(mpv_error_string(event.error)) };
+                eprintln!("mpv async command: {}", msg.to_string_lossy());
             }
             mpv_event_id_MPV_EVENT_FILE_LOADED => send(MpvEvent::FileLoaded),
             mpv_event_id_MPV_EVENT_END_FILE => {
