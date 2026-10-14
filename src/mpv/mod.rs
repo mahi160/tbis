@@ -262,12 +262,14 @@ impl Drop for Mpv {
 
 /// Read-ahead buffer for streaming from the server, shared by the Player and PiP:
 /// rides out network hiccups and makes short back-seeks instant. Capped so a long
-/// 4K remux can't grow memory unbounded.
+/// 4K remux can't grow memory unbounded. Read-ahead stops at 60 s, so low-bitrate
+/// streams stay well under the cap.
 pub const CACHE_OPTIONS: [(&str, &str); 4] = [
     ("cache", "yes"),
     ("demuxer-max-bytes", "400MiB"),
     ("demuxer-max-back-bytes", "100MiB"),
-    ("demuxer-readahead-secs", "60"),
+    // with cache on, mpv's huge default cache-secs overrides demuxer-readahead-secs
+    ("cache-secs", "60"),
 ];
 
 /// Options the in-window video path depends on (ADR-0001: libmpv render API, our

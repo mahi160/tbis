@@ -8,6 +8,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::components::button::{VegaSize as _, button, ghost_button, primary_button, round_icon};
+use crate::components::schedule::guide_overlay;
 use crate::components::status::{Tone, error_panel};
 use crate::components::typography::{caption, strong};
 use crate::components::video::{
@@ -27,11 +28,13 @@ use super::{
     AudioDelayEarlier, AudioDelayLater, CONTEXT, ChapterNext, ChapterPrev, CycleAudio,
     CycleShaders, CycleSubtitle, DELAY_STEP, Escape, HIDE_CONTROLS_AFTER, NextEpisode, PlayNext,
     PlayerView, PreviousEpisode, Screenshot, SeekBack, SeekBackLong, SeekForward, SeekForwardLong,
-    SkipSegment, SpeedDown, SpeedUp, SubDelayEarlier, SubDelayLater, ToggleFullscreen, ToggleMute,
-    TogglePause, TogglePip, TogglePlaybackInfo, VOLUME_STEP, VolumeDown, VolumeUp, hide_cursor,
+    SkipSegment, SpeedDown, SpeedUp, SubDelayEarlier, SubDelayLater, ToggleFullscreen, ToggleGuide,
+    ToggleMute, TogglePause, TogglePip, TogglePlaybackInfo, VOLUME_STEP, VolumeDown, VolumeUp,
+    hide_cursor,
 };
 
 const INFO_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
+const GUIDE_SLOTS: usize = 12;
 const SPEEDS: [f64; 7] = [0.5, 0.75, 1., 1.25, 1.5, 1.75, 2.];
 
 impl PlayerView {
@@ -55,7 +58,7 @@ impl PlayerView {
             }
             SliderEvent::Release(value) => {
                 self.playback.scrubbing = None;
-                if let Some(mpv) = &self.mpv {
+                if let Some(mpv) = self.mpv.as_ref().filter(|_| self.tv.is_none()) {
                     let _ = mpv.seek(value.end() as f64 * self.playback.duration);
                 }
             }
@@ -70,7 +73,7 @@ impl PlayerView {
     }
 
     fn toggle_pause(&mut self, _: &TogglePause, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(mpv) = self.active_mpv() {
+        if let Some(mpv) = self.active_mpv().filter(|_| self.tv.is_none()) {
             let _ = mpv.set_pause(!self.paused);
         }
         self.refocus(window, cx);
@@ -86,7 +89,7 @@ impl PlayerView {
     ) {
         let steps = cx.global::<SeekSteps>();
         let seconds = f64::from(if long { steps.long } else { steps.short });
-        if let Some(mpv) = self.active_mpv() {
+        if let Some(mpv) = self.active_mpv().filter(|_| self.tv.is_none()) {
             let _ = mpv.seek_by(if forward { seconds } else { -seconds });
         }
         self.show_controls(window, cx);
@@ -243,6 +246,10 @@ impl PlayerView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // TV: every remote command pauses, seeks or skips
+        if self.tv.is_some() {
+            return;
+        }
         match command {
             RemoteCommand::Play | RemoteCommand::Pause => {
                 if let Some(mpv) = self.active_mpv() {
@@ -314,6 +321,16 @@ impl PlayerView {
         if let Some(next) = self.playback.next.clone() {
             self.play_next(next, window, cx);
         }
+    }
+
+    pub(super) fn toggle_guide(
+        &mut self,
+        _: &ToggleGuide,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.guide = !self.guide && self.tv.is_some();
+        self.refocus(window, cx);
     }
 
     fn cycle_shaders(&mut self, _: &CycleShaders, window: &mut Window, cx: &mut Context<Self>) {
@@ -512,7 +529,7 @@ impl PlayerView {
             self.refocus(window, cx);
             return;
         }
-        let (Some(mpv), Some(item)) = (&self.mpv, &self.playback.item) else {
+        let (Some(mpv), Some(item), None) = (&self.mpv, &self.playback.item, &self.tv) else {
             return;
         };
         let selected = |kind: TrackKind| {
@@ -635,11 +652,9 @@ impl Render for PlayerView {
             .pip
             .is_some()
             .then(|| overlay_banner("Playing in Picture-in-Picture \u{b7} press P to return"));
-        let buffering = (self.core_idle
-            && !self.paused
-            && self.pip.is_none()
-            && self.playback.error.is_none())
-        .then(overlay_spinner);
+        let buffering =
+            (self.core_idle && !self.paused && self.pip.is_none() && self.playback.error.is_none())
+                .then(overlay_spinner);
         // up-next card's Play now already covers skipping credits
         let skip = self
             .active_segment()
@@ -664,6 +679,15 @@ impl Render for PlayerView {
                     this.toggle_playback_info(&TogglePlaybackInfo, window, cx)
                 }));
             info_panel(groups, close)
+        });
+        let guide = self.tv.as_ref().filter(|_| self.guide).map(|channel| {
+            let close = round_icon("player-guide-close", Icon::new(assets::IconName::Close))
+                .icon_xs()
+                .tooltip("Close")
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.toggle_guide(&ToggleGuide, window, cx)),
+                );
+            guide_overlay(&channel.upcoming(GUIDE_SLOTS), close, cx)
         });
         let up_next = self.up_next().map(|next| {
             let left = (self.playback.duration - self.playback.time).max(0.).ceil() as u64;
@@ -727,6 +751,7 @@ impl Render for PlayerView {
             .on_action(cx.listener(Self::toggle_playback_info))
             .on_action(cx.listener(Self::screenshot))
             .on_action(cx.listener(Self::cycle_shaders))
+            .on_action(cx.listener(Self::toggle_guide))
             .size_full()
             .relative()
             .justify_between()
@@ -741,6 +766,7 @@ impl Render for PlayerView {
             .children(buffering)
             // stays up until closed (x or i), independent of the controls
             .children(info)
+            .children(guide)
             .children(up_next)
             .children(skip)
             .when(

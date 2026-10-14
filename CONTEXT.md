@@ -53,6 +53,21 @@ The in-window screen that plays one Movie or Episode, starting from its saved po
 In the last 30 seconds of an Episode, the Player offers the next Episode of the same Series and plays it when the Episode ends. The user can play it right away or cancel. There is no Autoplay after a Movie or after the last Episode.
 _Avoid_: Binge, continuous play
 
+## tbis TV
+
+**Channel**:
+The one always-on stream of the user's Movies and Episodes, shown on the TV tab. It airs on a fixed daily schedule, the same on every device, whether or not anyone watches. With Watched only, it airs only played items.
+_Avoid_: Station, live TV
+
+**Lineup**:
+The Channel's play order for one broadcast day, which starts at 06:00 local time. Shuffled Movies alternate with blocks of three Episodes, and the Series take turns. Each turn, a Series airs its next block, and each day it starts one block later. A short Lineup repeats until the day is full.
+
+**Slot**:
+One item's place in the schedule, with its start and end time. If the previous day's last Slot runs past 06:00, it finishes first and the new day joins its Lineup partway through.
+
+**Tune in**:
+Opens the Player on the Slot on air, at the scheduled position. Seeking, pausing, speed and PiP are locked, and nothing is reported to the server. The Guide (G) lists what follows. Watch from start leaves TV for the normal Player on that item.
+
 **PiP**:
 A small, always-on-top, borderless window that takes over playback from the Player until it is closed.
 _Avoid_: Mini player, picture-in-picture window

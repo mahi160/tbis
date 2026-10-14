@@ -18,6 +18,7 @@ pub mod logo;
 pub mod menu;
 pub mod page_backdrop;
 pub mod panel;
+pub mod schedule;
 pub mod section;
 pub mod settings;
 pub mod shortcuts;

@@ -15,10 +15,10 @@ use crate::components::video::{
 use crate::design::{self, color, font, gap, overlay, text};
 use crate::mpv::{Track, TrackKind};
 
-use super::super::clock::{clock, format_time};
+use super::super::clock::{clock, clock_at, format_time};
 use super::super::{
-    CONTEXT, NextEpisode, PlayerView, PreviousEpisode, ToggleFullscreen, ToggleMute, TogglePause,
-    TogglePip, TogglePlaybackInfo,
+    CONTEXT, NextEpisode, PlayerView, PreviousEpisode, ToggleFullscreen, ToggleGuide, ToggleMute,
+    TogglePause, TogglePip, TogglePlaybackInfo,
 };
 use super::SPEEDS;
 
@@ -41,6 +41,9 @@ impl PlayerView {
                 h_flex()
                     .flex_none()
                     .gap(gap::item())
+                    .when(self.tv.is_some(), |this| {
+                        this.child(video_tag("tbis TV", mono.clone()))
+                    })
                     .children(
                         self.playback
                             .item
@@ -64,6 +67,7 @@ impl PlayerView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let mono = font::mono(cx);
+        let tv = self.tv.is_some();
         let scrub_preview = self
             .playback
             .scrubbing
@@ -75,7 +79,7 @@ impl PlayerView {
             Slider::new(&self.seek)
                 .bg(color::primary(cx))
                 .text_color(overlay::WHITE)
-                .disabled(self.playback.duration <= 0. || self.pip.is_some()),
+                .disabled(self.playback.duration <= 0. || self.pip.is_some() || tv),
             scrub_preview,
             format_time(self.playback.duration),
             mono.clone(),
@@ -86,7 +90,22 @@ impl PlayerView {
         } else {
             "icons/volume.svg"
         };
-        let ends_at = (self.playback.duration > 0.).then(|| {
+        let up_next = self
+            .playback
+            .on_air
+            .as_ref()
+            .and_then(|on_air| on_air.next.as_ref())
+            .map(|(label, airs)| {
+                let at = clock_at(*airs);
+                video_meta(
+                    format!("next: {label} at {at}"),
+                    mono.clone(),
+                    overlay::TEXT_FAINT,
+                )
+                .ml(gap::item())
+                .text_size(text::meta())
+            });
+        let ends_at = (self.playback.duration > 0. && !tv).then(|| {
             video_meta(
                 format!(
                     "ends at {}",
@@ -102,23 +121,25 @@ impl PlayerView {
             .playback
             .item
             .as_ref()
-            .is_some_and(|item| item.series_id.is_some());
+            .is_some_and(|item| item.series_id.is_some() && !tv);
         let controls = h_flex()
             .mt(gap::item())
             .gap(gap::tight())
-            .child(
-                round_icon_button(
-                    "player-play",
-                    if self.paused {
-                        "icons/play.svg"
-                    } else {
-                        "icons/pause.svg"
-                    },
+            .when(!tv, |this| {
+                this.child(
+                    round_icon_button(
+                        "player-play",
+                        if self.paused {
+                            "icons/play.svg"
+                        } else {
+                            "icons/pause.svg"
+                        },
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.toggle_pause(&TogglePause, window, cx)
+                    })),
                 )
-                .on_click(
-                    cx.listener(|this, _, window, cx| this.toggle_pause(&TogglePause, window, cx)),
-                ),
-            )
+            })
             // Episodes only; disabled at the Series' first/last Episode
             .when(is_episode, |this| {
                 this.child(
@@ -152,9 +173,27 @@ impl PlayerView {
                 ),
             )
             .children(ends_at)
+            .children(up_next)
             .child(spacer())
-            .child(self.speed_menu(cx))
-            .children(self.chapter_menu(cx))
+            .when(tv, |this| {
+                this.child(
+                    round_ghost_button("player-from-start", "Watch from start", cx).on_click(
+                        cx.listener(|this, _, window, cx| this.watch_from_start(window, cx)),
+                    ),
+                )
+                .child(
+                    round_ghost_button("player-guide", "Guide", cx)
+                        .selected(self.guide)
+                        .tooltip_with_action("Guide", &ToggleGuide, Some(CONTEXT))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.toggle_guide(&ToggleGuide, window, cx)
+                        })),
+                )
+            })
+            .when(!tv, |this| {
+                this.child(self.speed_menu(cx))
+                    .children(self.chapter_menu(cx))
+            })
             .children(self.track_menu(TrackKind::Audio, cx))
             .children(self.track_menu(TrackKind::Subtitle, cx))
             .child(
@@ -165,9 +204,11 @@ impl PlayerView {
                         this.toggle_playback_info(&TogglePlaybackInfo, window, cx)
                     })),
             )
-            .child(round_icon_button("player-pip", "icons/pip.svg").on_click(
-                cx.listener(|this, _, window, cx| this.toggle_pip(&TogglePip, window, cx)),
-            ))
+            .when(!tv, |this| {
+                this.child(round_icon_button("player-pip", "icons/pip.svg").on_click(
+                    cx.listener(|this, _, window, cx| this.toggle_pip(&TogglePip, window, cx)),
+                ))
+            })
             .child(
                 round_icon_button(
                     "player-fullscreen",

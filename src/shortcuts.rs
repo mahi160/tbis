@@ -44,6 +44,7 @@ const GROUPS: &[(&str, &[Row])] = &[
             (|| Box::new(TogglePlaybackInfo), "Playback info"),
             (|| Box::new(Screenshot), "Screenshot"),
             (|| Box::new(CycleShaders), "Cycle upscaling"),
+            (|| Box::new(ToggleGuide), "tbis TV guide"),
             (|| Box::new(Escape), "Exit fullscreen / cancel"),
         ],
     ),

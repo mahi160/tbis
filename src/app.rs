@@ -6,6 +6,7 @@ use gpui_kit::component::{IconName, Root, TitleBar, WindowExt as _};
 use gpui_kit::*;
 
 use crate::backdrops::Backdrops;
+use crate::channel::ChannelView;
 use crate::components::button::{avatar_button, surface_icon_button};
 use crate::components::dialog::vega_dialog;
 use crate::components::input::search_input;
@@ -26,6 +27,7 @@ use crate::series::SeriesView;
 use crate::settings::{SettingsChanged, SettingsView};
 use crate::shortcuts::{self, ShowShortcuts};
 use crate::stats::StatsPage;
+use crate::tv::{Channel, OnAir};
 use crate::update;
 
 actions!(
@@ -38,12 +40,14 @@ enum Tab {
     Home,
     Movies,
     Series,
+    Tv,
 }
 
-const TABS: [(Tab, &str); 3] = [
+const TABS: [(Tab, &str); 4] = [
     (Tab::Home, "Home"),
     (Tab::Movies, "Movies"),
     (Tab::Series, "Series"),
+    (Tab::Tv, "TV"),
 ];
 
 struct Main {
@@ -53,6 +57,7 @@ struct Main {
     home: Entity<HomeView>,
     movies: Entity<LibraryView>,
     series: Entity<LibraryView>,
+    tv: Entity<ChannelView>,
     search_input: Entity<InputState>,
     search: Entity<SearchView>,
     /// Library backdrop behind Home, Movies and Series (Settings > Backdrops).
@@ -63,7 +68,7 @@ struct Main {
     /// (e.g. Episode back to its Series).
     details: Vec<Detail>,
     player: Option<(Entity<PlayerView>, Subscription)>,
-    _subscriptions: [Subscription; 8],
+    _subscriptions: [Subscription; 9],
     /// Waits for `Api`'s 401 signal; dropped with Main so a stale one can't fire later.
     _expired: Task<()>,
 }
@@ -116,6 +121,7 @@ impl Main {
                 Tab::Movies => self.movies.update(cx, |view, cx| view.refresh(cx)),
                 Tab::Series => self.series.update(cx, |view, cx| view.refresh(cx)),
                 Tab::Home => self.home.update(cx, |view, cx| view.refresh(cx)),
+                Tab::Tv => self.tv.update(cx, |view, cx| view.refresh(cx)),
             }
         }
     }
@@ -126,7 +132,7 @@ impl Main {
             return;
         }
         let kind = match self.tab {
-            Tab::Home => None,
+            Tab::Home | Tab::Tv => None,
             Tab::Movies => Some(Kind::Movie),
             Tab::Series => Some(Kind::Series),
         };
@@ -344,6 +350,7 @@ impl AppView {
         });
         let movies = cx.new(|_| LibraryView::new(Kind::Movie, api.clone(), config.movies_sort));
         let series = cx.new(|_| LibraryView::new(Kind::Series, api.clone(), config.series_sort));
+        let tv = cx.new(|cx| ChannelView::new(api.clone(), cx));
         let local = [movies.clone(), series.clone()];
         let recent = config.recent_searches.clone();
         let search = cx.new(|_| SearchView::new(api.clone(), local, recent));
@@ -369,6 +376,9 @@ impl AppView {
                 this.on_nav(nav, window, cx)
             }),
             cx.subscribe_in(&series, window, |this, _, nav, window, cx| {
+                this.on_nav(nav, window, cx)
+            }),
+            cx.subscribe_in(&tv, window, |this, _, nav, window, cx| {
                 this.on_nav(nav, window, cx)
             }),
             cx.subscribe_in(&search, window, |this, search, nav, window, cx| {
@@ -431,6 +441,7 @@ impl AppView {
             home,
             movies,
             series,
+            tv,
             search_input,
             search,
             backdrops,
@@ -484,7 +495,7 @@ impl AppView {
                             return;
                         }
                         match next {
-                            Ok(Some(episode)) => this.open_player(&episode, window, cx),
+                            Ok(Some(episode)) => this.open_player(&episode, None, window, cx),
                             Ok(None) => this.open_series(&series, window, cx),
                             Err(err) => {
                                 eprintln!("next up lookup failed: {err}");
@@ -496,7 +507,14 @@ impl AppView {
                 })
                 .detach();
             }
-            Nav::Play(item) => self.open_player(item, window, cx),
+            Nav::Play(item) => self.open_player(item, None, window, cx),
+            Nav::Tune(channel) => match channel.on_air() {
+                Some(on_air) => {
+                    let item = on_air.item.clone();
+                    self.open_player(&item, Some((channel.clone(), on_air)), window, cx)
+                }
+                None => window.push_notification(Notification::info("Nothing on air"), cx),
+            },
             Nav::Back => {
                 let Screen::Main(main) = &mut self.screen else {
                     return;
@@ -631,13 +649,19 @@ impl AppView {
         }
     }
 
-    fn open_player(&mut self, item: &Item, window: &mut Window, cx: &mut Context<Self>) {
+    fn open_player(
+        &mut self,
+        item: &Item,
+        tv: Option<(Channel, OnAir)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Screen::Main(main) = &mut self.screen else {
             return;
         };
         let api = main.api.clone();
         let config = &self.config;
-        let player = cx.new(|cx| PlayerView::new(api, item, config, window, cx));
+        let player = cx.new(|cx| PlayerView::new(api, item, tv, config, window, cx));
         let subscription =
             cx.subscribe_in(&player, window, |this, _, closed: &Closed, window, cx| {
                 this.config.volume = closed.volume;
@@ -840,6 +864,9 @@ impl Render for AppView {
                 series,
                 ..
             }) => series.clone().into_any_element(),
+            Screen::Main(Main {
+                tab: Tab::Tv, tv, ..
+            }) => tv.clone().into_any_element(),
             Screen::Main(Main { home, .. }) => home.clone().into_any_element(),
         };
 

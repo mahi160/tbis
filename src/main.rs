@@ -1,6 +1,7 @@
 mod app;
 mod assets;
 mod backdrops;
+mod channel;
 mod components;
 mod config;
 mod design;
@@ -26,6 +27,7 @@ mod shortcuts;
 mod stats;
 mod support_dir;
 mod theme;
+mod tv;
 mod update;
 
 use std::sync::Arc;
