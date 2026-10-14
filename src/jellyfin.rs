@@ -950,15 +950,6 @@ impl Api {
         Ok(self.get::<ItemsResult>(&path).await?.items)
     }
 
-    /// Every Movie and Episode, with wide art, for tbis TV's Lineup.
-    pub async fn tv_items(&self) -> Result<Vec<Item>> {
-        let path = format!(
-            "/Items?userId={}&Recursive=true&IncludeItemTypes=Movie,Episode&Fields=ProductionYear&EnableImageTypes=Primary,Thumb,Backdrop&ImageTypeLimit=1",
-            self.session.user_id
-        );
-        Ok(self.get::<ItemsResult>(&path).await?.items)
-    }
-
     /// Any item with its overview.
     pub async fn item(&self, id: &str) -> Result<Item> {
         self.get(&format!("/Items/{id}?userId={}", self.session.user_id))

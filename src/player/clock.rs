@@ -7,16 +7,9 @@ pub(super) fn clock(secs_ahead: f64) -> String {
     } else {
         0.
     };
-    // SAFETY: time only writes to the pointer passed in, null here
-    let now = unsafe { libc::time(std::ptr::null_mut()) };
-    clock_at(now as i64 + secs_ahead as i64)
-}
-
-/// Local wall-clock time of unix secs `t`, e.g. `8:07 PM`.
-pub(crate) fn clock_at(t: i64) -> String {
-    // SAFETY: localtime_r only writes to the local passed in
+    // SAFETY: time/localtime_r only write to the locals passed in
     let tm = unsafe {
-        let t = t as libc::time_t;
+        let t = libc::time(std::ptr::null_mut()) + secs_ahead as libc::time_t;
         let mut tm = std::mem::zeroed::<libc::tm>();
         libc::localtime_r(&t, &mut tm);
         tm

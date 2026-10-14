@@ -4,7 +4,7 @@
 //! top and bottom bars and their menus in `controls::chrome`;
 //! [`clock`] is the small pure time-formatting helpers.
 
-pub(crate) mod clock;
+mod clock;
 mod controls;
 mod playback;
 
@@ -25,7 +25,6 @@ use crate::pip::Pip;
 use crate::platform::cursor::hide as hide_cursor;
 use crate::platform::power::Awake;
 use crate::shaders::ShaderProfile;
-use crate::tv::{self, Channel, OnAir};
 use playback::Playback;
 
 actions!(
@@ -58,8 +57,7 @@ actions!(
         NextEpisode,
         TogglePlaybackInfo,
         Screenshot,
-        CycleShaders,
-        ToggleGuide
+        CycleShaders
     ]
 );
 
@@ -98,7 +96,6 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("i", TogglePlaybackInfo, Some(CONTEXT)),
         KeyBinding::new("shift-s", Screenshot, Some(CONTEXT)),
         KeyBinding::new("u", CycleShaders, Some(CONTEXT)),
-        KeyBinding::new("g", ToggleGuide, Some(CONTEXT)),
     ]);
 }
 
@@ -118,10 +115,6 @@ pub struct PlayerView {
     api: Api,
     mpv: Option<Mpv>,
     playback: Playback,
-    /// tbis TV: playback follows the Channel's schedule, seeking locked, nothing reported.
-    tv: Option<Channel>,
-    /// TV schedule panel open.
-    guide: bool,
     /// Standalone mpv window playing instead of this Player.
     pip: Option<Pip>,
     paused: bool,
@@ -171,7 +164,6 @@ impl PlayerView {
     pub fn new(
         api: Api,
         item: &Item,
-        tv: Option<(Channel, OnAir)>,
         config: &Config,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -199,8 +191,6 @@ impl PlayerView {
         ];
 
         let mut playback = Playback::new(item, &api, cx);
-        let (tv, on_air) = tv.unzip();
-        playback.on_air = on_air;
 
         let (events_tx, mut events_rx) = mpsc::unbounded();
         let (mpv, mpv_error) = match Mpv::new(window, &api.auth_header(), events_tx) {
@@ -276,8 +266,6 @@ impl PlayerView {
             api,
             mpv,
             playback,
-            tv,
-            guide: false,
             pip: None,
             paused: false,
             core_idle: true,
@@ -324,16 +312,10 @@ impl PlayerView {
         let api = self.api.clone();
         let artwork_url = self.playback.artwork_url.clone();
         let max_mbps = self.max_bitrate_mbps;
-        let tv = self.tv.is_some();
         self.playback._load = cx.spawn(async move |this, cx| {
             let result = api.playback_item(&item_id, max_mbps).await;
             let loaded = result.is_ok();
-            // TV: the schedule picks what follows, not the Series
-            let series_id = result
-                .as_ref()
-                .ok()
-                .and_then(|i| i.series_id.clone())
-                .filter(|_| !tv);
+            let series_id = result.as_ref().ok().and_then(|i| i.series_id.clone());
             if this.update(cx, |this, cx| this.start(result, cx)).is_err() || !loaded {
                 return;
             }
@@ -390,12 +372,7 @@ impl PlayerView {
             cx.notify();
             return;
         };
-        let at = match &self.playback.on_air {
-            // fetch took time: join where the schedule is now
-            Some(on_air) => (tv::local_now().0 - on_air.start).max(0) as f64,
-            None => item.resume_seconds(),
-        };
-        if let Err(err) = mpv.load(&item.stream.url, at) {
+        if let Err(err) = mpv.load(&item.stream.url, item.resume_seconds()) {
             self.playback.error = Some(err.into());
         }
         self.playback.item = result.ok().map(std::sync::Arc::new);
@@ -408,7 +385,7 @@ impl PlayerView {
     /// isn't guaranteed to run during shutdown.
     pub fn quit_report(&self) -> Option<impl Future<Output = ()> + use<>> {
         let item = self.playback.item.clone()?;
-        if !self.playback.started || self.tv.is_some() {
+        if !self.playback.started {
             return None;
         }
         let api = self.api.clone();

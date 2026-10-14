@@ -9,7 +9,6 @@ use gpui_kit::*;
 use crate::jellyfin::{Api, Item, Kind, PlaybackItem, Report, Segment, SegmentKind};
 use crate::mpv::{MpvEvent, Track, TrackKind};
 use crate::pip::PipEvent;
-use crate::tv::{Channel, OnAir};
 
 use super::PlayerView;
 
@@ -68,8 +67,6 @@ pub(super) struct Playback {
     /// Session id sent with every report for this item; also used for the
     /// best-effort report fired from `on_app_quit`.
     pub(super) play_session_id: String,
-    /// tbis TV Slot this item fills; `None` outside TV.
-    pub(super) on_air: Option<OnAir>,
     pub(super) _load: Task<()>,
 }
 
@@ -100,7 +97,6 @@ impl Playback {
             artwork: None,
             reports,
             play_session_id,
-            on_air: None,
             _load: Task::ready(()),
         }
     }
@@ -108,9 +104,6 @@ impl Playback {
 
 impl PlayerView {
     pub(super) fn report(&self, report: Report) {
-        if self.tv.is_some() {
-            return;
-        }
         if let Some(item) = &self.playback.item {
             let _ = self.playback.reports.unbounded_send(Queued::Report {
                 report,
@@ -199,10 +192,6 @@ impl PlayerView {
                     }
                 }
             }
-            MpvEvent::EndFile(Ok(true)) if self.tv.is_some() => {
-                self.tune(window, cx);
-                return;
-            }
             MpvEvent::EndFile(Ok(true)) => {
                 self.playback.finished = true;
                 self.playback.time = self.playback.duration;
@@ -248,7 +237,7 @@ impl PlayerView {
 
     /// Segment the playhead is in, while the in-window Player plays without error.
     pub(super) fn active_segment(&self) -> Option<Segment> {
-        if self.pip.is_some() || self.playback.error.is_some() || self.tv.is_some() {
+        if self.pip.is_some() || self.playback.error.is_some() {
             return None;
         }
         let time = self.playback.time;
@@ -312,32 +301,8 @@ impl PlayerView {
         self.refocus(window, cx);
     }
 
-    /// Plays whatever the Channel airs now; closes when it airs nothing.
-    pub(super) fn tune(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(on_air) = self.tv.as_ref().and_then(Channel::on_air) else {
-            self.close(window, cx);
-            return;
-        };
-        self.play_next(on_air.item.clone(), window, cx);
-        self.playback.on_air = Some(on_air);
-    }
-
-    /// Leaves TV for the normal Player on the item on air, from its saved position.
-    pub(super) fn watch_from_start(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(on_air) = self.playback.on_air.take() else {
-            return;
-        };
-        self.tv = None;
-        // TV play is never reported; keep play_next's end_current from starting now
-        self.playback.started = false;
-        self.play_next(on_air.item, window, cx);
-    }
-
     /// Reports stop, and played when finished, for the current item.
     pub(super) fn end_current(&mut self) {
-        if self.tv.is_some() {
-            return;
-        }
         if self.playback.started {
             self.report(Report::Stopped);
         }
@@ -351,9 +316,6 @@ impl PlayerView {
     }
 
     pub(super) fn set_speed(&mut self, speed: f64) {
-        if self.tv.is_some() {
-            return;
-        }
         if let Some(mpv) = self.active_mpv()
             && mpv.set_speed(speed).is_ok()
         {
@@ -556,7 +518,7 @@ impl PlayerView {
         let Some(item) = self.playback.item.clone() else {
             return;
         };
-        if item.chapters.is_empty() || self.tv.is_some() {
+        if item.chapters.is_empty() {
             return;
         }
         let current = self.chapter_index().unwrap_or(0);

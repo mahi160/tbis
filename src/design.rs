@@ -287,7 +287,6 @@ pub mod size {
         header_still_w = 80.,
         header_still_h = 45.,
         chart_h = 45.,
-        guide_w = 80.,
     );
 
     // text containers: scale with body type (like Tailwind's rem-based max-w-*); a unit
