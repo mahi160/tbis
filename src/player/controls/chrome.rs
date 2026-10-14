@@ -75,7 +75,7 @@ impl PlayerView {
             Slider::new(&self.seek)
                 .bg(color::primary(cx))
                 .text_color(overlay::WHITE)
-                .disabled(self.playback.duration <= 0. || self.pip.is_some()),
+                .disabled(self.playback.duration <= 0.),
             scrub_preview,
             format_time(self.playback.duration),
             mono.clone(),

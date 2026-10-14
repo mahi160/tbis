@@ -43,6 +43,17 @@ impl Surface {
             other => Err(format!("unsupported window system: {other:?}")),
         }
     }
+
+    /// Re-hosts the video under `window` (Picture-in-Picture).
+    pub fn move_to(
+        &mut self,
+        window: &(impl HasWindowHandle + HasDisplayHandle),
+    ) -> Result<(), String> {
+        match self {
+            Self::Wayland(s) => s.move_to(window),
+            Self::X11(s) => s.move_to(window),
+        }
+    }
 }
 
 impl Renderer {

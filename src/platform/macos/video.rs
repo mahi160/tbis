@@ -17,7 +17,7 @@ use objc2_app_kit::{
     NSOpenGLPixelFormatAttribute, NSOpenGLProfileVersion3_2Core, NSView, NSWindowOrderingMode,
 };
 use objc2_core_foundation::{CFDictionary, CFNumber, CFRetained, CFString};
-use objc2_foundation::NSSize;
+use objc2_foundation::{NSRect, NSSize};
 use objc2_io_surface::IOSurfaceRef;
 use objc2_metal::{
     MTLBlitCommandEncoder, MTLCommandBuffer, MTLCommandEncoder, MTLCommandQueue,
@@ -41,17 +41,8 @@ impl Surface {
     pub fn attach(
         window: &(impl HasWindowHandle + HasDisplayHandle),
     ) -> Result<(Self, Renderer), String> {
-        let RawWindowHandle::AppKit(appkit) =
-            window.window_handle().map_err(|e| e.to_string())?.as_raw()
-        else {
-            return Err("expected an AppKit window".into());
-        };
         let mtm = MainThreadMarker::new().ok_or("mpv surface must attach on the main thread")?;
-        // SAFETY: gpui keeps its view alive as long as the window; non-owning borrow
-        let gpui_view: &NSView = unsafe { &*(appkit.ns_view.as_ptr() as *const NSView) };
-        let content_view = unsafe { gpui_view.superview() }.ok_or("gpui view has no superview")?;
-
-        let view = NSView::initWithFrame(NSView::alloc(mtm), content_view.bounds());
+        let view = NSView::initWithFrame(NSView::alloc(mtm), NSRect::ZERO);
         view.setWantsLayer(true);
         view.setAutoresizingMask(
             NSAutoresizingMaskOptions::ViewWidthSizable
@@ -61,13 +52,32 @@ impl Surface {
         layer.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
         layer.setFramebufferOnly(false); // blit target, not render target
         view.setLayer(Some(&layer));
+        let mut this = Self { view };
+        this.move_to(window)?;
+        Ok((this, Renderer { layer, gpu: None }))
+    }
+
+    /// Re-hosts the video under `window`'s gpui view; mpv and its layer carry on as is.
+    pub fn move_to(
+        &mut self,
+        window: &(impl HasWindowHandle + HasDisplayHandle),
+    ) -> Result<(), String> {
+        let RawWindowHandle::AppKit(appkit) =
+            window.window_handle().map_err(|e| e.to_string())?.as_raw()
+        else {
+            return Err("expected an AppKit window".into());
+        };
+        // SAFETY: gpui keeps its view alive as long as the window; non-owning borrow
+        let gpui_view: &NSView = unsafe { &*(appkit.ns_view.as_ptr() as *const NSView) };
+        let content_view = unsafe { gpui_view.superview() }.ok_or("gpui view has no superview")?;
+        self.view.removeFromSuperview();
+        self.view.setFrame(content_view.bounds());
         content_view.addSubview_positioned_relativeTo(
-            &view,
+            &self.view,
             NSWindowOrderingMode::Below,
             Some(gpui_view),
         );
-
-        Ok((Self { view }, Renderer { layer, gpu: None }))
+        Ok(())
     }
 }
 

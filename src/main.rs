@@ -15,7 +15,6 @@ mod movie;
 mod mpv;
 mod nav;
 mod now_playing;
-mod pip;
 mod platform;
 mod player;
 mod search;
@@ -84,8 +83,6 @@ fn main() {
             cx.on_action(|_: &Quit, cx| cx.quit());
             player::bind_keys(cx);
             shortcuts::bind_keys(cx);
-            // single-window app: closing window quits
-            cx.on_window_closed(|cx, _| cx.quit()).detach();
 
             cx.spawn(async move |cx| {
                 let min = design::window::MIN;
@@ -112,13 +109,23 @@ fn main() {
                     }),
                     ..TitleBar::window_options()
                 };
-                cx.open_window(options, |window, cx| {
-                    platform::window::prepare(window);
-                    let view = cx.new(|cx| app::AppView::new(window, cx));
-                    cx.new(|cx| Root::new(view, window, cx))
-                })
-                .expect("failed to open window");
-                cx.update(|cx| cx.activate(true));
+                let main = cx
+                    .open_window(options, |window, cx| {
+                        platform::window::prepare(window);
+                        let view = cx.new(|cx| app::AppView::new(window, cx));
+                        cx.new(|cx| Root::new(view, window, cx))
+                    })
+                    .expect("failed to open window");
+                cx.update(|cx| {
+                    // closing the main window quits; closing PiP does not
+                    cx.on_window_closed(move |cx, id| {
+                        if id == main.window_id() {
+                            cx.quit();
+                        }
+                    })
+                    .detach();
+                    cx.activate(true);
+                });
             })
             .detach();
         });

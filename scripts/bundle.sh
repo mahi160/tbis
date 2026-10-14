@@ -1,7 +1,7 @@
 #!/bin/sh
-# Builds target/tbis.app, self-contained (ADR-0004): Homebrew's libmpv, the mpv
-# binary PiP spawns (ADR-0003), and every Homebrew dylib they load are copied into
-# the bundle and relinked, with their license files. Needs `brew install mpv` on
+# Builds target/tbis.app, self-contained (ADR-0004): Homebrew's libmpv and every
+# Homebrew dylib it loads are copied into the bundle and relinked, with their
+# license files. Needs `brew install mpv` on
 # the build machine only.
 set -eu
 cd "$(dirname "$0")/.."
@@ -17,7 +17,6 @@ cargo build --release
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$frameworks" "$licenses"
 cp target/release/tbis "$app/Contents/MacOS/tbis"
-cp "$brew_prefix/opt/mpv/bin/mpv" "$app/Contents/MacOS/mpv"
 cp LICENSE "$app/Contents/Resources/LICENSE"
 
 # Copies the formula's license files (Cellar/<formula>/<version>/) for `$1`, a
@@ -62,11 +61,8 @@ bundle_deps() (
     done
 )
 
-for exe in tbis mpv; do
-    install_name_tool -add_rpath @executable_path/../Frameworks "$app/Contents/MacOS/$exe"
-    bundle_deps "$app/Contents/MacOS/$exe" "$brew_prefix/opt/mpv/bin"
-done
-copy_licenses "$(realpath "$brew_prefix/opt/mpv/bin/mpv")"
+install_name_tool -add_rpath @executable_path/../Frameworks "$app/Contents/MacOS/tbis"
+bundle_deps "$app/Contents/MacOS/tbis" "$brew_prefix/opt/mpv/bin"
 
 # nothing may still point into Homebrew, or the app breaks on Macs without it
 if otool -L "$app/Contents/MacOS/"* "$frameworks"/* | grep -q "$brew_prefix"; then
@@ -120,6 +116,6 @@ EOF
 
 # relinking invalidated signatures; arm64 refuses to load unsigned code. Inner
 # code first, then an ad-hoc signature covering Info.plist and resources
-codesign --force --sign - "$frameworks"/* "$app/Contents/MacOS/mpv"
+codesign --force --sign - "$frameworks"/*
 codesign --force --sign - "$app"
 echo "built $app"

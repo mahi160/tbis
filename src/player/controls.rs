@@ -264,8 +264,7 @@ impl PlayerView {
 
     /// Keeps Now Playing in step with the Player; called every render.
     fn sync_now_playing(&mut self, cx: &App) {
-        let wanted =
-            self.pip.is_none() && self.playback.item.is_some() && self.playback.error.is_none();
+        let wanted = self.playback.item.is_some() && self.playback.error.is_none();
         if wanted != self.now_playing.is_some() {
             self.now_playing = wanted.then(|| {
                 let step = f64::from(cx.global::<SeekSteps>().short);
@@ -505,61 +504,13 @@ impl PlayerView {
         }
     }
 
-    /// Opens PiP at the current position and pauses; again closes it (resume follows `Ended`).
+    /// Moves the video into the PiP window; again moves it back.
     fn toggle_pip(&mut self, _: &TogglePip, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(pip) = &mut self.pip {
-            pip.stop();
-            self.refocus(window, cx);
-            return;
+        if self.pip.is_some() {
+            self.leave_pip(window, cx);
+        } else {
+            self.enter_pip(window, cx);
         }
-        let (Some(mpv), Some(item)) = (&self.mpv, &self.playback.item) else {
-            return;
-        };
-        let selected = |kind: TrackKind| {
-            self.playback
-                .tracks
-                .iter()
-                .find(|t| t.kind == kind && t.selected)
-                .map(|t| t.id)
-        };
-        let (events_tx, mut events_rx) = futures::channel::mpsc::unbounded();
-        let mut options = self.subtitles.mpv_options().to_vec();
-        options.extend(self.hdr.mpv_options());
-        options.extend(self.audio.mpv_options());
-        if let Ok(shaders) = self.shaders.mpv_value() {
-            options.push(("glsl-shaders", shaders));
-        }
-        let start = crate::pip::PipStart {
-            url: &item.stream.url,
-            auth_header: &self.api.auth_header(),
-            start_seconds: self.playback.time,
-            speed: self.speed,
-            volume: self.volume,
-            muted: self.muted,
-            audio_track: selected(TrackKind::Audio),
-            subtitle_track: selected(TrackKind::Subtitle),
-            options: &options,
-        };
-        match crate::pip::Pip::start(start, events_tx) {
-            Ok(pip) => {
-                let _ = mpv.set_pause(true);
-                self.pip = Some(pip);
-                self._pip = cx.spawn_in(window, async move |this, cx| {
-                    use futures::StreamExt as _;
-                    while let Some(event) = events_rx.next().await {
-                        if this
-                            .update_in(cx, |this, window, cx| this.on_pip(event, window, cx))
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                });
-            }
-            // not fatal: in-window mpv keeps playing, only the standalone window failed
-            Err(err) => window.push_notification(Notification::error(err), cx),
-        }
-        self.refocus(window, cx);
     }
 
     /// Pops the volume slider open (normally hidden behind a hover on the mute button)
@@ -600,21 +551,16 @@ impl PlayerView {
 impl Render for PlayerView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // every pause/PiP/error change notifies, so render is the one sync point
-        let playing = self.playback.started
-            && self.playback.error.is_none()
-            && (!self.paused || self.pip.is_some());
+        let playing = self.playback.started && self.playback.error.is_none() && !self.paused;
         if playing != self.awake.is_some() {
             self.awake = playing.then(super::Awake::new);
         }
         self.sync_now_playing(cx);
-        if let Some(mpv) = &self.mpv {
-            let size = window.viewport_size();
-            let scale = window.scale_factor();
-            mpv.set_size(
-                (size.width.as_f32() * scale).round() as i32,
-                (size.height.as_f32() * scale).round() as i32,
-                scale,
-            );
+        // in PiP, its window sizes the video
+        if let Some(mpv) = &self.mpv
+            && self.pip.is_none()
+        {
+            super::fit_video(&mpv.video_size(), window);
         }
 
         let time = self.playback.scrubbing.unwrap_or(self.playback.time);
@@ -731,6 +677,8 @@ impl Render for PlayerView {
             .relative()
             .justify_between()
             .text_color(overlay::WHITE)
+            // video is in PiP; window is see-through, so cover it
+            .when(self.pip.is_some(), |this| this.bg(overlay::black(1.)))
             .on_mouse_move(cx.listener(|this, _, window, cx| {
                 if !this.controls_visible {
                     this.show_controls(window, cx);

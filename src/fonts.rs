@@ -3,7 +3,7 @@
 //! what's installed on the machine.
 //!
 //! Used two ways: [`embed`] registers it with GPUI's text system for the UI;
-//! [`extract_dir`] writes the files to disk so libmpv/libass (mpv.rs, pip.rs) can pick
+//! [`extract_dir`] writes the files to disk so libmpv/libass (mpv.rs) can pick
 //! it up as `sub-font` via `sub-fonts-dir` -- libass reads font files, not in-memory
 //! bytes.
 
@@ -39,7 +39,7 @@ pub fn embed(cx: &gpui_kit::App) -> gpui_kit::Result<()> {
 /// Writes [`FILES`] under Application Support and returns that directory, for
 /// mpv's `sub-fonts-dir`. Best-effort: on write failure, subtitles just fall back to
 /// mpv's own default font. Written once per process and cached, not on every Player
-/// open or PiP start.
+/// open.
 pub fn extract_dir() -> Option<PathBuf> {
     static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
     DIR.get_or_init(write_dir).clone()

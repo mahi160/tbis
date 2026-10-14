@@ -322,6 +322,10 @@ pub mod window {
     pub const TRAFFIC_LIGHTS: Point<Pixels> = point(px(19.), px(19.));
     /// Extra lead before the brand: lights sit 6px right of where TitleBar's padding expects.
     pub const BRAND_LEAD: Pixels = px(12.);
+    /// Picture-in-Picture window: opening size, smallest size, gap to the screen corner.
+    pub const PIP: Size<Pixels> = size(px(640.), px(360.));
+    pub const PIP_MIN: Size<Pixels> = size(px(320.), px(180.));
+    pub const PIP_MARGIN: Pixels = px(24.);
 }
 
 /// Opacity levels.

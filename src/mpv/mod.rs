@@ -69,6 +69,25 @@ pub struct Track {
     pub lang: Option<String>,
 }
 
+/// Sets the video's size without borrowing `Mpv`.
+#[derive(Clone)]
+pub struct VideoSize {
+    size: Arc<Mutex<Extent>>,
+    waker: Arc<Waker>,
+}
+
+impl VideoSize {
+    /// Video size in device pixels, and the window scale it was derived with.
+    pub fn set(&self, width: i32, height: i32, scale: f32) {
+        *self.size.lock().unwrap_or_else(PoisonError::into_inner) = Extent {
+            width,
+            height,
+            scale,
+        };
+        self.waker.notify();
+    }
+}
+
 pub struct Mpv {
     handle: Handle,
     surface: Option<video::Surface>,
@@ -183,14 +202,24 @@ impl Mpv {
         self.handle.set_property(kind.property(), &value)
     }
 
-    /// Video size in device pixels, and the window scale it was derived with.
-    pub fn set_size(&self, width: i32, height: i32, scale: f32) {
-        *self.size.lock().unwrap_or_else(PoisonError::into_inner) = Extent {
-            width,
-            height,
-            scale,
-        };
+    /// Shows the video in `window` instead (Picture-in-Picture); playback carries on.
+    /// Must run on the main thread.
+    pub fn move_to(
+        &mut self,
+        window: &(impl HasWindowHandle + HasDisplayHandle),
+    ) -> Result<(), String> {
+        let surface = self.surface.as_mut().ok_or("no video surface")?;
+        surface.move_to(window)?;
         self.waker.notify();
+        Ok(())
+    }
+
+    /// Handle that sizes the video; whichever window shows it owns one.
+    pub fn video_size(&self) -> VideoSize {
+        VideoSize {
+            size: self.size.clone(),
+            waker: self.waker.clone(),
+        }
     }
 
     /// Loads an external (sidecar) text subtitle not muxed into the file mpv opened.
@@ -221,8 +250,6 @@ impl Mpv {
     }
 }
 
-/// mpv's yes/no spelling for a bool property or CLI flag; shared with `pip.rs`,
-/// which passes the same spelling to the standalone mpv it spawns.
 impl Mpv {
     /// Current frame with subtitles, at video resolution, to `path` (format from extension).
     pub fn screenshot(&self, path: &str) -> Result<(), String> {
@@ -241,7 +268,8 @@ impl Mpv {
     }
 }
 
-pub fn yes_no(b: bool) -> &'static str {
+/// mpv's yes/no spelling for a bool property.
+fn yes_no(b: bool) -> &'static str {
     if b { "yes" } else { "no" }
 }
 
@@ -262,11 +290,10 @@ impl Drop for Mpv {
     }
 }
 
-/// Read-ahead buffer for streaming from the server, shared by the Player and PiP:
-/// rides out network hiccups and makes short back-seeks instant. Capped so a long
+/// Read-ahead buffer for streaming from the server: rides out network hiccups and makes short back-seeks instant. Capped so a long
 /// 4K remux can't grow memory unbounded. Read-ahead stops at 60 s, so low-bitrate
 /// streams stay well under the cap.
-pub const CACHE_OPTIONS: [(&str, &str); 4] = [
+const CACHE_OPTIONS: [(&str, &str); 4] = [
     ("cache", "yes"),
     ("demuxer-max-bytes", "400MiB"),
     ("demuxer-max-back-bytes", "100MiB"),
@@ -285,9 +312,9 @@ const EMBEDDING: [(&str, &str); 5] = [
 ];
 
 /// `<app support dir>/mpv` (`support_dir.rs`) when it holds an `mpv.conf`: the user's
-/// own mpv config for the Player and PiP (scripts/shaders it names resolve there too).
+/// own mpv config for the Player (scripts/shaders it names resolve there too).
 /// Absent: mpv runs exactly as without it.
-pub fn user_config_dir() -> Option<std::path::PathBuf> {
+fn user_config_dir() -> Option<std::path::PathBuf> {
     let dir = crate::support_dir::app_support_dir().join("mpv");
     dir.join("mpv.conf").is_file().then_some(dir)
 }

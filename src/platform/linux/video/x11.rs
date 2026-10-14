@@ -13,6 +13,10 @@ impl Surface {
     ) -> Result<(Self, Renderer), String> {
         Err("Video playback on X11 is not supported yet".into())
     }
+
+    pub fn move_to(&mut self, _: &(impl HasWindowHandle + HasDisplayHandle)) -> Result<(), String> {
+        unreachable!("attach never returns a Surface")
+    }
 }
 
 pub struct Renderer;

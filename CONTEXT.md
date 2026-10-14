@@ -54,5 +54,5 @@ In the last 30 seconds of an Episode, the Player offers the next Episode of the 
 _Avoid_: Binge, continuous play
 
 **PiP**:
-A small, always-on-top, borderless window that takes over playback from the Player until it is closed.
+A small, always-on-top window that shows the Player's video, with play/pause and a way back to the Player. Playback carries on uninterrupted when entering or leaving it.
 _Avoid_: Mini player, picture-in-picture window

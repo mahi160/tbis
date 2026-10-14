@@ -33,4 +33,5 @@ pub mod cursor {
 
 pub mod window {
     pub fn prepare(_: &gpui_kit::Window) {}
+    pub fn hide_title_buttons(_: &gpui_kit::Window) {}
 }

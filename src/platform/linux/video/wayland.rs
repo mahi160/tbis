@@ -56,6 +56,7 @@ delegate_noop!(State: ignore WlSurface);
 /// Main-thread side: the subsurface under gpui's surface.
 pub struct Surface {
     subsurface: WlSubsurface,
+    subcompositor: WlSubcompositor,
     surface: WlSurface,
     // objects above are bound to this queue; keep it alive until they are destroyed
     _queue: EventQueue<State>,
@@ -66,11 +67,6 @@ impl Surface {
     pub fn attach(
         window: &(impl HasWindowHandle + HasDisplayHandle),
     ) -> Result<(Self, Renderer), String> {
-        let RawWindowHandle::Wayland(parent) =
-            window.window_handle().map_err(|e| e.to_string())?.as_raw()
-        else {
-            return Err("expected a Wayland window".into());
-        };
         let RawDisplayHandle::Wayland(display) =
             window.display_handle().map_err(|e| e.to_string())?.as_raw()
         else {
@@ -89,17 +85,9 @@ impl Surface {
         // without it, `Renderer::draw` falls back to integer buffer scale
         let viewporter: Option<WpViewporter> = globals.bind(&qh, 1..=1, ()).ok();
 
-        // SAFETY: gpui keeps its surface alive as long as the window
-        let parent_id =
-            unsafe { ObjectId::from_ptr(WlSurface::interface(), parent.surface.as_ptr().cast()) }
-                .map_err(|e| e.to_string())?;
-        let parent = WlSurface::from_id(&conn, parent_id).map_err(|e| e.to_string())?;
-
+        let parent = parent_surface(&conn, window)?;
         let surface = compositor.create_surface(&qh, ());
-        let subsurface = subcompositor.get_subsurface(&surface, &parent, &qh, ());
-        // own commits (EGL swaps) apply at once; no tie to gpui's frame cadence
-        subsurface.set_desync();
-        subsurface.place_below(&parent);
+        let subsurface = place_under(&subcompositor, &surface, &parent, &qh);
         // empty input region: clicks go to gpui, never to the video
         let empty = compositor.create_region(&qh, ());
         surface.set_input_region(Some(&empty));
@@ -116,6 +104,7 @@ impl Surface {
         Ok((
             Self {
                 subsurface,
+                subcompositor,
                 surface,
                 _queue: queue,
                 conn,
@@ -123,6 +112,50 @@ impl Surface {
             renderer,
         ))
     }
+}
+
+impl Surface {
+    /// Re-hosts the video under `window`'s surface; mpv and its EGL surface carry on as is.
+    pub fn move_to(
+        &mut self,
+        window: &(impl HasWindowHandle + HasDisplayHandle),
+    ) -> Result<(), String> {
+        let parent = parent_surface(&self.conn, window)?;
+        self.subsurface.destroy();
+        self.subsurface =
+            place_under(&self.subcompositor, &self.surface, &parent, &self._queue.handle());
+        self.conn.flush().map_err(|e| e.to_string())
+    }
+}
+
+/// gpui's own `wl_surface` for `window`.
+fn parent_surface(
+    conn: &Connection,
+    window: &impl HasWindowHandle,
+) -> Result<WlSurface, String> {
+    let RawWindowHandle::Wayland(parent) =
+        window.window_handle().map_err(|e| e.to_string())?.as_raw()
+    else {
+        return Err("expected a Wayland window".into());
+    };
+    // SAFETY: gpui keeps its surface alive as long as the window
+    let id = unsafe { ObjectId::from_ptr(WlSurface::interface(), parent.surface.as_ptr().cast()) }
+        .map_err(|e| e.to_string())?;
+    WlSurface::from_id(conn, id).map_err(|e| e.to_string())
+}
+
+/// `surface` as a subsurface just below `parent`.
+fn place_under(
+    subcompositor: &WlSubcompositor,
+    surface: &WlSurface,
+    parent: &WlSurface,
+    qh: &QueueHandle<State>,
+) -> WlSubsurface {
+    let subsurface = subcompositor.get_subsurface(surface, parent, qh, ());
+    // own commits (EGL swaps) apply at once; no tie to gpui's frame cadence
+    subsurface.set_desync();
+    subsurface.place_below(parent);
+    subsurface
 }
 
 impl Drop for Surface {

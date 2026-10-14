@@ -2,10 +2,11 @@
 //! the `PlayerView` type itself; [`playback`] is the current item's state and its
 //! server reports; [`controls`] is the actions, overlays and `Render` impl, with the
 //! top and bottom bars and their menus in `controls::chrome`;
-//! [`clock`] is the small pure time-formatting helpers.
+//! [`clock`] is the small pure time-formatting helpers; [`pip`] is Picture-in-Picture.
 
 mod clock;
 mod controls;
+mod pip;
 mod playback;
 
 use std::future::Future;
@@ -17,11 +18,10 @@ use gpui_kit::component::slider::{SliderEvent, SliderState};
 use gpui_kit::*;
 
 use crate::components::video::InfoGroup;
-use crate::config::{AudioStyle, Config, HdrStyle, LanguagePref, SubtitleStyle, TrackPrefs};
+use crate::config::{Config, LanguagePref, TrackPrefs};
 use crate::jellyfin::{Api, Item, PlaybackItem, Report};
-use crate::mpv::Mpv;
+use crate::mpv::{Mpv, VideoSize};
 use crate::now_playing::{NowPlaying, RemoteCommand};
-use crate::pip::Pip;
 use crate::platform::cursor::hide as hide_cursor;
 use crate::platform::power::Awake;
 use crate::shaders::ShaderProfile;
@@ -115,8 +115,10 @@ pub struct PlayerView {
     api: Api,
     mpv: Option<Mpv>,
     playback: Playback,
-    /// Standalone mpv window playing instead of this Player.
-    pip: Option<Pip>,
+    /// Picture-in-Picture window currently showing this Player's video.
+    pip: Option<AnyWindowHandle>,
+    /// Window the Player lives in; PiP hands the video back to it.
+    main_window: AnyWindowHandle,
     paused: bool,
     /// mpv not advancing; with `!paused`, means buffering.
     core_idle: bool,
@@ -133,19 +135,13 @@ pub struct PlayerView {
     track_prefs: TrackPrefs,
     /// Settings' preferred languages (read-only here).
     language: LanguagePref,
-    /// Settings' subtitle look; PiP gets it too.
-    subtitles: SubtitleStyle,
-    /// Settings' HDR tone-mapping/deband look; PiP gets it too.
-    hdr: HdrStyle,
-    /// Settings' audio passthrough/loudness look; PiP gets it too.
-    audio: AudioStyle,
     /// Settings' streaming cap; over it the server may transcode.
     max_bitrate_mbps: Option<u32>,
-    /// Upscaling shaders active in the in-window mpv (and handed to PiP).
+    /// Upscaling shaders active in mpv.
     shaders: ShaderProfile,
-    /// Held while video actually plays (here or in PiP); synced in `render`.
+    /// Held while video actually plays; synced in `render`.
     awake: Option<Awake>,
-    /// Media keys + Control Center; absent while PiP's own mpv owns them.
+    /// Media keys + Control Center.
     now_playing: Option<NowPlaying>,
     remote: mpsc::UnboundedSender<RemoteCommand>,
     /// Playback Info overlay rows while open; refreshed every second by `_info`.
@@ -153,7 +149,6 @@ pub struct PlayerView {
     _info: Task<()>,
     _hide: Task<()>,
     _volume_hud: Task<()>,
-    _pip: Task<()>,
     _tasks: Vec<Task<()>>,
     _subscriptions: [Subscription; 2],
 }
@@ -228,7 +223,7 @@ impl PlayerView {
                 loop {
                     cx.background_executor().timer(PROGRESS_EVERY).await;
                     let Ok(()) = this.update(cx, |this, _| {
-                        if !this.paused || this.pip.is_some() {
+                        if !this.paused {
                             this.report(Report::Progress);
                         }
                     }) else {
@@ -267,6 +262,7 @@ impl PlayerView {
             mpv,
             playback,
             pip: None,
+            main_window: window.window_handle(),
             paused: false,
             core_idle: true,
             speed: 1.,
@@ -280,9 +276,6 @@ impl PlayerView {
             menu_open: false,
             track_prefs: config.track_prefs.clone(),
             language: config.language.clone(),
-            subtitles: config.subtitles.clone(),
-            hdr: config.hdr,
-            audio: config.audio,
             max_bitrate_mbps: config.max_bitrate_mbps,
             shaders: ShaderProfile::Off,
             awake: None,
@@ -292,7 +285,6 @@ impl PlayerView {
             _info: Task::ready(()),
             _hide: Task::ready(()),
             _volume_hud: Task::ready(()),
-            _pip: Task::ready(()),
             _tasks: tasks,
             _subscriptions,
         };
@@ -411,10 +403,22 @@ impl PlayerView {
     pub fn track_prefs(&self) -> TrackPrefs {
         self.track_prefs.clone()
     }
+}
 
-    /// mpv driving playback right now: in-window one, unless PiP has taken over.
+/// Sizes mpv's video to `window`'s viewport in device pixels.
+fn fit_video(video: &VideoSize, window: &Window) {
+    let size = window.viewport_size();
+    let scale = window.scale_factor();
+    video.set(
+        (size.width.as_f32() * scale).round() as i32,
+        (size.height.as_f32() * scale).round() as i32,
+        scale,
+    );
+}
+
+impl PlayerView {
     fn active_mpv(&self) -> Option<&Mpv> {
-        self.mpv.as_ref().filter(|_| self.pip.is_none())
+        self.mpv.as_ref()
     }
 
     /// Reports stop and asks the app to leave the Player. Tears down mpv on drop.
@@ -423,6 +427,7 @@ impl PlayerView {
             window.toggle_fullscreen();
         }
         self.end_current();
+        self.drop_pip(cx);
         cx.emit(Closed {
             volume: self.volume,
             muted: self.muted,

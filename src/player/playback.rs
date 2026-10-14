@@ -8,13 +8,12 @@ use gpui_kit::*;
 
 use crate::jellyfin::{Api, Item, Kind, PlaybackItem, Report, Segment, SegmentKind};
 use crate::mpv::{MpvEvent, Track, TrackKind};
-use crate::pip::PipEvent;
 
 use super::PlayerView;
 
 /// Seconds left in an Episode when the next one is offered.
 const UP_NEXT_AT: f64 = 30.;
-/// Redraws throttle to this step, shared by the mpv and PiP position streams.
+/// Redraws throttle to this step.
 const REDRAW_STEP: f64 = 0.25;
 /// Seconds before a segment's end at which its skip button hides.
 const SEGMENT_END_MARGIN: f64 = 0.5;
@@ -109,12 +108,12 @@ impl PlayerView {
                 report,
                 item: item.clone(),
                 seconds: self.playback.time,
-                paused: self.paused && self.pip.is_none(), // Player pauses while PiP plays
+                paused: self.paused,
             });
         }
     }
 
-    /// Time bookkeeping shared by the mpv and PiP position streams. Returns whether
+    /// Time bookkeeping for mpv's position stream. Returns whether
     /// the `REDRAW_STEP` threshold was crossed, i.e. whether the UI should redraw.
     fn update_time(&mut self, time: f64) -> bool {
         self.playback.time = time;
@@ -214,27 +213,6 @@ impl PlayerView {
         cx.notify();
     }
 
-    pub(super) fn on_pip(&mut self, event: PipEvent, window: &mut Window, cx: &mut Context<Self>) {
-        match event {
-            PipEvent::Position(time) => {
-                if self.update_time(time) {
-                    self.sync_seek_bar(window, cx);
-                    cx.notify();
-                }
-            }
-            PipEvent::Ended(time) => {
-                self.pip = None;
-                if let Some(mpv) = &self.mpv {
-                    let _ = mpv.seek(time);
-                    let _ = mpv.set_pause(false);
-                }
-                self.playback.time = time;
-                self.sync_seek_bar(window, cx);
-                self.show_controls(window, cx);
-            }
-        }
-    }
-
     /// Segment the playhead is in, while the in-window Player plays without error.
     pub(super) fn active_segment(&self) -> Option<Segment> {
         if self.pip.is_some() || self.playback.error.is_some() {
@@ -288,8 +266,6 @@ impl PlayerView {
     /// Play now/Enter count the current Episode watched, the skip button does not.
     pub(super) fn play_next(&mut self, next: Item, window: &mut Window, cx: &mut Context<Self>) {
         self.end_current();
-        self.pip = None;
-        self._pip = Task::ready(()); // drop stale PiP events
         if let Some(mpv) = &self.mpv {
             // stop old file during fetch; pause would carry over
             let _ = mpv.stop();

@@ -114,6 +114,31 @@ pub fn overlay_spinner() -> AnyElement {
         .into_any_element()
 }
 
+/// Picture-in-Picture window chrome: `buttons` centered in a scrim, shown on hover.
+/// Dragging anywhere else moves the window.
+pub fn pip_frame(buttons: impl IntoIterator<Item = impl IntoElement>) -> Stateful<Div> {
+    div()
+        .id("pip")
+        .group("pip")
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
+        .child(
+            h_flex()
+                .gap(gap::tight())
+                .p(gap::tight())
+                .rounded(radius::base())
+                .bg(black(0.6))
+                .opacity(0.)
+                .group_hover("pip", |s| s.opacity(1.))
+                // clicks on the buttons must not start a window drag
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .children(buttons),
+        )
+}
+
 /// Anchors `content` bottom-right, above the timeline.
 pub fn overlay_corner(content: impl IntoElement) -> Div {
     div()
