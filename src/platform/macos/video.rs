@@ -6,6 +6,7 @@
 
 use std::ffi::c_void;
 use std::os::raw::{c_char, c_int, c_uint};
+use std::time::{Duration, Instant};
 
 use libmpv_sys::mpv_render_context;
 use objc2::rc::Retained;
@@ -20,9 +21,9 @@ use objc2_core_foundation::{CFDictionary, CFNumber, CFRetained, CFString};
 use objc2_foundation::{NSRect, NSSize};
 use objc2_io_surface::IOSurfaceRef;
 use objc2_metal::{
-    MTLBlitCommandEncoder, MTLCommandBuffer, MTLCommandEncoder, MTLCommandQueue,
-    MTLCreateSystemDefaultDevice, MTLDevice, MTLPixelFormat, MTLStorageMode, MTLTexture,
-    MTLTextureDescriptor, MTLTextureUsage,
+    MTLBlitCommandEncoder, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder,
+    MTLCommandQueue, MTLCreateSystemDefaultDevice, MTLDevice, MTLPixelFormat, MTLStorageMode,
+    MTLTexture, MTLTextureDescriptor, MTLTextureUsage,
 };
 use objc2_quartz_core::{CAMetalDrawable, CAMetalLayer};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
@@ -54,7 +55,14 @@ impl Surface {
         view.setLayer(Some(&layer));
         let mut this = Self { view };
         this.move_to(window)?;
-        Ok((this, Renderer { layer, gpu: None }))
+        Ok((
+            this,
+            Renderer {
+                layer,
+                gpu: None,
+                phases: Phases::from_env(),
+            },
+        ))
     }
 
     /// Re-hosts the video under `window`'s gpui view; mpv and its layer carry on as is.
@@ -91,6 +99,84 @@ impl Drop for Surface {
 pub struct Renderer {
     layer: Retained<CAMetalLayer>,
     gpu: Option<Gpu>,
+    /// Per-phase frame timings, logged with `TBIS_FRAME_STATS=1`.
+    phases: Option<Phases>,
+}
+
+/// Where a frame's time goes: mpv's GL render, waiting for a drawable, and the GPU time
+/// of the IOSurface -> drawable copy (read from the previous frame's command buffer).
+struct Phases {
+    since: Instant,
+    frames: u32,
+    render: Timing,
+    drawable: Timing,
+    copy: Timing,
+    pending: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
+}
+
+#[derive(Default)]
+struct Timing {
+    total: f64,
+    max: f64,
+    count: u32,
+}
+
+impl Timing {
+    fn add(&mut self, ms: f64) {
+        self.total += ms;
+        self.max = self.max.max(ms);
+        self.count += 1;
+    }
+}
+
+impl std::fmt::Display for Timing {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let avg = self.total / f64::from(self.count.max(1));
+        write!(f, "avg {avg:.2}ms max {:.2}ms", self.max)
+    }
+}
+
+impl Phases {
+    fn from_env() -> Option<Self> {
+        std::env::var_os("TBIS_FRAME_STATS").map(|_| Self {
+            since: Instant::now(),
+            frames: 0,
+            render: Timing::default(),
+            drawable: Timing::default(),
+            copy: Timing::default(),
+            pending: None,
+        })
+    }
+
+    /// Reads the previous copy's GPU time once it completed, then logs every 5 seconds.
+    fn frame(
+        &mut self,
+        render: f64,
+        drawable: f64,
+        cmd: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
+    ) {
+        if let Some(done) = self.pending.take()
+            && done.status() == MTLCommandBufferStatus::Completed
+        {
+            self.copy
+                .add((done.GPUEndTime() - done.GPUStartTime()) * 1000.);
+        }
+        self.pending = Some(cmd);
+        self.frames += 1;
+        self.render.add(render);
+        self.drawable.add(drawable);
+        if self.since.elapsed() >= Duration::from_secs(5) {
+            eprintln!(
+                "frame stats (macOS): {} frames | mpv GL render {} | wait for drawable {} | copy GPU {}",
+                self.frames, self.render, self.drawable, self.copy
+            );
+            self.since = Instant::now();
+            self.frames = 0;
+            self.render = Timing::default();
+            self.drawable = Timing::default();
+            self.copy = Timing::default();
+        }
+    }
 }
 
 // only touched on render thread; CAMetalLayer drawable/size calls are thread-safe
@@ -175,6 +261,7 @@ impl Renderer {
         }
         let Some(t) = &gpu.target else { return false };
 
+        let start = Instant::now();
         unsafe {
             glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
             glViewport(0, 0, w, h);
@@ -183,10 +270,12 @@ impl Renderer {
             return false;
         }
         unsafe { glFlush() }; // GL writes land before Metal reads same IOSurface
+        let rendered = Instant::now();
 
         let Some(drawable) = self.layer.nextDrawable() else {
             return false;
         };
+        let got_drawable = Instant::now();
         let Some(cmd) = gpu.queue.commandBuffer() else {
             return false;
         };
@@ -197,6 +286,14 @@ impl Renderer {
         blit.endEncoding();
         cmd.presentDrawable(drawable.as_ref());
         cmd.commit();
+        if let Some(phases) = &mut self.phases {
+            let ms = |d: Duration| d.as_secs_f64() * 1000.;
+            phases.frame(
+                ms(rendered - start),
+                ms(got_drawable - rendered),
+                cmd,
+            );
+        }
         true
     }
 }

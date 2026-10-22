@@ -491,6 +491,74 @@ impl TimeThrottle {
     }
 }
 
+/// Frame pacing and drop counts, logged every 5 seconds with `TBIS_FRAME_STATS=1`.
+struct FrameStats {
+    since: Instant,
+    frames: u32,
+    draw_total: Duration,
+    draw_max: Duration,
+    last_frame: Option<Instant>,
+    gap_max: Duration,
+}
+
+impl FrameStats {
+    fn from_env() -> Option<Self> {
+        std::env::var_os("TBIS_FRAME_STATS").map(|_| Self::new())
+    }
+
+    fn new() -> Self {
+        Self {
+            since: Instant::now(),
+            frames: 0,
+            draw_total: Duration::ZERO,
+            draw_max: Duration::ZERO,
+            last_frame: None,
+            gap_max: Duration::ZERO,
+        }
+    }
+
+    /// A frame was presented; its draw began at `start`.
+    fn frame(&mut self, start: Instant) {
+        let now = Instant::now();
+        let draw = now - start;
+        self.frames += 1;
+        self.draw_total += draw;
+        self.draw_max = self.draw_max.max(draw);
+        if let Some(last) = self.last_frame {
+            self.gap_max = self.gap_max.max(now - last);
+        }
+        self.last_frame = Some(now);
+    }
+
+    fn maybe_log(&mut self, mpv: Handle, size: Extent) {
+        let elapsed = self.since.elapsed();
+        if elapsed < Duration::from_secs(5) {
+            return;
+        }
+        if self.frames > 0 {
+            let ms = |d: Duration| d.as_secs_f64() * 1000.;
+            let get = |name| get_string(mpv, name).unwrap_or_else(|| "?".into());
+            eprintln!(
+                "frame stats: {}x{} | {} frames, {:.1} fps (video {}) | draw avg {:.2}ms max {:.2}ms | longest gap {:.1}ms | dropped vo {} decoder {} | hwdec {}",
+                size.width,
+                size.height,
+                self.frames,
+                f64::from(self.frames) / elapsed.as_secs_f64(),
+                get("container-fps"),
+                ms(self.draw_total) / f64::from(self.frames),
+                ms(self.draw_max),
+                ms(self.gap_max),
+                get("frame-drop-count"),
+                get("decoder-frame-drop-count"),
+                get("hwdec-current"),
+            );
+        }
+        let last_frame = self.last_frame;
+        *self = Self::new();
+        self.last_frame = last_frame;
+    }
+}
+
 #[allow(non_upper_case_globals)] // bindgen constant names
 fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent>) {
     let send = |event| {
@@ -800,7 +868,11 @@ fn render_thread(
     let _ = ready.send(Ok(()));
 
     let mut drawn_size = Extent::default();
+    let mut stats = FrameStats::from_env();
     while !stop.load(Ordering::SeqCst) {
+        if let Some(stats) = &mut stats {
+            stats.maybe_log(mpv, drawn_size);
+        }
         waker.wait(Duration::from_millis(250));
         let flags = unsafe { mpv_render_context_update(ctx) };
         let new_frame = flags & mpv_render_update_flag_MPV_RENDER_UPDATE_FRAME as u64 != 0;
@@ -811,9 +883,13 @@ fn render_thread(
             }
             continue;
         }
+        let start = Instant::now();
         if (new_frame || drawn_size != extent) && renderer.draw(ctx, extent) {
             drawn_size = extent;
             unsafe { mpv_render_context_report_swap(ctx) };
+            if let Some(stats) = &mut stats {
+                stats.frame(start);
+            }
         }
     }
 
