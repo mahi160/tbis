@@ -14,4 +14,6 @@ Playback runs libmpv in-process. There is no spawned mpv process and no second w
 
 ## Consequences
 
+Each frame is copied from mpv's IOSurface into the layer's drawable. Measured with `TBIS_FRAME_STATS=1` on a 4K Dolby Vision HEVC file at 24 fps, fullscreen at 3420×2148 with VideoToolbox decoding, the copy takes 1.2–1.8 ms of GPU time per frame (max about 9 ms), and waiting for a drawable takes under 0.1 ms. No frames dropped in steady playback. Presenting the IOSurface directly would save only that copy, so we keep the copy. The ~41 ms "mpv GL render" figure in the same log is mostly not render cost: `mpv_render_context_render` blocks until each frame's display time.
+
 This decision covers macOS only. Linux and Windows each need their own surface later. On Linux, gpui paints the whole X11/Wayland window through wgpu. An X11 child window would sit above that paint, and a Wayland subsurface would need gpui's own `wl_display`. This is the same failure class as Photon's ADR-0010. On Windows, gpui renders through DirectComposition, so an mpv visual beneath gpui's visual looks plausible but is unverified.

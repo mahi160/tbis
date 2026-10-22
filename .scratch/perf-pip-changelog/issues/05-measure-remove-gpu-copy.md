@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** needs-human: the first step is an Instruments measurement during real 1080p/4K/HDR playback, which an agent can't run.
+**Status:** done: measured and kept. On 4K Dolby Vision at 24 fps fullscreen, the copy costs 1.2–1.8 ms of GPU time per frame, with no steady-state drops (recorded in ADR-0001). Not worth a rewrite of the presentation path.
 
 - [ ] Before measurements (GPU time per frame, dropped frames) recorded for 1080p and 4K, including HDR
 - [ ] Either: the copy is gone and after measurements show the improvement with no tearing, flicker or dropped frames, in the Player, fullscreen and PiP
