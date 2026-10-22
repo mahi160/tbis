@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (release workflow run unverified). Put in a `dist` profile used by the bundle script, so local `--release` builds stay fast. Binary 34.2 MB → 27.7 MB; clean `dist` build 2m30s.
 
 - [ ] The release profile enables thin LTO and one codegen unit
 - [ ] Before/after release build time and binary size are recorded in the commit message

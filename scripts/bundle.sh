@@ -12,11 +12,11 @@ frameworks="$app/Contents/Frameworks"
 licenses="$app/Contents/Resources/licenses"
 brew_prefix=$(brew --prefix)
 
-cargo build --release
+cargo build --profile dist
 
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$frameworks" "$licenses"
-cp target/release/tbis "$app/Contents/MacOS/tbis"
+cp target/dist/tbis "$app/Contents/MacOS/tbis"
 cp LICENSE "$app/Contents/Resources/LICENSE"
 
 # Copies the formula's license files (Cellar/<formula>/<version>/) for `$1`, a

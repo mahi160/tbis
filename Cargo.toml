@@ -45,3 +45,9 @@ zbus = "5"
 
 [build-dependencies]
 pkg-config = "0.3.34"
+
+# Shipped builds (scripts/bundle.sh). `release` stays fast for local runs.
+[profile.dist]
+inherits = "release"
+lto = "thin"
+codegen-units = 1
