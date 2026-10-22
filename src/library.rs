@@ -6,12 +6,17 @@ use gpui_kit::*;
 use crate::components::OnClick;
 use crate::components::button::menu_button;
 use crate::components::card::poster_card;
+use crate::components::image_cache::lru_images;
 use crate::components::layout::{counted_title, grid_row, grow, header_row, poster_columns};
 use crate::components::menu::choice_menu;
 use crate::components::status::{Placeholder, Status, error_banner, full_status};
 use crate::design::{gap, page, size};
 use crate::jellyfin::{Api, Item, Kind, Sort};
 use crate::nav::Nav;
+
+/// Decoded posters kept per grid: a few full screens' worth (each ~0.6 MB), so
+/// scrolling back is instant while memory stays bounded.
+const POSTERS_KEPT: usize = 200;
 
 pub struct SortChanged(pub Sort);
 
@@ -188,11 +193,10 @@ impl Render for LibraryView {
         } else {
             let rows = self.items.len().div_ceil(self.columns);
             // posters freed when page stops rendering
-            // ponytail: retains every poster scrolled past; LRU cache if memory hurts
-            image_cache(retain_all(SharedString::from(format!(
-                "posters-{}",
-                self.title()
-            ))))
+            image_cache(lru_images(
+                SharedString::from(format!("posters-{}", self.title())),
+                POSTERS_KEPT,
+            ))
             .flex_1()
             .min_h_0()
             .child(

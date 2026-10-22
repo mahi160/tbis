@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified). Keeps the 200 most recently drawn posters per grid.
 
 - [ ] Scrolling an entire large Library keeps poster memory under a fixed bound
 - [ ] Scrolling back to recently seen posters shows them without a visible reload
