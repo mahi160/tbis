@@ -67,6 +67,8 @@ const GROUPS: &[(&str, &[Row])] = &[
             (|| Box::new(crate::app::ShowMovies), "Movies"),
             (|| Box::new(crate::app::ShowSeries), "Series"),
             (|| Box::new(ShowShortcuts), "Keyboard shortcuts"),
+            (|| Box::new(crate::CloseWindow), "Close window"),
+            (|| Box::new(crate::Hide), "Hide"),
             (|| Box::new(crate::Quit), "Quit"),
         ],
     ),

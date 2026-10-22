@@ -120,6 +120,7 @@ impl Render for PipView {
         .on_action(cx.listener(|this, _: &SeekForwardLong, _, cx| this.seek(true, true, cx)))
         .on_action(cx.listener(|this, _: &TogglePip, _, cx| this.back(cx)))
         .on_action(cx.listener(|this, _: &Escape, _, cx| this.back(cx)))
+        .on_action(cx.listener(|this, _: &crate::CloseWindow, _, cx| this.back(cx)))
     }
 }
 

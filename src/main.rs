@@ -32,7 +32,7 @@ use std::sync::Arc;
 use gpui_kit::component::{Root, TitleBar};
 use gpui_kit::*;
 
-actions!(tbis, [Quit]);
+actions!(tbis, [Quit, CloseWindow, Hide]);
 
 /// Poster grids open hundreds of sockets at once; macOS apps default to 256 files.
 #[cfg(unix)]
@@ -74,6 +74,9 @@ fn main() {
             cx.bind_keys([
                 // secondary: cmd on macOS, ctrl elsewhere
                 KeyBinding::new("secondary-q", Quit, None),
+                KeyBinding::new("secondary-w", CloseWindow, None),
+                #[cfg(target_os = "macos")]
+                KeyBinding::new("cmd-h", Hide, None),
                 KeyBinding::new("secondary-f", app::FocusSearch, None),
                 KeyBinding::new("secondary-[", app::GoBack, Some("!Input")),
                 KeyBinding::new("secondary-1", app::ShowHome, Some("!Input")),
@@ -81,6 +84,9 @@ fn main() {
                 KeyBinding::new("secondary-3", app::ShowSeries, Some("!Input")),
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
+            // closing the main window quits (below); PiP handles CloseWindow itself
+            cx.on_action(|_: &CloseWindow, cx| cx.quit());
+            cx.on_action(|_: &Hide, cx| cx.hide());
             player::bind_keys(cx);
             shortcuts::bind_keys(cx);
 
