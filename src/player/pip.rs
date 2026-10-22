@@ -51,9 +51,13 @@ impl PipView {
         seek: Entity<SliderState>,
         cx: &mut Context<Self>,
     ) -> Self {
+        // the seek bar redraws itself; only mirrored state needs a re-render here
         let _observe = cx.observe(&player, |this, player, cx| {
-            this.paused = player.read(cx).paused;
-            cx.notify();
+            let paused = player.read(cx).paused;
+            if paused != this.paused {
+                this.paused = paused;
+                cx.notify();
+            }
         });
         Self {
             player: player.downgrade(),

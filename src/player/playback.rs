@@ -18,6 +18,13 @@ const REDRAW_STEP: f64 = 0.25;
 /// Seconds before a segment's end at which its skip button hides.
 const SEGMENT_END_MARGIN: f64 = 0.5;
 
+/// Time-driven overlay state; a time update redraws a hidden-controls Player only when it changes.
+#[derive(Clone, Copy, Default, PartialEq)]
+pub(super) struct TimeOverlays {
+    segment: Option<SegmentKind>,
+    up_next_left: Option<u64>,
+}
+
 /// Server update queued by the Player; sent in order, even after it closes.
 pub(super) enum Queued {
     Report {
@@ -52,6 +59,8 @@ pub(super) struct Playback {
     pub(super) shown_time: f64,
     pub(super) duration: f64,
     pub(super) scrubbing: Option<f64>,
+    /// Time-driven overlays last drawn; see `PlayerView::time_overlays`.
+    pub(super) overlays: TimeOverlays,
     pub(super) tracks: Vec<Track>,
     /// Guards the remembered-pick apply to once per item, the first time the track
     /// list is non-empty (see `PlayerView::apply_remembered_tracks`).
@@ -88,6 +97,7 @@ impl Playback {
             shown_time: 0.,
             duration: 0.,
             scrubbing: None,
+            overlays: TimeOverlays::default(),
             tracks: Vec::new(),
             tracks_applied: false,
             error: None,
@@ -131,6 +141,13 @@ impl PlayerView {
                     return;
                 }
                 self.sync_seek_bar(window, cx);
+                self.sync_now_playing(cx);
+                // with the controls hidden only the skip button and up-next card show time
+                let overlays = self.time_overlays();
+                if !self.controls_visible && overlays == self.playback.overlays {
+                    return;
+                }
+                self.playback.overlays = overlays;
             }
             // resume jump arrives before duration is known
             MpvEvent::Duration(duration) => {
@@ -245,6 +262,17 @@ impl PlayerView {
             let _ = mpv.seek(segment.end);
         }
         self.refocus(window, cx);
+    }
+
+    /// What the time-driven overlays show: the skip button's segment and the up-next
+    /// card's whole-second countdown.
+    fn time_overlays(&self) -> TimeOverlays {
+        TimeOverlays {
+            segment: self.active_segment().map(|s| s.kind),
+            up_next_left: self
+                .up_next()
+                .map(|_| (self.playback.duration - self.playback.time).max(0.).ceil() as u64),
+        }
     }
 
     /// Next Episode while its card should show: last 30s, not cancelled, not in PiP.

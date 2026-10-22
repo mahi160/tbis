@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified). A separate timeline entity would not help: gpui marks every ancestor view dirty when a child notifies, so the Player would still re-render. Instead, with the controls hidden a time update re-renders only when the skip button or up-next countdown changes; with them shown the chrome is built only when visible.
 
 - [ ] With the controls visible, the seek bar, elapsed time and "ends at" still advance smoothly
 - [ ] A time update no longer re-renders the top/bottom chrome, menus or Now Playing sync (checked by counting Player renders during playback)

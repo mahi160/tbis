@@ -267,8 +267,8 @@ impl PlayerView {
         }
     }
 
-    /// Keeps Now Playing in step with the Player; called every render.
-    fn sync_now_playing(&mut self, cx: &App) {
+    /// Keeps Now Playing in step with the Player; called every render and time update.
+    pub(super) fn sync_now_playing(&mut self, cx: &App) {
         let wanted = self.playback.item.is_some() && self.playback.error.is_none();
         if wanted != self.now_playing.is_some() {
             self.now_playing = wanted.then(|| {
@@ -569,9 +569,8 @@ impl Render for PlayerView {
         }
 
         let time = self.playback.scrubbing.unwrap_or(self.playback.time);
-
-        let top = self.top_chrome(cx);
-        let bottom = self.bottom_chrome(time, window, cx);
+        let chrome = (self.controls_visible || self.playback.error.is_some())
+            .then(|| (self.top_chrome(cx), self.bottom_chrome(time, window, cx)));
 
         let error = self.playback.error.clone().map(|error| {
             let back = button("error-back", "Go back")
@@ -696,9 +695,6 @@ impl Render for PlayerView {
             .children(info)
             .children(up_next)
             .children(skip)
-            .when(
-                self.controls_visible || self.playback.error.is_some(),
-                |this| this.child(top).child(bottom),
-            )
+            .when_some(chrome, |this, (top, bottom)| this.child(top).child(bottom))
     }
 }
