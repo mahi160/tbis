@@ -21,6 +21,8 @@ pub struct LibraryView {
     api: Api,
     sort: Sort,
     items: Vec<Item>,
+    /// `items` names lowercased once per load, for Search's per-keystroke matching.
+    names: Vec<String>,
     loading: bool,
     error: Option<SharedString>,
     scroll: UniformListScrollHandle,
@@ -39,6 +41,7 @@ impl LibraryView {
             api,
             sort,
             items: Vec::new(),
+            names: Vec::new(),
             loading: false,
             error: None,
             scroll: UniformListScrollHandle::new(),
@@ -48,9 +51,14 @@ impl LibraryView {
         }
     }
 
-    /// Whatever has loaded so far (empty until the tab is first opened).
-    pub fn items(&self) -> &[Item] {
-        &self.items
+    /// Loaded items whose name contains `needle` (already lowercase); empty until the
+    /// tab is first opened.
+    pub fn name_matches(&self, needle: &str) -> impl Iterator<Item = &Item> {
+        self.items
+            .iter()
+            .zip(&self.names)
+            .filter(move |(_, name)| name.contains(needle))
+            .map(|(item, _)| item)
     }
 
     /// Keeps showing the current list until fresh data arrives.
@@ -60,12 +68,20 @@ impl LibraryView {
         cx.notify();
         // replacing task cancels older in-flight load
         self._load = cx.spawn(async move |this, cx| {
-            let result = api.library(kind, sort).await;
+            // whole-Library JSON is large; decode it off the UI thread
+            let result = cx
+                .background_spawn(async move {
+                    let items = api.library(kind, sort).await?;
+                    let names = items.iter().map(|item| item.name.to_lowercase()).collect();
+                    anyhow::Ok((items, names))
+                })
+                .await;
             this.update(cx, |this, cx| {
                 this.loading = false;
                 match result {
-                    Ok(items) => {
+                    Ok((items, names)) => {
                         this.items = items;
+                        this.names = names;
                         this.error = None;
                     }
                     Err(err) => {

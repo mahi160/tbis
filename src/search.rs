@@ -141,9 +141,7 @@ impl SearchView {
         let find = |library: &Entity<LibraryView>| {
             library
                 .read(cx)
-                .items()
-                .iter()
-                .filter(|item| item.name.to_lowercase().contains(&needle))
+                .name_matches(&needle)
                 .take(PER_KIND)
                 .cloned()
                 .collect()

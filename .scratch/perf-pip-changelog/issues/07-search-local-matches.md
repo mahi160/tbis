@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified). Names are lowercased once per Library load, off the UI thread.
 
 - [ ] A keystroke no longer lowercases every loaded item name
 - [ ] Search results (local and server-side) are the same as before for the same query

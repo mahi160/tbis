@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified on a large library). Fetch and decode run in a background task; paging not added.
 
 - [ ] Decoding the library response does not run on the main thread
 - [ ] On a large library, scrolling and hover stay responsive while Movies/Series loads
