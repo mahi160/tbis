@@ -11,7 +11,7 @@ use std::os::raw::{c_char, c_int};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError, mpsc};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures::channel::mpsc::UnboundedSender;
 use libmpv_sys::*;
@@ -78,12 +78,19 @@ pub struct VideoSize {
 
 impl VideoSize {
     /// Video size in device pixels, and the window scale it was derived with.
+    /// Wakes the render thread only when the size actually changed.
     pub fn set(&self, width: i32, height: i32, scale: f32) {
-        *self.size.lock().unwrap_or_else(PoisonError::into_inner) = Extent {
+        let extent = Extent {
             width,
             height,
             scale,
         };
+        let mut size = self.size.lock().unwrap_or_else(PoisonError::into_inner);
+        if *size == extent {
+            return;
+        }
+        *size = extent;
+        drop(size);
         self.waker.notify();
     }
 }
@@ -440,12 +447,36 @@ fn check(rc: c_int, what: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// mpv reports `time-pos` about once per frame; the UI needs a few updates a second.
+const TIME_EVERY: Duration = Duration::from_millis(250);
+/// A jump this large (a seek) passes the throttle at once.
+const TIME_JUMP: f64 = 1.;
+
+/// Lets a `time-pos` through every `TIME_EVERY`, or at once after a seek.
+#[derive(Default)]
+struct TimeThrottle {
+    last: Option<(Instant, f64)>,
+}
+
+impl TimeThrottle {
+    fn pass(&mut self, seconds: f64, now: Instant) -> bool {
+        let pass = self.last.is_none_or(|(at, shown)| {
+            now.duration_since(at) >= TIME_EVERY || (seconds - shown).abs() >= TIME_JUMP
+        });
+        if pass {
+            self.last = Some((now, seconds));
+        }
+        pass
+    }
+}
+
 #[allow(non_upper_case_globals)] // bindgen constant names
 fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent>) {
     let send = |event| {
         let _ = tx.unbounded_send(event);
     };
     let mut log = LogDedup::default();
+    let mut time = TimeThrottle::default();
     while !stop.load(Ordering::SeqCst) {
         let event = unsafe { &*mpv_wait_event(mpv.0, -1.0) };
         match event.event_id {
@@ -463,7 +494,12 @@ fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent
                 match name {
                     b"volume" => send(MpvEvent::Volume(unsafe { *(prop.data as *const f64) })),
                     b"mute" => send(MpvEvent::Mute(unsafe { *(prop.data as *const c_int) } != 0)),
-                    b"time-pos" => send(MpvEvent::TimePos(unsafe { *(prop.data as *const f64) })),
+                    b"time-pos" => {
+                        let seconds = unsafe { *(prop.data as *const f64) };
+                        if time.pass(seconds, Instant::now()) {
+                            send(MpvEvent::TimePos(seconds));
+                        }
+                    }
                     b"duration" => send(MpvEvent::Duration(unsafe { *(prop.data as *const f64) })),
                     b"pause" => send(MpvEvent::Pause(
                         unsafe { *(prop.data as *const c_int) } != 0,
@@ -760,4 +796,25 @@ fn render_thread(
         mpv_render_context_free(ctx);
     }
     // renderer drops here, freeing its GL/GPU objects
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Instant, TIME_EVERY, TimeThrottle};
+    use std::time::Duration;
+
+    #[test]
+    fn time_throttle_passes_first_interval_and_seeks() {
+        let start = Instant::now();
+        let at = |ms| start + Duration::from_millis(ms);
+        let mut throttle = TimeThrottle::default();
+        assert!(throttle.pass(10., at(0)));
+        assert!(!throttle.pass(10.04, at(40)));
+        assert!(!throttle.pass(10.2, at(200)));
+        assert!(throttle.pass(10.25, at(TIME_EVERY.as_millis() as u64)));
+        // seek: big jump passes immediately, backwards too
+        assert!(throttle.pass(70., at(260)));
+        assert!(throttle.pass(5., at(270)));
+        assert!(!throttle.pass(5.04, at(310)));
+    }
 }

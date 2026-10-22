@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
 - [ ] During normal playback the main thread receives at most ~4 time updates per second
 - [ ] After a seek (keys, scrub release, chapter jump) the timeline shows the new position without waiting a full interval

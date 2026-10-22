@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
 - [ ] Re-rendering at an unchanged size does not wake mpv's render thread
 - [ ] Resizing the window, entering/leaving fullscreen, moving between displays with different scale, and entering/leaving PiP still resize the video correctly
