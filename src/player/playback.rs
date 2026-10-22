@@ -10,6 +10,7 @@ use crate::jellyfin::{Api, Item, Kind, PlaybackItem, Report, Segment, SegmentKin
 use crate::mpv::{MpvEvent, Track, TrackKind};
 
 use super::PlayerView;
+use super::controls::StaticInfo;
 
 /// Seconds left in an Episode when the next one is offered.
 const UP_NEXT_AT: f64 = 30.;
@@ -61,6 +62,8 @@ pub(super) struct Playback {
     pub(super) scrubbing: Option<f64>,
     /// Time-driven overlays last drawn; see `PlayerView::time_overlays`.
     pub(super) overlays: TimeOverlays,
+    /// Playback info's file/track values, read once; cleared when the tracks change.
+    pub(super) info_static: Option<StaticInfo>,
     pub(super) tracks: Vec<Track>,
     /// Guards the remembered-pick apply to once per item, the first time the track
     /// list is non-empty (see `PlayerView::apply_remembered_tracks`).
@@ -98,6 +101,7 @@ impl Playback {
             duration: 0.,
             scrubbing: None,
             overlays: TimeOverlays::default(),
+            info_static: None,
             tracks: Vec::new(),
             tracks_applied: false,
             error: None,
@@ -173,6 +177,7 @@ impl PlayerView {
             MpvEvent::Mute(muted) => self.muted = muted,
             MpvEvent::Tracks(tracks) => {
                 self.playback.tracks = tracks;
+                self.playback.info_static = None;
                 // The embedded track list can turn up before `FileLoaded`'s sub-add for
                 // this item's external subtitles lands; applying now would pick a
                 // language/remembered subtitle from a list that's still missing them.

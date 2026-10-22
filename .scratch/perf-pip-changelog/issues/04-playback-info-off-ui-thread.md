@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** deferred. Reading off the UI thread needs the mpv handle shared with a background task that can outlive `Mpv::drop` (use-after-free risk); ~25 short property reads per second while the panel is open is not worth that.
+**Status:** done differently (runtime unverified). Reads stay on the UI thread (a background task could outlive `Mpv::drop`), but file/track values are read once until known and again only when the track list changes; each tick reads just the 5 live stats.
 
 - [ ] With the panel open, no mpv property reads happen on the UI thread
 - [ ] The panel shows the same values as before and still refreshes about once a second

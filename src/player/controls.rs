@@ -32,6 +32,39 @@ use super::{
 };
 
 const INFO_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Playback info values fixed for a file and its selected tracks; `None` until mpv knows.
+#[derive(Clone)]
+pub(super) struct StaticInfo {
+    method: Option<String>,
+    container: Option<String>,
+    video_codec: Option<String>,
+    resolution: Option<String>,
+    fps: Option<String>,
+    colour: Option<String>,
+    hwdec: Option<String>,
+    audio_codec: Option<String>,
+    channels: Option<String>,
+}
+
+impl StaticInfo {
+    /// Every value known; until then each tick reads them again.
+    fn complete(&self) -> bool {
+        [
+            &self.method,
+            &self.container,
+            &self.video_codec,
+            &self.resolution,
+            &self.fps,
+            &self.colour,
+            &self.hwdec,
+            &self.audio_codec,
+            &self.channels,
+        ]
+        .iter()
+        .all(|v| v.is_some())
+    }
+}
 const SPEEDS: [f64; 7] = [0.5, 0.75, 1., 1.25, 1.5, 1.75, 2.];
 
 impl PlayerView {
@@ -408,8 +441,18 @@ impl PlayerView {
         self.refocus(window, cx);
     }
 
-    /// Live stats from mpv, grouped; "—" for whatever it can't report right now.
-    fn playback_info(&self) -> Vec<super::InfoGroup> {
+    /// Stats from mpv, grouped; "—" for whatever it can't report right now. The
+    /// file/track values are read until all are known, then reused until the track list
+    /// changes; only the live stream stats are read every tick.
+    fn playback_info(&mut self) -> Vec<super::InfoGroup> {
+        let fixed = match self.playback.info_static.clone() {
+            Some(fixed) if fixed.complete() => fixed,
+            _ => {
+                let fixed = self.static_info();
+                self.playback.info_static = Some(fixed.clone());
+                fixed
+            }
+        };
         let mpv = self.active_mpv();
         let get = |name: &str| {
             mpv.and_then(|mpv| mpv.property(name))
@@ -417,6 +460,61 @@ impl PlayerView {
         };
         let num = |name: &str| get(name).and_then(|v| v.parse::<f64>().ok());
         let or_dash = |v: Option<String>| v.unwrap_or_else(|| "\u{2014}".into());
+        let bitrate = match (num("video-bitrate"), num("audio-bitrate")) {
+            (None, None) => None,
+            (video, audio) => Some(format!(
+                "{:.1} Mb/s",
+                (video.unwrap_or(0.) + audio.unwrap_or(0.)) / 1e6
+            )),
+        };
+        let dropped = [num("frame-drop-count"), num("decoder-frame-drop-count")]
+            .into_iter()
+            .flatten()
+            .map(|n| n as u64)
+            .reduce(|a, b| a + b)
+            .map(|n| n.to_string());
+        vec![
+            (
+                "Stream",
+                vec![
+                    ("Play method", or_dash(fixed.method)),
+                    ("Container", or_dash(fixed.container)),
+                    ("Bitrate", or_dash(bitrate)),
+                    (
+                        "Buffered",
+                        or_dash(num("demuxer-cache-duration").map(|s| format!("{s:.0} s ahead"))),
+                    ),
+                    ("Dropped frames", or_dash(dropped)),
+                ],
+            ),
+            (
+                "Video",
+                vec![
+                    ("Codec", or_dash(fixed.video_codec)),
+                    ("Resolution", or_dash(fixed.resolution)),
+                    ("Frame rate", or_dash(fixed.fps)),
+                    ("Colour", or_dash(fixed.colour)),
+                    ("Hardware decoding", or_dash(fixed.hwdec)),
+                ],
+            ),
+            (
+                "Audio",
+                vec![
+                    ("Codec", or_dash(fixed.audio_codec)),
+                    ("Channels", or_dash(fixed.channels)),
+                ],
+            ),
+        ]
+    }
+
+    /// Playback info values that only change with the file or the selected tracks.
+    fn static_info(&self) -> StaticInfo {
+        let mpv = self.active_mpv();
+        let get = |name: &str| {
+            mpv.and_then(|mpv| mpv.property(name))
+                .filter(|v| !v.is_empty())
+        };
+        let num = |name: &str| get(name).and_then(|v| v.parse::<f64>().ok());
         let resolution = get("video-params/w")
             .zip(get("video-params/h"))
             .map(|(w, h)| format!("{w}\u{d7}{h}"));
@@ -435,19 +533,6 @@ impl PlayerView {
                 .collect::<Vec<_>>()
                 .join(" / "),
         };
-        let bitrate = match (num("video-bitrate"), num("audio-bitrate")) {
-            (None, None) => None,
-            (video, audio) => Some(format!(
-                "{:.1} Mb/s",
-                (video.unwrap_or(0.) + audio.unwrap_or(0.)) / 1e6
-            )),
-        };
-        let dropped = [num("frame-drop-count"), num("decoder-frame-drop-count")]
-            .into_iter()
-            .flatten()
-            .map(|n| n as u64)
-            .reduce(|a, b| a + b)
-            .map(|n| n.to_string());
         let method = self.playback.item.as_ref().map(|item| {
             if item.stream.transcode.is_some() {
                 "Transcode"
@@ -459,43 +544,17 @@ impl PlayerView {
         // "Opus (Opus Interactive Audio Codec)" -> "Opus"
         let codec =
             |name: &str| get(name).map(|c| c.split(" (").next().unwrap_or_default().to_string());
-        vec![
-            (
-                "Stream",
-                vec![
-                    ("Play method", or_dash(method)),
-                    ("Container", or_dash(get("file-format"))),
-                    ("Bitrate", or_dash(bitrate)),
-                    (
-                        "Buffered",
-                        or_dash(num("demuxer-cache-duration").map(|s| format!("{s:.0} s ahead"))),
-                    ),
-                    ("Dropped frames", or_dash(dropped)),
-                ],
-            ),
-            (
-                "Video",
-                vec![
-                    ("Codec", or_dash(codec("video-codec"))),
-                    ("Resolution", or_dash(resolution)),
-                    ("Frame rate", or_dash(fps)),
-                    ("Colour", or_dash((!colour.is_empty()).then_some(colour))),
-                    (
-                        "Hardware decoding",
-                        or_dash(
-                            get("hwdec-current").map(|h| if h == "no" { "off".into() } else { h }),
-                        ),
-                    ),
-                ],
-            ),
-            (
-                "Audio",
-                vec![
-                    ("Codec", or_dash(codec("audio-codec"))),
-                    ("Channels", or_dash(get("audio-params/hr-channels"))),
-                ],
-            ),
-        ]
+        StaticInfo {
+            method,
+            container: get("file-format"),
+            video_codec: codec("video-codec"),
+            resolution,
+            fps,
+            colour: (!colour.is_empty()).then_some(colour),
+            hwdec: get("hwdec-current").map(|h| if h == "no" { "off".into() } else { h }),
+            audio_codec: codec("audio-codec"),
+            channels: get("audio-params/hr-channels"),
+        }
     }
 
     fn skip_segment_action(
