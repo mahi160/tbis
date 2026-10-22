@@ -452,10 +452,13 @@ const TIME_EVERY: Duration = Duration::from_millis(250);
 /// A jump this large (a seek) passes the throttle at once.
 const TIME_JUMP: f64 = 1.;
 
-/// Lets a `time-pos` through every `TIME_EVERY`, or at once after a seek.
+/// Lets a `time-pos` through every `TIME_EVERY`, or at once after a seek. A held-back
+/// value is flushed once mpv goes quiet (paused, small paused seek), so the last
+/// position always arrives.
 #[derive(Default)]
 struct TimeThrottle {
     last: Option<(Instant, f64)>,
+    held: Option<f64>,
 }
 
 impl TimeThrottle {
@@ -465,8 +468,26 @@ impl TimeThrottle {
         });
         if pass {
             self.last = Some((now, seconds));
+            self.held = None;
+        } else {
+            self.held = Some(seconds);
         }
         pass
+    }
+
+    /// `mpv_wait_event` timeout: wake to flush a held value, else block.
+    fn wait(&self) -> f64 {
+        if self.held.is_some() {
+            TIME_EVERY.as_secs_f64()
+        } else {
+            -1.
+        }
+    }
+
+    fn flush(&mut self, now: Instant) -> Option<f64> {
+        let seconds = self.held.take()?;
+        self.last = Some((now, seconds));
+        Some(seconds)
     }
 }
 
@@ -478,8 +499,13 @@ fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent
     let mut log = LogDedup::default();
     let mut time = TimeThrottle::default();
     while !stop.load(Ordering::SeqCst) {
-        let event = unsafe { &*mpv_wait_event(mpv.0, -1.0) };
+        let event = unsafe { &*mpv_wait_event(mpv.0, time.wait()) };
         match event.event_id {
+            mpv_event_id_MPV_EVENT_NONE => {
+                if let Some(seconds) = time.flush(Instant::now()) {
+                    send(MpvEvent::TimePos(seconds));
+                }
+            }
             mpv_event_id_MPV_EVENT_SHUTDOWN => return,
             mpv_event_id_MPV_EVENT_PROPERTY_CHANGE => {
                 let prop = unsafe { &*(event.data as *const mpv_event_property) };
@@ -816,5 +842,10 @@ mod tests {
         assert!(throttle.pass(70., at(260)));
         assert!(throttle.pass(5., at(270)));
         assert!(!throttle.pass(5.04, at(310)));
+        // a held value waits for the quiet-time flush
+        assert!(throttle.wait() > 0.);
+        assert_eq!(throttle.flush(at(560)), Some(5.04));
+        assert_eq!(throttle.wait(), -1.);
+        assert_eq!(throttle.flush(at(600)), None);
     }
 }

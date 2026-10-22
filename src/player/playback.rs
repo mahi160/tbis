@@ -13,8 +13,8 @@ use super::PlayerView;
 
 /// Seconds left in an Episode when the next one is offered.
 const UP_NEXT_AT: f64 = 30.;
-/// Redraws throttle to this step.
-const REDRAW_STEP: f64 = 0.25;
+/// Redraws throttle to this step; below the mpv event throttle so slow speeds stay smooth.
+const REDRAW_STEP: f64 = 0.1;
 /// Seconds before a segment's end at which its skip button hides.
 const SEGMENT_END_MARGIN: f64 = 0.5;
 
