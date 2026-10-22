@@ -20,6 +20,10 @@ pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
 #[derive(Clone)]
 pub struct Update {
     pub version: String,
+    /// Release notes as markdown; empty when the release has none or they failed to load.
+    pub notes: String,
+    /// The release's GitHub page.
+    pub page: String,
     url: String,
     /// SHA-256 hex of the zip, as recorded by GitHub.
     sha256: String,
@@ -34,7 +38,7 @@ pub fn bundle_path() -> Option<PathBuf> {
 
 /// Newest non-prerelease, if it is newer than this build.
 pub async fn check(http: Arc<dyn HttpClient>) -> Result<Option<Update>> {
-    let release = latest_github_release(REPO, true, false, http).await?;
+    let release = latest_github_release(REPO, true, false, http.clone()).await?;
     let version = release.tag_name.trim_start_matches('v').to_string();
     if !newer(&version, CURRENT) {
         return Ok(None);
@@ -48,11 +52,39 @@ pub async fn check(http: Arc<dyn HttpClient>) -> Result<Option<Update>> {
     let sha256 = asset
         .digest
         .ok_or_else(|| anyhow!("release {version} has no checksum"))?;
+    let notes = match notes(&http, &release.tag_name).await {
+        Ok(notes) => notes,
+        Err(err) => {
+            eprintln!("release notes: {err}");
+            String::new()
+        }
+    };
     Ok(Some(Update {
         version,
+        notes,
+        page: format!("https://github.com/{REPO}/releases/tag/{}", release.tag_name),
         url: asset.browser_download_url,
         sha256,
     }))
+}
+
+/// Markdown notes of the release tagged `tag` (gpui's release type has no body).
+async fn notes(http: &Arc<dyn HttpClient>, tag: &str) -> Result<String> {
+    #[derive(serde::Deserialize)]
+    struct Release {
+        body: Option<String>,
+    }
+    let url = format!("https://api.github.com/repos/{REPO}/releases/tags/{tag}");
+    let mut response = http.get(&url, Default::default(), true).await?;
+    ensure!(
+        response.status().is_success(),
+        "HTTP {}",
+        response.status().as_u16()
+    );
+    let mut body = Vec::new();
+    response.body_mut().read_to_end(&mut body).await?;
+    let release: Release = serde_json::from_slice(&body)?;
+    Ok(release.body.unwrap_or_default())
 }
 
 /// Whether `a` is a higher `x.y.z` than `b`; unparsable versions never are.

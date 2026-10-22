@@ -28,6 +28,10 @@ jobs:
         id: version
         run: echo "version=$(sh scripts/next-version.sh)" >> "$GITHUB_OUTPUT"
 
+      # before tagging: notes cover commits since the previous tag
+      - name: Release notes
+        run: sh scripts/release-notes.sh > "$RUNNER_TEMP/notes.md"
+
       - name: Install mpv
         run: brew install mpv pkgconf
 
@@ -76,7 +80,7 @@ jobs:
             "tbis-$VERSION-macos-arm64.zip" \
             "tbis-$VERSION-sources.tar" \
             --title "tbis $VERSION" \
-            --generate-notes
+            --notes-file "$RUNNER_TEMP/notes.md"
 
       # mahi160/homebrew-tbis: deploy key with write access to the tap only
       - name: Update Homebrew cask

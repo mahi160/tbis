@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (dialog visual check pending; release workflow run unverified). Notes also include `perf` commits as a Performance group.
 
 - [ ] The release workflow publishes notes listing the `feat` and `fix` commit subjects since the previous tag, grouped by type
 - [ ] The update dialog shows the newest release's notes as markdown above Install and Restart, scrollable when long

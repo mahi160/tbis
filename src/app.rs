@@ -7,7 +7,7 @@ use gpui_kit::*;
 
 use crate::backdrops::Backdrops;
 use crate::components::button::{avatar_button, surface_icon_button};
-use crate::components::dialog::vega_dialog;
+use crate::components::dialog::{release_notes, vega_dialog};
 use crate::components::input::search_input;
 use crate::components::layout::{grow, screen};
 use crate::components::tabs::tabs;
@@ -254,13 +254,18 @@ impl AppView {
         cx: &mut Context<Self>,
     ) {
         let this = cx.entity().downgrade();
-        window.open_alert_dialog(cx, move |alert, _, _| {
+        window.open_alert_dialog(cx, move |alert, _, cx| {
             let (this, update) = (this.clone(), update.clone());
             vega_dialog(alert)
                 .title(format!("tbis {} is available", update.version))
                 .description(format!(
                     "You have {}. tbis restarts to finish updating.",
                     update::CURRENT
+                ))
+                .child(release_notes(
+                    update.notes.clone().into(),
+                    update.page.clone().into(),
+                    cx,
                 ))
                 .button_props(
                     DialogButtonProps::default()
