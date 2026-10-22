@@ -1,20 +1,32 @@
 use gpui_kit::Window;
-use objc2_app_kit::{NSView, NSWindowButton};
+use objc2::rc::Retained;
+use objc2_app_kit::{NSView, NSWindow, NSWindowButton};
+use objc2_foundation::NSSize;
 use objc2_core_graphics::{CGColorSpace, kCGColorSpaceSRGB};
 use objc2_quartz_core::CAMetalLayer;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-/// Hides the traffic lights, leaving a bare frame (Picture-in-Picture).
-pub fn hide_title_buttons(window: &Window) {
-    let Ok(handle) = HasWindowHandle::window_handle(window) else {
-        return;
-    };
+/// The `NSWindow` behind a gpui window.
+fn ns_window(window: &Window) -> Option<Retained<NSWindow>> {
+    let handle = HasWindowHandle::window_handle(window).ok()?;
     let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
-        return;
+        return None;
     };
     // SAFETY: gpui keeps its view alive as long as the window; non-owning borrow
     let view: &NSView = unsafe { &*(appkit.ns_view.as_ptr() as *const NSView) };
-    let Some(ns_window) = view.window() else {
+    view.window()
+}
+
+/// Keeps the content at `width`:`height` while the user resizes (Picture-in-Picture).
+pub fn lock_aspect(window: &Window, width: f32, height: f32) {
+    if let Some(ns_window) = ns_window(window) {
+        ns_window.setContentAspectRatio(NSSize::new(width.into(), height.into()));
+    }
+}
+
+/// Hides the traffic lights, leaving a bare frame (Picture-in-Picture).
+pub fn hide_title_buttons(window: &Window) {
+    let Some(ns_window) = ns_window(window) else {
         return;
     };
     for kind in [

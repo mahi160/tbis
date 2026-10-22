@@ -84,12 +84,17 @@ impl PlayerView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.seek_by_step(forward, long, cx);
+        self.show_controls(window, cx);
+    }
+
+    /// `seek_step` without the Player window, for PiP's keys.
+    pub(super) fn seek_by_step(&self, forward: bool, long: bool, cx: &App) {
         let steps = cx.global::<SeekSteps>();
         let seconds = f64::from(if long { steps.long } else { steps.short });
         if let Some(mpv) = self.active_mpv() {
             let _ = mpv.seek_by(if forward { seconds } else { -seconds });
         }
-        self.show_controls(window, cx);
     }
 
     fn seek_back(&mut self, _: &SeekBack, window: &mut Window, cx: &mut Context<Self>) {

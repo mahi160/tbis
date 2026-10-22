@@ -114,12 +114,16 @@ pub fn overlay_spinner() -> AnyElement {
         .into_any_element()
 }
 
-/// Picture-in-Picture window chrome: `buttons` centered in a scrim, shown on hover.
-/// Dragging anywhere else moves the window.
-pub fn pip_frame(buttons: impl IntoIterator<Item = impl IntoElement>) -> Stateful<Div> {
+/// Picture-in-Picture window chrome: `buttons` centered in a scrim and `seek_bar`
+/// along the bottom, shown on hover. Dragging anywhere else moves the window.
+pub fn pip_frame(
+    buttons: impl IntoIterator<Item = impl IntoElement>,
+    seek_bar: impl IntoElement,
+) -> Stateful<Div> {
     div()
         .id("pip")
         .group("pip")
+        .relative()
         .size_full()
         .flex()
         .items_center()
@@ -136,6 +140,24 @@ pub fn pip_frame(buttons: impl IntoIterator<Item = impl IntoElement>) -> Statefu
                 // clicks on the buttons must not start a window drag
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .children(buttons),
+        )
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom_0()
+                .p(gap::item())
+                .bg(linear_gradient(
+                    0.,
+                    linear_color_stop(black(0.6), 0.),
+                    linear_color_stop(overlay::CLEAR, 1.),
+                ))
+                .opacity(0.)
+                .group_hover("pip", |s| s.opacity(1.))
+                // scrubbing must not start a window drag
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(seek_bar),
         )
 }
 

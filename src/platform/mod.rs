@@ -5,7 +5,7 @@
 //! - `now_playing`: media keys and the system Now Playing widget (`NowPlaying`)
 //! - `power`: keep the display awake while playing (`Awake`)
 //! - `cursor`: `hide()` the pointer during playback
-//! - `window`: one-time native window setup (`prepare`, `hide_title_buttons`)
+//! - `window`: one-time native window setup (`prepare`, `hide_title_buttons`, `lock_aspect`)
 //!
 //! `noop` holds do-nothing versions of the last four, for OSes that haven't
 //! implemented them yet. An OS replaces one by adding its own file.
