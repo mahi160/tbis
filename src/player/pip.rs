@@ -13,8 +13,8 @@ use crate::design::{self, color, overlay};
 use crate::mpv::{Mpv, VideoSize};
 
 use super::{
-    CONTEXT, Escape, PlayerView, SeekBack, SeekBackLong, SeekForward, SeekForwardLong,
-    TogglePause, TogglePip,
+    CONTEXT, Escape, NextEpisode, PlayerView, PreviousEpisode, SeekBack, SeekBackLong,
+    SeekForward, SeekForwardLong, TogglePause, TogglePip,
 };
 
 /// mpv sizes subtitles to the window, so they shrink to unreadable in PiP; this enlarges them.
@@ -30,13 +30,31 @@ fn scale_subs(mpv: &Mpv, factor: f64) {
     }
 }
 
-/// Content of the PiP window: play/pause and back-to-Player over the video.
-/// Never reads the Player while rendering: the window first renders while the
-/// Player is still mid-update opening it.
+/// The Player state PiP's buttons show, copied whenever the Player changes.
+#[derive(Clone, Copy, PartialEq)]
+struct Mirror {
+    paused: bool,
+    previous: bool,
+    next: bool,
+}
+
+impl Mirror {
+    fn of(player: &PlayerView) -> Self {
+        Self {
+            paused: player.paused,
+            previous: player.playback.previous.is_some(),
+            next: player.playback.next.is_some(),
+        }
+    }
+}
+
+/// Content of the PiP window: Episode navigation, play/pause and back-to-Player
+/// over the video. Never reads the Player while rendering: the window first renders
+/// while the Player is still mid-update opening it.
 pub(super) struct PipView {
     player: WeakEntity<PlayerView>,
     video: VideoSize,
-    paused: bool,
+    mirror: Mirror,
     /// The Player's own seek bar state: scrubbing here goes through its `on_seek`.
     seek: Entity<SliderState>,
     focus: FocusHandle,
@@ -47,22 +65,22 @@ impl PipView {
     fn new(
         player: Entity<PlayerView>,
         video: VideoSize,
-        paused: bool,
+        mirror: Mirror,
         seek: Entity<SliderState>,
         cx: &mut Context<Self>,
     ) -> Self {
         // the seek bar redraws itself; only mirrored state needs a re-render here
         let _observe = cx.observe(&player, |this, player, cx| {
-            let paused = player.read(cx).paused;
-            if paused != this.paused {
-                this.paused = paused;
+            let mirror = Mirror::of(player.read(cx));
+            if mirror != this.mirror {
+                this.mirror = mirror;
                 cx.notify();
             }
         });
         Self {
             player: player.downgrade(),
             video,
-            paused,
+            mirror,
             seek,
             focus: cx.focus_handle(),
             _observe,
@@ -84,7 +102,18 @@ impl PipView {
     }
 
     fn back(&mut self, cx: &mut App) {
-        request_leave(self.player.clone(), cx);
+        on_main(self.player.clone(), cx, PlayerView::leave_pip);
+    }
+
+    /// Switches Episode; the video stays in PiP.
+    fn episode(&mut self, next: bool, cx: &mut App) {
+        on_main(self.player.clone(), cx, move |player, window, cx| {
+            if next {
+                player.next_episode(&NextEpisode, window, cx)
+            } else {
+                player.previous_episode(&PreviousEpisode, window, cx)
+            }
+        });
     }
 }
 
@@ -94,23 +123,30 @@ impl Render for PipView {
         let seek_bar = Slider::new(&self.seek)
             .bg(color::primary(cx))
             .text_color(overlay::WHITE);
+        let previous = self.mirror.previous.then(|| {
+            round_icon_button("pip-previous", "icons/backward-step.svg")
+                .tooltip("Previous Episode")
+                .on_click(cx.listener(|this, _, _, cx| this.episode(false, cx)))
+        });
+        let play = round_icon_button(
+            "pip-play",
+            if self.mirror.paused {
+                "icons/play.svg"
+            } else {
+                "icons/pause.svg"
+            },
+        )
+        .on_click(cx.listener(|this, _, window, cx| this.toggle_pause(&TogglePause, window, cx)));
+        let next = self.mirror.next.then(|| {
+            round_icon_button("pip-next", "icons/forward-step.svg")
+                .tooltip("Next Episode")
+                .on_click(cx.listener(|this, _, _, cx| this.episode(true, cx)))
+        });
+        let back = round_icon_button("pip-return", "icons/pip.svg")
+            .tooltip("Back to Player")
+            .on_click(cx.listener(|this, _, _, cx| this.back(cx)));
         pip_frame(
-            [
-                round_icon_button(
-                    "pip-play",
-                    if self.paused {
-                        "icons/play.svg"
-                    } else {
-                        "icons/pause.svg"
-                    },
-                )
-                .on_click(
-                    cx.listener(|this, _, window, cx| this.toggle_pause(&TogglePause, window, cx)),
-                ),
-                round_icon_button("pip-return", "icons/pip.svg")
-                    .tooltip("Back to Player")
-                    .on_click(cx.listener(|this, _, _, cx| this.back(cx))),
-            ],
+            previous.into_iter().chain([play]).chain(next).chain([back]),
             seek_bar,
         )
         // same keys as the Player, once PiP is clicked
@@ -122,22 +158,29 @@ impl Render for PipView {
         .on_action(cx.listener(|this, _: &SeekForward, _, cx| this.seek(true, false, cx)))
         .on_action(cx.listener(|this, _: &SeekBackLong, _, cx| this.seek(false, true, cx)))
         .on_action(cx.listener(|this, _: &SeekForwardLong, _, cx| this.seek(true, true, cx)))
+        .on_action(cx.listener(|this, _: &PreviousEpisode, _, cx| this.episode(false, cx)))
+        .on_action(cx.listener(|this, _: &NextEpisode, _, cx| this.episode(true, cx)))
         .on_action(cx.listener(|this, _: &TogglePip, _, cx| this.back(cx)))
         .on_action(cx.listener(|this, _: &Escape, _, cx| this.back(cx)))
         .on_action(cx.listener(|this, _: &crate::CloseWindow, _, cx| this.back(cx)))
     }
 }
 
-/// Leaves PiP from the PiP window: the main window is needed to re-host the video,
-/// and it can't be borrowed from inside this window's update, so this runs deferred.
-fn request_leave(player: WeakEntity<PlayerView>, cx: &mut App) {
+/// Runs `f` on the Player with its main window, from the PiP window: leaving PiP
+/// re-hosts the video there and switching Episode refocuses it, and that window
+/// can't be borrowed from inside this window's update, so this runs deferred.
+fn on_main(
+    player: WeakEntity<PlayerView>,
+    cx: &mut App,
+    f: impl FnOnce(&mut PlayerView, &mut Window, &mut Context<PlayerView>) + 'static,
+) {
     cx.defer(move |cx| {
         let Some(player) = player.upgrade() else {
             return;
         };
         let main = player.read(cx).main_window;
         let _ = main.update(cx, |_, window, cx| {
-            player.update(cx, |player, cx| player.leave_pip(window, cx))
+            player.update(cx, |player, cx| f(player, window, cx))
         });
     });
 }
@@ -184,17 +227,17 @@ impl PlayerView {
             ..Default::default()
         };
         let player = cx.entity();
-        let paused = self.paused;
+        let mirror = Mirror::of(self);
         let seek = self.seek.clone();
         let opened = cx.open_window(options, |pip_window, cx| {
             crate::platform::window::hide_title_buttons(pip_window);
             crate::platform::window::lock_aspect(pip_window, width, height);
             let on_close = player.downgrade();
             pip_window.on_window_should_close(cx, move |_, cx| {
-                request_leave(on_close.clone(), cx);
+                on_main(on_close.clone(), cx, PlayerView::leave_pip);
                 false // leave_pip removes the window once the video is back
             });
-            let view = cx.new(|cx| PipView::new(player, video, paused, seek, cx));
+            let view = cx.new(|cx| PipView::new(player, video, mirror, seek, cx));
             let root = cx.new(|cx| Root::new(view, pip_window, cx));
             root.update(cx, |root, _| root.style().background = Some(overlay::CLEAR.into()));
             root

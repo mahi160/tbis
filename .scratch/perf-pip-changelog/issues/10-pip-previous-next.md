@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Time updates redraw only the timeline (both change how PiP mirrors Player state).
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified). The window keeps the first Episode's aspect lock.
 
 - [ ] Playing an Episode in PiP shows Previous/Next buttons on hover, each only when that Episode exists
 - [ ] Clicking one loads that Episode, and playback continues in PiP without returning to the Player

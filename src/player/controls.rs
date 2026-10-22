@@ -302,7 +302,7 @@ impl PlayerView {
     }
 
     /// Switches to the Episode before this one; this one is reported, not marked played.
-    fn previous_episode(
+    pub(super) fn previous_episode(
         &mut self,
         _: &PreviousEpisode,
         window: &mut Window,
@@ -314,7 +314,12 @@ impl PlayerView {
     }
 
     /// Like the skip button: switches without counting this Episode watched.
-    fn next_episode(&mut self, _: &NextEpisode, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn next_episode(
+        &mut self,
+        _: &NextEpisode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(next) = self.playback.next.clone() {
             self.play_next(next, window, cx);
         }
