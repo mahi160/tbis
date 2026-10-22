@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** needs-human: the first step is an Instruments measurement during real 1080p/4K/HDR playback, which an agent can't run.
 
 - [ ] Before measurements (GPU time per frame, dropped frames) recorded for 1080p and 4K, including HDR
 - [ ] Either: the copy is gone and after measurements show the improvement with no tearing, flicker or dropped frames, in the Player, fullscreen and PiP
