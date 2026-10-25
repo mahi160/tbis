@@ -7,14 +7,14 @@
 
 use std::rc::Rc;
 
-use gpui_kit::component::input::InputState;
+use gpui_kit::component::input::{InputState, TextareaState};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::button::select_button;
-use super::input::search_box;
+use super::input::{code_area, search_box};
 use super::list::{ItemSize, item};
 use super::menu::choice_menu;
 use super::typography::{caption, subheading};
@@ -32,6 +32,8 @@ pub enum SettingField {
         Set<SharedString>,
     ),
     Switch(Get<bool>, Set<bool>),
+    /// Multi-line config text, shown full width under the label.
+    Code(Entity<TextareaState>),
 }
 
 impl SettingField {
@@ -48,6 +50,10 @@ impl SettingField {
         set: impl Fn(bool, &mut App) + 'static,
     ) -> Self {
         Self::Switch(Rc::new(get), Rc::new(set))
+    }
+
+    pub fn code(state: Entity<TextareaState>) -> Self {
+        Self::Code(state)
     }
 
     fn render(&self, id: SharedString, cx: &App) -> AnyElement {
@@ -78,6 +84,7 @@ impl SettingField {
                     .on_click(move |on, _, cx| set(*on, cx))
                     .into_any_element()
             }
+            Self::Code(state) => code_area(state, cx).into_any_element(),
         }
     }
 }
@@ -112,16 +119,22 @@ impl SettingItem {
     }
 
     fn row(&self, id: SharedString, cx: &App) -> AnyElement {
+        let label = v_flex()
+            .min_w_0()
+            .gap(gap::tight())
+            .child(div().text_size(text::body()).child(self.title.clone()))
+            .children(self.description.clone().map(|d| caption(d, cx)));
+        if let SettingField::Code(_) = self.field {
+            return v_flex()
+                .gap(gap::item())
+                .child(label)
+                .child(self.field.render(id, cx))
+                .into_any_element();
+        }
         h_flex()
             .justify_between()
             .gap(gap::group())
-            .child(
-                v_flex()
-                    .min_w_0()
-                    .gap(gap::tight())
-                    .child(div().text_size(text::body()).child(self.title.clone()))
-                    .children(self.description.clone().map(|d| caption(d, cx))),
-            )
+            .child(label)
             .child(div().flex_shrink_0().child(self.field.render(id, cx)))
             .into_any_element()
     }

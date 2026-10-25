@@ -22,7 +22,7 @@ pub fn detail_header(
     v_flex()
         .gap(gap::item())
         .items_start()
-        .child(icon_button("detail-back", IconName::ArrowLeft, cx).on_click(back))
+        .child(icon_button("detail-back", IconName::ArrowLeft, "Back", cx).on_click(back))
         .child(
             h_flex()
                 .w_full()

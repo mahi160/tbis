@@ -2,11 +2,11 @@
 //! padding, the one radius, body text, `dark:bg-input/30`. gpui-kit keeps the border
 //! color and the focus ring.
 
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::component::{Icon, IconName, v_flex};
 use gpui_kit::*;
 
-use crate::design::{color, gap, icon, input_bg, radius, shadow, sp, text, tokens};
+use crate::design::{color, font, gap, icon, input_bg, radius, shadow, sp, text, tokens};
 
 /// Input `height` spacing units tall.
 fn input(state: &Entity<InputState>, height: f32, cx: &App) -> Input {
@@ -40,6 +40,19 @@ pub fn text_field(
                 .child(label),
         )
         .child(input(state, tokens().input.height, cx).disabled(disabled))
+}
+
+/// Multi-line monospace field for config-file text; its height comes from the state's
+/// `rows`/`auto_grow`.
+pub fn code_area(state: &Entity<TextareaState>, cx: &App) -> Textarea {
+    Textarea::new(state)
+        .px(gap::item())
+        .py(gap::tight())
+        .rounded(radius::base())
+        .bg(input_bg(cx))
+        .shadow(shadow::xs())
+        .text_size(text::body())
+        .font_family(font::mono(cx))
 }
 
 /// Small clearable input with a search icon, filling its parent's width.

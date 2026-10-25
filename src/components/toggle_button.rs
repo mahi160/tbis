@@ -34,7 +34,11 @@ pub fn toggle_button(
             "Add to favorites",
         ),
     };
-    icon_button(id, Icon::new(icon), cx)
-        .ghost_selected(on, cx)
-        .tooltip(if on { label_on } else { label_off })
+    icon_button(
+        id,
+        Icon::new(icon),
+        if on { label_on } else { label_off },
+        cx,
+    )
+    .ghost_selected(on, cx)
 }

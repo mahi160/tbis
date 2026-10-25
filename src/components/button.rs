@@ -124,30 +124,54 @@ pub fn round_ghost_button(
 }
 
 /// Ghost icon-only button at the recipe's icon size; chain `.icon_xs()`.
-pub fn icon_button(id: impl Into<ElementId>, icon: impl Into<Icon>, cx: &App) -> Button {
-    ghost(plain_icon(id, icon), cx)
+/// Every icon-only button takes a `tooltip`: an icon alone doesn't say what it does.
+/// Chain `.tooltip_with_action` to also show its shortcut.
+pub fn icon_button(
+    id: impl Into<ElementId>,
+    icon: impl Into<Icon>,
+    tooltip: impl Into<SharedString>,
+    cx: &App,
+) -> Button {
+    ghost(plain_icon(id, icon, tooltip), cx)
 }
 
 /// `icon_button` on the surface fill, the twin of `avatar_button` in the title bar.
-pub fn surface_icon_button(id: impl Into<ElementId>, icon: impl Into<Icon>, cx: &App) -> Button {
-    icon_button(id, icon, cx).bg(color::muted(cx))
+pub fn surface_icon_button(
+    id: impl Into<ElementId>,
+    icon: impl Into<Icon>,
+    tooltip: impl Into<SharedString>,
+    cx: &App,
+) -> Button {
+    icon_button(id, icon, tooltip, cx).bg(color::muted(cx))
 }
 
-fn plain_icon(id: impl Into<ElementId>, icon: impl Into<Icon>) -> Button {
-    square(plain(id).ghost().icon(icon), tokens().button.icon)
+fn plain_icon(
+    id: impl Into<ElementId>,
+    icon: impl Into<Icon>,
+    tooltip: impl Into<SharedString>,
+) -> Button {
+    square(plain(id).ghost().icon(icon), tokens().button.icon).tooltip(tooltip)
 }
 
 /// Ghost icon button at the shared radius, for the Player's bars.
-pub fn round_icon(id: impl Into<ElementId>, icon: impl Into<Icon>) -> Button {
+pub fn round_icon(
+    id: impl Into<ElementId>,
+    icon: impl Into<Icon>,
+    tooltip: impl Into<SharedString>,
+) -> Button {
     // white: bars sit on video, never on theme background
-    plain_icon(id, icon)
+    plain_icon(id, icon, tooltip)
         .rounded(radius::base())
         .text_color(overlay::WHITE)
 }
 
 /// `round_icon` with an SVG from `assets/icons`.
-pub fn round_icon_button(id: impl Into<ElementId>, path: &'static str) -> Button {
-    round_icon(id, Icon::empty().path(path))
+pub fn round_icon_button(
+    id: impl Into<ElementId>,
+    path: &'static str,
+    tooltip: impl Into<SharedString>,
+) -> Button {
+    round_icon(id, Icon::empty().path(path), tooltip)
 }
 
 /// Avatar (initials of `name`) as a ghost button at the recipe's avatar size, on the shared radius.

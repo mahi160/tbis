@@ -4,6 +4,7 @@
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::progress::Progress;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Icon, IconName, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -117,10 +118,12 @@ impl RenderOnce for PlayScrim {
                     .bg(color::primary(cx))
                     .text_color(color::primary_foreground(cx))
                     .when_some(self.on_play, |this, on_play| {
-                        this.cursor_pointer().on_click(move |event, window, cx| {
-                            cx.stop_propagation();
-                            on_play(event, window, cx)
-                        })
+                        this.cursor_pointer()
+                            .tooltip(|window, cx| Tooltip::new("Play").build(window, cx))
+                            .on_click(move |event, window, cx| {
+                                cx.stop_propagation();
+                                on_play(event, window, cx)
+                            })
                     })
                     .child(Icon::new(IconName::Play)),
             );
