@@ -566,7 +566,7 @@ impl AppView {
     }
 
     fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let view = cx.new(|cx| SettingsView::new(&self.config, cx));
+        let view = cx.new(|cx| SettingsView::new(&self.config, window, cx));
         let changed = cx.subscribe(&view, |this, _, changed: &SettingsChanged, cx| {
             match changed {
                 SettingsChanged::Language(language) => this.config.language = language.clone(),
@@ -588,7 +588,6 @@ impl AppView {
                         main.sync_backdrops(show.0, cx);
                     }
                 }
-                SettingsChanged::Hdr(style) => this.config.hdr = *style,
                 SettingsChanged::Audio(style) => this.config.audio = *style,
             }
             save_config(&this.config, "settings");
@@ -719,7 +718,7 @@ impl AppView {
         let search = if main.search_open || main.searching(cx) {
             search_input(&main.search_input, cx).into_any_element()
         } else {
-            surface_icon_button("search", IconName::Search, cx)
+            surface_icon_button("search", IconName::Search, "Search", cx)
                 .tooltip_with_action("Search", &FocusSearch, None)
                 .on_click(
                     cx.listener(|this, _, window, cx| this.focus_search(&FocusSearch, window, cx)),
@@ -733,8 +732,9 @@ impl AppView {
             selected.unwrap_or(usize::MAX),
             cx.listener(|this, index: &usize, window, cx| this.select_tab(*index, window, cx)),
         );
-        let user_menu =
-            avatar_button("user-menu", user_name.clone(), cx).dropdown_menu(move |menu, _, _| {
+        let user_menu = avatar_button("user-menu", user_name.clone(), cx)
+            .tooltip("Account")
+            .dropdown_menu(move |menu, _, _| {
                 let this = this.clone();
                 let settings = this.clone();
                 let stats = this.clone();
