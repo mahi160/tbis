@@ -174,7 +174,8 @@ impl HomeView {
         disabled: bool,
         cx: &mut Context<Self>,
     ) -> Button {
-        icon_button(ElementId::Name(id.into()), icon, cx)
+        let tooltip = if next { "Next" } else { "Previous" };
+        icon_button(ElementId::Name(id.into()), icon, tooltip, cx)
             .icon_xs()
             .ghost_disabled(disabled, cx)
             .on_click(cx.listener(move |this, _, window, _| this.page(row, next, window)))
