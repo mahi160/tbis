@@ -107,16 +107,19 @@ pub struct Mpv {
 
 impl Mpv {
     /// Must run on the main thread. `auth_header` goes on every HTTP request mpv makes.
+    /// `defaults`: options from tbis Settings, set before the user's mpv.conf loads so
+    /// mpv.conf overrides them.
     pub fn new(
         window: &(impl HasWindowHandle + HasDisplayHandle),
         auth_header: &str,
+        defaults: &[(&str, String)],
         events: UnboundedSender<MpvEvent>,
     ) -> Result<Self, String> {
         let handle = Handle(unsafe { mpv_create() });
         if handle.0.is_null() {
             return Err("mpv_create failed".into());
         }
-        if let Err(err) = handle.init(auth_header) {
+        if let Err(err) = handle.init(auth_header, defaults) {
             unsafe { mpv_terminate_destroy(handle.0) };
             return Err(err);
         }
@@ -326,6 +329,32 @@ fn user_config_dir() -> Option<std::path::PathBuf> {
     dir.join("mpv.conf").is_file().then_some(dir)
 }
 
+fn user_config_path() -> std::path::PathBuf {
+    crate::support_dir::app_support_dir()
+        .join("mpv")
+        .join("mpv.conf")
+}
+
+/// The user's mpv.conf text (Settings), empty when there is none.
+pub fn user_config() -> String {
+    std::fs::read_to_string(user_config_path()).unwrap_or_default()
+}
+
+/// Saves the user's mpv.conf; blank text removes it, so mpv runs on its defaults.
+pub fn save_user_config(text: &str) -> std::io::Result<()> {
+    let path = user_config_path();
+    if text.trim().is_empty() {
+        return match std::fs::remove_file(&path) {
+            Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(err),
+            _ => Ok(()),
+        };
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, text)
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct Handle(*mut mpv_handle);
 
@@ -333,12 +362,13 @@ pub(crate) struct Handle(*mut mpv_handle);
 unsafe impl Send for Handle {}
 
 impl Handle {
-    fn init(self, auth_header: &str) -> Result<(), String> {
+    fn init(self, auth_header: &str, defaults: &[(&str, String)]) -> Result<(), String> {
         let user_config = user_config_dir();
         let mut options: Vec<(&str, String)> = EMBEDDING
             .iter()
             .map(|(name, value)| (*name, value.to_string()))
             .collect();
+        options.extend(defaults.iter().map(|(name, value)| (*name, value.clone())));
         options.extend([
             ("hwdec", video::HWDEC.to_string()),
             ("ytdl", "no".to_string()), // plain Jellyfin URLs; skip youtube-dl hook
@@ -503,7 +533,7 @@ struct FrameStats {
 
 impl FrameStats {
     fn from_env() -> Option<Self> {
-        std::env::var_os("TBIS_FRAME_STATS").map(|_| Self::new())
+        frame_stats_enabled().then(Self::new)
     }
 
     fn new() -> Self {
@@ -530,33 +560,158 @@ impl FrameStats {
         self.last_frame = Some(now);
     }
 
-    fn maybe_log(&mut self, mpv: Handle, size: Extent) {
+    /// Timings only: mpv properties are read by `spawn_pass_logger`, since the render
+    /// thread must never wait on the mpv core (render.h, advanced control).
+    fn maybe_log(&mut self, size: Extent) {
         let elapsed = self.since.elapsed();
         if elapsed < Duration::from_secs(5) {
             return;
         }
         if self.frames > 0 {
             let ms = |d: Duration| d.as_secs_f64() * 1000.;
-            let get = |name| get_string(mpv, name).unwrap_or_else(|| "?".into());
             eprintln!(
-                "frame stats: {}x{} | {} frames, {:.1} fps (video {}) | draw avg {:.2}ms max {:.2}ms | longest gap {:.1}ms | dropped vo {} decoder {} | hwdec {}",
+                "frame stats: {}x{} | {} frames, {:.1} fps | draw avg {:.2}ms max {:.2}ms | longest gap {:.1}ms",
                 size.width,
                 size.height,
                 self.frames,
                 f64::from(self.frames) / elapsed.as_secs_f64(),
-                get("container-fps"),
                 ms(self.draw_total) / f64::from(self.frames),
                 ms(self.draw_max),
                 ms(self.gap_max),
-                get("frame-drop-count"),
-                get("decoder-frame-drop-count"),
-                get("hwdec-current"),
             );
         }
         let last_frame = self.last_frame;
         *self = Self::new();
         self.last_frame = last_frame;
     }
+}
+
+fn frame_stats_enabled() -> bool {
+    std::env::var_os("TBIS_FRAME_STATS").is_some()
+}
+
+/// Logs `log_render_passes` every 5 seconds until `stop`. Off the render thread: with
+/// advanced control, mpv answers `vo-passes` on the render thread, so asking from it
+/// would deadlock.
+fn spawn_pass_logger(mpv: Handle, stop: Arc<AtomicBool>) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        let tick = Duration::from_millis(100);
+        let mut waited = Duration::ZERO;
+        while !stop.load(Ordering::SeqCst) {
+            std::thread::sleep(tick);
+            waited += tick;
+            if waited >= Duration::from_secs(5) {
+                waited = Duration::ZERO;
+                log_render_passes(mpv);
+            }
+        }
+    })
+}
+
+/// GPU time of each render pass for fresh frames (`vo-passes`), with the source format
+/// and the scalers in effect, so render settings can be compared.
+fn log_render_passes(mpv: Handle) {
+    let get = |name: &str| get_string(mpv, name).unwrap_or_else(|| "?".into());
+    // only the whole node resolves; `vo-passes/fresh/N/...` sub-paths fail as strings
+    let mut node: mpv_node = unsafe { std::mem::zeroed() };
+    let rc = unsafe {
+        mpv_get_property(
+            mpv.0,
+            c"vo-passes".as_ptr(),
+            mpv_format_MPV_FORMAT_NODE,
+            (&raw mut node).cast(),
+        )
+    };
+    let fresh = if rc < 0 {
+        Vec::new()
+    } else {
+        let fresh = unsafe { fresh_passes(&node) };
+        unsafe { mpv_free_node_contents(&raw mut node) };
+        fresh
+    };
+    let total: f64 = fresh.iter().map(|(_, ms)| ms).sum();
+    let passes: Vec<String> = fresh
+        .iter()
+        .map(|(desc, ms)| format!("{desc} {ms:.2}"))
+        .collect();
+    eprintln!(
+        "render passes: {}x{} {} {} | fps {} | dropped vo {} decoder {} | hwdec {} | scale {} dscale {} cscale {} | total {total:.2}ms | {}",
+        get("video-params/w"),
+        get("video-params/h"),
+        get("video-params/pixelformat"),
+        get("video-params/gamma"),
+        get("container-fps"),
+        get("frame-drop-count"),
+        get("decoder-frame-drop-count"),
+        get("hwdec-current"),
+        get("scale"),
+        get("dscale"),
+        get("cscale"),
+        passes.join("; "),
+    );
+}
+
+/// `(description, average ms)` of each pass in a `vo-passes` node's `fresh` list.
+///
+/// # Safety
+/// `node` must be a node filled by `mpv_get_property` and not yet freed.
+unsafe fn fresh_passes(node: &mpv_node) -> Vec<(String, f64)> {
+    let Some(fresh) = (unsafe { map_get(node, "fresh") }) else {
+        return Vec::new();
+    };
+    unsafe { list_values(fresh) }
+        .iter()
+        .map(|pass| {
+            let desc = unsafe { map_get(pass, "desc") }
+                .filter(|n| n.format == mpv_format_MPV_FORMAT_STRING)
+                .map(|n| {
+                    unsafe { CStr::from_ptr(n.u.string) }
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .unwrap_or_default();
+            let avg_ns = unsafe { map_get(pass, "avg") }
+                .filter(|n| n.format == mpv_format_MPV_FORMAT_INT64)
+                .map_or(0, |n| unsafe { n.u.int64 });
+            (desc, avg_ns as f64 / 1e6)
+        })
+        .collect()
+}
+
+/// Items of an array or map node; empty for any other node.
+///
+/// # Safety
+/// `node` must be a valid mpv node.
+unsafe fn list_values(node: &mpv_node) -> &[mpv_node] {
+    let is_list = node.format == mpv_format_MPV_FORMAT_NODE_ARRAY
+        || node.format == mpv_format_MPV_FORMAT_NODE_MAP;
+    let list = if is_list {
+        unsafe { node.u.list.as_ref() }
+    } else {
+        None
+    };
+    match list {
+        Some(l) if l.num > 0 && !l.values.is_null() => unsafe {
+            std::slice::from_raw_parts(l.values, l.num as usize)
+        },
+        _ => &[],
+    }
+}
+
+/// Value under `key` in a map node.
+///
+/// # Safety
+/// `node` must be a valid mpv node.
+unsafe fn map_get<'a>(node: &'a mpv_node, key: &str) -> Option<&'a mpv_node> {
+    if node.format != mpv_format_MPV_FORMAT_NODE_MAP {
+        return None;
+    }
+    let list = unsafe { node.u.list.as_ref() }?;
+    let values = unsafe { list_values(node) };
+    values.iter().enumerate().find_map(|(i, value)| {
+        let k = unsafe { CStr::from_ptr(*list.keys.add(i)) };
+        (k.to_bytes() == key.as_bytes()).then_some(value)
+    })
 }
 
 #[allow(non_upper_case_globals)] // bindgen constant names
@@ -777,6 +932,15 @@ pub(crate) fn create_gl_render_context(
         ),
     ];
     params.extend(native_display.map(|(kind, display)| param(kind, display)));
+    // vo-passes (render pass timings) is only filled with advanced control; kept to
+    // TBIS_FRAME_STATS so normal playback's render loop contract is unchanged
+    let mut advanced: c_int = 1;
+    if frame_stats_enabled() {
+        params.push(param(
+            mpv_render_param_type_MPV_RENDER_PARAM_ADVANCED_CONTROL,
+            &mut advanced as *mut _ as *mut c_void,
+        ));
+    }
     params.push(param(
         mpv_render_param_type_MPV_RENDER_PARAM_INVALID,
         std::ptr::null_mut(),
@@ -869,9 +1033,10 @@ fn render_thread(
 
     let mut drawn_size = Extent::default();
     let mut stats = FrameStats::from_env();
+    let pass_logger = stats.is_some().then(|| spawn_pass_logger(mpv, stop.clone()));
     while !stop.load(Ordering::SeqCst) {
         if let Some(stats) = &mut stats {
-            stats.maybe_log(mpv, drawn_size);
+            stats.maybe_log(drawn_size);
         }
         waker.wait(Duration::from_millis(250));
         let flags = unsafe { mpv_render_context_update(ctx) };
@@ -896,6 +1061,9 @@ fn render_thread(
     unsafe {
         mpv_render_context_set_update_callback(ctx, None, std::ptr::null_mut());
         mpv_render_context_free(ctx);
+    }
+    if let Some(logger) = pass_logger {
+        let _ = logger.join();
     }
     // renderer drops here, freeing its GL/GPU objects
 }
