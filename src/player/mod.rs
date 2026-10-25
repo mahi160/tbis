@@ -188,19 +188,16 @@ impl PlayerView {
         let mut playback = Playback::new(item, &api, cx);
 
         let (events_tx, mut events_rx) = mpsc::unbounded();
-        let (mpv, mpv_error) = match Mpv::new(window, &api.auth_header(), events_tx) {
+        let defaults: Vec<(&str, String)> = config
+            .subtitles
+            .mpv_options()
+            .into_iter()
+            .chain(config.audio.mpv_options())
+            .collect();
+        let (mpv, mpv_error) = match Mpv::new(window, &api.auth_header(), &defaults, events_tx) {
             Ok(mpv) => {
                 let _ = mpv.set_volume(volume);
                 let _ = mpv.set_mute(muted);
-                for (name, value) in config.subtitles.mpv_options() {
-                    let _ = mpv.set_property(name, &value);
-                }
-                for (name, value) in config.hdr.mpv_options() {
-                    let _ = mpv.set_property(name, &value);
-                }
-                for (name, value) in config.audio.mpv_options() {
-                    let _ = mpv.set_property(name, &value);
-                }
                 (Some(mpv), None)
             }
             Err(err) => (None, Some(format!("Cannot start player: {err}").into())),
@@ -291,16 +288,18 @@ impl PlayerView {
         if config.shaders != ShaderProfile::Off {
             this.apply_shaders(config.shaders, false, window, cx);
         }
-        this.load(item.id.clone(), cx);
+        this.load(item.id.clone(), None, cx);
         this.show_controls(window, cx);
         this
     }
 
-    /// Fetches fresh play details, starts playback, then looks up the next Episode.
-    fn load(&mut self, item_id: String, cx: &mut Context<Self>) {
+    /// Fetches fresh play details, starts playback at `start_at` (else the server's
+    /// resume point), then looks up the next Episode.
+    fn load(&mut self, item_id: String, start_at: Option<f64>, cx: &mut Context<Self>) {
         if self.mpv.is_none() {
             return;
         }
+        self.playback.start_at = start_at;
         let api = self.api.clone();
         let artwork_url = self.playback.artwork_url.clone();
         let max_mbps = self.max_bitrate_mbps;
@@ -308,7 +307,11 @@ impl PlayerView {
             let result = api.playback_item(&item_id, max_mbps).await;
             let loaded = result.is_ok();
             let series_id = result.as_ref().ok().and_then(|i| i.series_id.clone());
-            if this.update(cx, |this, cx| this.start(result, cx)).is_err() || !loaded {
+            if this
+                .update(cx, |this, cx| this.start(result, start_at, cx))
+                .is_err()
+                || !loaded
+            {
                 return;
             }
             if let Some(url) = artwork_url {
@@ -356,7 +359,12 @@ impl PlayerView {
         });
     }
 
-    fn start(&mut self, result: anyhow::Result<PlaybackItem>, cx: &mut Context<Self>) {
+    fn start(
+        &mut self,
+        result: anyhow::Result<PlaybackItem>,
+        start_at: Option<f64>,
+        cx: &mut Context<Self>,
+    ) {
         let (Some(mpv), Ok(item)) = (&self.mpv, result.as_ref()) else {
             if let Err(err) = result {
                 self.playback.error = Some(format!("Cannot load item: {err}").into());
@@ -364,7 +372,8 @@ impl PlayerView {
             cx.notify();
             return;
         };
-        if let Err(err) = mpv.load(&item.stream.url, item.resume_seconds()) {
+        let start = start_at.unwrap_or_else(|| item.resume_seconds());
+        if let Err(err) = mpv.load(&item.stream.url, start) {
             self.playback.error = Some(err.into());
         }
         self.playback.item = result.ok().map(std::sync::Arc::new);

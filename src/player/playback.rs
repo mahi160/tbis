@@ -41,6 +41,11 @@ pub(super) enum Queued {
 /// `Playback::new` on Autoplay so no field can be missed on reset (former bug:
 /// `play_next` cleared 14 fields by hand and skipped `error`).
 pub(super) struct Playback {
+    /// The library item being played; reloaded from when the bitrate cap changes.
+    pub(super) source: Item,
+    /// Position this load starts at (`None`: the server's resume point); a reload
+    /// before the first time update keeps it rather than restarting at 0.
+    pub(super) start_at: Option<f64>,
     /// Series title for an Episode, else the item's own name.
     pub(super) title: SharedString,
     /// `S01E01 · Name` under an Episode's series title.
@@ -87,6 +92,8 @@ impl Playback {
         let play_session_id = uuid::Uuid::new_v4().simple().to_string();
         let reports = spawn_reporter(api.clone(), play_session_id.clone(), cx);
         Self {
+            source: item.clone(),
+            start_at: None,
             title,
             subtitle,
             item: None,
@@ -306,8 +313,32 @@ impl PlayerView {
         }
         self.playback = Playback::new(&next, &self.api, cx);
         self.seek.update(cx, |s, cx| s.set_value(0., window, cx));
-        self.load(next.id, cx);
+        self.load(next.id, None, cx);
         self.refocus(window, cx);
+    }
+
+    /// Caps the stream at `mbps` (`None`: the original file) for the rest of this
+    /// Player, reloading the current item from where it is. Pause carries over.
+    pub(super) fn set_max_bitrate(&mut self, mbps: Option<u32>, cx: &mut Context<Self>) {
+        // no mpv: keep its "Cannot start player" error rather than a blank reload
+        if mbps == self.max_bitrate_mbps || self.mpv.is_none() {
+            return;
+        }
+        self.max_bitrate_mbps = mbps;
+        let item = self.playback.source.clone();
+        let at = if self.playback.time > 0. {
+            Some(self.playback.time)
+        } else {
+            self.playback.start_at
+        };
+        // Stopped also ends the server's transcode for the old stream
+        self.end_current();
+        if let Some(mpv) = &self.mpv {
+            let _ = mpv.stop();
+        }
+        self.playback = Playback::new(&item, &self.api, cx);
+        self.load(item.id, at, cx);
+        cx.notify();
     }
 
     /// Reports stop, and played when finished, for the current item.

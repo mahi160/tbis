@@ -671,12 +671,15 @@ impl Render for PlayerView {
                 )
             });
         let info = self.info.as_ref().map(|groups| {
-            let close = round_icon("player-info-close", Icon::new(assets::IconName::Close))
-                .icon_xs()
-                .tooltip("Close")
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.toggle_playback_info(&TogglePlaybackInfo, window, cx)
-                }));
+            let close = round_icon(
+                "player-info-close",
+                Icon::new(assets::IconName::Close),
+                "Close",
+            )
+            .icon_xs()
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.toggle_playback_info(&TogglePlaybackInfo, window, cx)
+            }));
             info_panel(groups, close)
         });
         let up_next = self.up_next().map(|next| {

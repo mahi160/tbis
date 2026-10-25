@@ -121,12 +121,16 @@ impl Render for PipView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         super::fit_video(&self.video, window);
         let seek_bar = Slider::new(&self.seek)
+            .accessibility_label("Seek")
             .bg(color::primary(cx))
             .text_color(overlay::WHITE);
         let previous = self.mirror.previous.then(|| {
-            round_icon_button("pip-previous", "icons/backward-step.svg")
-                .tooltip("Previous Episode")
-                .on_click(cx.listener(|this, _, _, cx| this.episode(false, cx)))
+            round_icon_button(
+                "pip-previous",
+                "icons/backward-step.svg",
+                "Previous Episode",
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.episode(false, cx)))
         });
         let play = round_icon_button(
             "pip-play",
@@ -135,15 +139,14 @@ impl Render for PipView {
             } else {
                 "icons/pause.svg"
             },
+            if self.mirror.paused { "Play" } else { "Pause" },
         )
         .on_click(cx.listener(|this, _, window, cx| this.toggle_pause(&TogglePause, window, cx)));
         let next = self.mirror.next.then(|| {
-            round_icon_button("pip-next", "icons/forward-step.svg")
-                .tooltip("Next Episode")
+            round_icon_button("pip-next", "icons/forward-step.svg", "Next Episode")
                 .on_click(cx.listener(|this, _, _, cx| this.episode(true, cx)))
         });
-        let back = round_icon_button("pip-return", "icons/pip.svg")
-            .tooltip("Back to Player")
+        let back = round_icon_button("pip-return", "icons/pip.svg", "Back to Player")
             .on_click(cx.listener(|this, _, _, cx| this.back(cx)));
         pip_frame(
             previous.into_iter().chain([play]).chain(next).chain([back]),
