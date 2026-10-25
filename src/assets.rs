@@ -21,6 +21,7 @@ const EXTRA: &[(&str, &[u8])] = &embedded_by_path!(
         "pause.svg",
         "pip.svg",
         "play.svg",
+        "speedometer.svg",
         "volume.svg",
     ]
 );
