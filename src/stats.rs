@@ -250,7 +250,7 @@ impl Render for StatsPage {
             .size_full()
             .child(page_header(
                 Some(
-                    icon_button("stats-back", IconName::ArrowLeft, cx)
+                    icon_button("stats-back", IconName::ArrowLeft, "Back", cx)
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(Nav::Back))),
                 ),
                 "Watch stats",
