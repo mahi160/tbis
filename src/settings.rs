@@ -1,6 +1,7 @@
 //! Settings screen: opened from the title-bar user menu as a detail page. One
 //! `SettingPage` per area; add a setting by adding a `SettingItem` to a group.
 
+use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::component::{IconName, v_flex};
 use gpui_kit::*;
 
@@ -8,9 +9,10 @@ use crate::components::button::icon_button;
 use crate::components::layout::{grow, page_header};
 use crate::components::settings::{SettingField, SettingGroup, SettingItem, SettingPage, settings};
 use crate::config::{
-    AudioStyle, Config, DebandLevel, HdrStyle, HideSpoilers, LanguagePref, SeekSteps,
-    ShowBackdrops, SubtitleStyle, ToneMapCurve,
+    AudioStyle, BITRATE_CAPS, Config, HideSpoilers, LanguagePref, SeekSteps, ShowBackdrops,
+    SubtitleStyle,
 };
+use crate::mpv;
 use crate::nav::Nav;
 use crate::shaders::ShaderProfile;
 use crate::theme;
@@ -58,7 +60,6 @@ pub enum SettingsChanged {
     Theme(String),
     HideSpoilers(HideSpoilers),
     Backdrops(ShowBackdrops),
-    Hdr(HdrStyle),
     Audio(AudioStyle),
 }
 
@@ -71,16 +72,17 @@ pub struct SettingsView {
     theme: Entity<SharedString>,
     hide_spoilers: Entity<HideSpoilers>,
     backdrops: Entity<ShowBackdrops>,
-    hdr: Entity<HdrStyle>,
     audio: Entity<AudioStyle>,
-    _observe: [Subscription; 10],
+    mpv_conf: Entity<TextareaState>,
+    _observe: [Subscription; 9],
+    _save_mpv_conf: Subscription,
 }
 
 impl EventEmitter<Nav> for SettingsView {}
 impl EventEmitter<SettingsChanged> for SettingsView {}
 
 impl SettingsView {
-    pub fn new(config: &Config, cx: &mut Context<Self>) -> Self {
+    pub fn new(config: &Config, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let language = cx.new(|_| config.language.clone());
         let subtitles = cx.new(|_| config.subtitles.clone());
         let max_bitrate = cx.new(|_| config.max_bitrate_mbps);
@@ -89,8 +91,19 @@ impl SettingsView {
         let theme = cx.new(|_| SharedString::from(theme::active(config)));
         let hide_spoilers = cx.new(|_| config.hide_spoilers);
         let backdrops = cx.new(|_| config.backdrops);
-        let hdr = cx.new(|_| config.hdr);
         let audio = cx.new(|_| config.audio);
+        let mpv_conf = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(6, 20)
+                .default_value(mpv::user_config())
+        });
+        let _save_mpv_conf = cx.subscribe(&mpv_conf, |_, state, event: &InputEvent, cx| {
+            if let InputEvent::Change = event
+                && let Err(err) = mpv::save_user_config(&state.read(cx).value())
+            {
+                eprintln!("saving mpv.conf failed: {err}");
+            }
+        });
         let _observe = [
             cx.observe(&language, |_, language, cx| {
                 cx.emit(SettingsChanged::Language(language.read(cx).clone()))
@@ -118,9 +131,6 @@ impl SettingsView {
             cx.observe(&backdrops, |_, show, cx| {
                 cx.emit(SettingsChanged::Backdrops(*show.read(cx)))
             }),
-            cx.observe(&hdr, |_, hdr, cx| {
-                cx.emit(SettingsChanged::Hdr(*hdr.read(cx)))
-            }),
             cx.observe(&audio, |_, audio, cx| {
                 cx.emit(SettingsChanged::Audio(*audio.read(cx)))
             }),
@@ -134,9 +144,10 @@ impl SettingsView {
             theme,
             hide_spoilers,
             backdrops,
-            hdr,
             audio,
+            mpv_conf,
             _observe,
+            _save_mpv_conf,
         }
     }
 
@@ -260,53 +271,16 @@ impl SettingsView {
         SettingGroup::new().title("Video").items([upscaling])
     }
 
-    fn hdr_group(&self) -> SettingGroup {
-        let (read, write) = (self.hdr.clone(), self.hdr.clone());
-        let tone_map = SettingItem::new(
-            "Tone-mapping curve",
-            SettingField::dropdown(
-                ToneMapCurve::ALL
-                    .iter()
-                    .map(|c| (SharedString::from(c.label()), SharedString::from(c.label())))
-                    .collect(),
-                move |cx| read.read(cx).tone_map.label().into(),
-                move |value, cx| {
-                    write.update(cx, |style, cx| {
-                        style.tone_map = ToneMapCurve::ALL
-                            .into_iter()
-                            .find(|c| c.label() == value.as_ref())
-                            .unwrap_or_default();
-                        cx.notify();
-                    })
-                },
-            ),
-        )
-        .description("How HDR video is mapped down to this display's SDR range.");
-        let (read, write) = (self.hdr.clone(), self.hdr.clone());
-        let deband = SettingItem::new(
-            "Debanding",
-            SettingField::dropdown(
-                DebandLevel::ALL
-                    .iter()
-                    .map(|d| (SharedString::from(d.label()), SharedString::from(d.label())))
-                    .collect(),
-                move |cx| read.read(cx).deband.label().into(),
-                move |value, cx| {
-                    write.update(cx, |style, cx| {
-                        style.deband = DebandLevel::ALL
-                            .into_iter()
-                            .find(|d| d.label() == value.as_ref())
-                            .unwrap_or_default();
-                        cx.notify();
-                    })
-                },
-            ),
-        )
-        .description("Smooths banding that can show up in tone-mapped gradients.");
+    fn mpv_group(&self) -> SettingGroup {
+        let conf = SettingItem::new("mpv.conf", SettingField::code(self.mpv_conf.clone()))
+            .description(
+                "Any mpv option, one per line, such as deband=yes or tone-mapping=hable. \
+                 Overrides the settings above.",
+            );
         SettingGroup::new()
-            .title("HDR")
+            .title("mpv")
             .description("Applies from the next playback.")
-            .items([tone_map, deband])
+            .items([conf])
     }
 
     fn audio_group(&self) -> SettingGroup {
@@ -346,20 +320,15 @@ impl SettingsView {
 
     fn streaming_group(&self) -> SettingGroup {
         let (read, write) = (self.max_bitrate.clone(), self.max_bitrate.clone());
-        let options = [
-            ("", "No limit (direct play)"),
-            ("40", "40 Mbps"),
-            ("20", "20 Mbps"),
-            ("10", "10 Mbps"),
-            ("4", "4 Mbps"),
-            ("2", "2 Mbps"),
-        ];
         let cap = SettingItem::new(
             "Maximum bitrate",
             SettingField::dropdown(
-                options
+                BITRATE_CAPS
                     .iter()
-                    .map(|(v, l)| (SharedString::from(*v), SharedString::from(*l)))
+                    .map(|(cap, label)| {
+                        let value = cap.map(|m| m.to_string()).unwrap_or_default();
+                        (SharedString::from(value), SharedString::from(*label))
+                    })
                     .collect(),
                 move |cx| {
                     read.read(cx)
@@ -376,7 +345,8 @@ impl SettingsView {
             ),
         )
         .description(
-            "Files above the limit are transcoded by the server. Applies from the next playback.",
+            "Files above the limit are transcoded by the server; Original plays the file \
+             itself. Applies from the next playback; the Player can change it per session.",
         );
         SettingGroup::new().title("Streaming").items([cap])
     }
@@ -518,9 +488,9 @@ impl SettingsView {
             self.subtitles_group(),
             self.seek_group(),
             self.video_group(),
-            self.hdr_group(),
             self.audio_group(),
             self.streaming_group(),
+            self.mpv_group(),
         ])
     }
 }
@@ -531,7 +501,7 @@ impl Render for SettingsView {
             .size_full()
             .child(page_header(
                 Some(
-                    icon_button("settings-back", IconName::ArrowLeft, cx)
+                    icon_button("settings-back", IconName::ArrowLeft, "Back", cx)
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(Nav::Back))),
                 ),
                 "Settings",
