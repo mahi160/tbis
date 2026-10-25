@@ -49,5 +49,8 @@ pkg-config = "0.3.34"
 # Shipped builds (scripts/bundle.sh). `release` stays fast for local runs.
 [profile.dist]
 inherits = "release"
-lto = "thin"
+lto = "fat"
 codegen-units = 1
+strip = true
+# no runtime code catches panics (gpui only resumes them), so drop unwind tables
+panic = "abort"
