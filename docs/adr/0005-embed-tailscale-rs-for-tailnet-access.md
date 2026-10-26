@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: superseded by ADR-0007
 ---
 
 # Reach a Jellyfin server over a tailnet using the `tailscale` crate, not the Tailscale app
