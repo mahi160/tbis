@@ -14,6 +14,10 @@ dir="$work/sources"
 mkdir -p "$dir/formulae"
 
 git archive --format=tar.gz --prefix=tbis/ -o "$dir/tbis.tar.gz" HEAD
+# git archive skips submodules, but tbis statically links libtailscale (ADR-0007), so
+# its source at the pinned commit is part of what builds tbis
+git -C vendor/libtailscale archive --format=tar.gz --prefix=tbis/vendor/libtailscale/ \
+    -o "$dir/libtailscale.tar.gz" "$(git rev-parse HEAD:vendor/libtailscale)"
 
 while read -r component; do
     formula=${component%-*} # "<formula>-<version>"; versions contain no '-'

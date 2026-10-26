@@ -12,7 +12,7 @@ brew install --cask mahi160/tbis/tbis
 
 Or by hand:
 
-1. Download the latest `tbis-*-macos-arm64.zip` from [Releases](https://github.com/mahi160/tbis/releases). It needs an Apple Silicon Mac running macOS 11 or later.
+1. Download the latest `tbis-*-macos-arm64.zip` from [Releases](https://github.com/mahi160/tbis/releases). It needs an Apple Silicon Mac running macOS 13 or later.
 2. Unzip it and move `tbis.app` to your Applications folder.
 3. Open it once. macOS will say it can't check the app for malicious software, because tbis isn't signed with an Apple Developer ID yet. To allow it, do one of the following:
    - Open **System Settings → Privacy & Security**, scroll down to the message about tbis, and click **Open Anyway**.
@@ -99,7 +99,7 @@ These numbers are rough. Energy Impact is an estimate from macOS, not a measurem
 
 ## Build from source
 
-You need Rust and Homebrew's mpv (`brew install mpv`).
+You need Rust, Homebrew's mpv, and Go, which builds the linked-in libtailscale (`brew install mpv go`). Clone with `--recurse-submodules`, or run `git submodule update --init` in an existing checkout.
 
 ```sh
 cargo run --release         # run straight from the build

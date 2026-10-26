@@ -1,0 +1,4 @@
+# Go 1.27 builds libtailscale for macOS 13+ (ADR-0007), so the whole app targets it.
+# Keep in step with LSMinimumSystemVersion in scripts/bundle.sh.
+[env]
+MACOSX_DEPLOYMENT_TARGET = "13.0"
