@@ -634,6 +634,9 @@ struct ItemsResult {
 pub struct Api {
     http: Arc<dyn HttpClient>,
     session: Session,
+    /// Server in use: base of every request and URL. Can differ from the saved
+    /// `session.server` (e.g. a tailnet forwarder); never written to config.
+    server: String,
     device_id: String,
     /// Fired on every 401 so the app can drop the session and return to sign-in.
     expired: UnboundedSender<()>,
@@ -643,12 +646,14 @@ impl Api {
     pub fn new(
         http: Arc<dyn HttpClient>,
         session: Session,
+        server: String,
         device_id: String,
         expired: UnboundedSender<()>,
     ) -> Self {
         Self {
             http,
             session,
+            server,
             device_id,
             expired,
         }
@@ -668,7 +673,7 @@ impl Api {
 
     async fn get<T: DeserializeOwned>(&self, path_and_query: &str) -> Result<T> {
         let request = Request::builder()
-            .uri(format!("{}{path_and_query}", self.session.server))
+            .uri(format!("{}{path_and_query}", self.server))
             .header("Authorization", self.auth_header())
             .body(AsyncBody::empty())?;
         read_json(self.send(request).await?).await
@@ -691,7 +696,7 @@ impl Api {
     ) -> Result<Request<AsyncBody>> {
         Ok(Request::builder()
             .method(method)
-            .uri(format!("{}{path}", self.session.server))
+            .uri(format!("{}{path}", self.server))
             .header("Content-Type", "application/json")
             .header("Authorization", self.auth_header())
             .body(AsyncBody::from(body.to_string()))?)
@@ -735,7 +740,7 @@ impl Api {
         Stream {
             url: format!(
                 "{}/Videos/{}/stream?static=true&mediaSourceId={}",
-                self.session.server,
+                self.server,
                 item.id,
                 item.media_source_id()
             ),
@@ -778,7 +783,7 @@ impl Api {
             .as_ref()
             .ok_or_else(|| anyhow!("Server can't stream this item under the bitrate cap"))?;
         Ok(Stream {
-            url: format!("{}{url}", self.session.server),
+            url: format!("{}{url}", self.server),
             transcode: Some(info.play_session_id.unwrap_or_default()),
         })
     }
@@ -841,7 +846,7 @@ impl Api {
                 // cue would land before mpv's real (absolute-timeline) seek target.
                 url: format!(
                     "{}/Videos/{}/{}/Subtitles/{}/Stream.srt",
-                    self.session.server,
+                    self.server,
                     item.id,
                     item.media_source_id(),
                     s.index
@@ -868,7 +873,7 @@ impl Api {
         format!(
             // img() can't send headers; trickplay (unlike Images) requires auth
             "{}/Videos/{}/Trickplay/{}/{tile}.jpg?mediaSourceId={}&api_key={}",
-            self.session.server,
+            self.server,
             item.id,
             info.width,
             item.media_source_id(),
@@ -1077,7 +1082,7 @@ impl Api {
         let (id, kind, tag) = pick?;
         Some(format!(
             "{}/Items/{id}/Images/{kind}?fillWidth=480&quality=90&tag={tag}",
-            self.session.server
+            self.server
         ))
     }
 
@@ -1108,7 +1113,7 @@ impl Api {
         };
         Some(format!(
             "{}/Items/{id}/Images/Backdrop/0?fillWidth=1920&quality=85&tag={tag}",
-            self.session.server
+            self.server
         ))
     }
 
@@ -1116,7 +1121,7 @@ impl Api {
         let tag = person.primary_image_tag.as_ref()?;
         Some(format!(
             "{}/Items/{}/Images/Primary?fillWidth=128&quality=90&tag={tag}",
-            self.session.server, person.id
+            self.server, person.id
         ))
     }
 
@@ -1124,7 +1129,7 @@ impl Api {
         let tag = item.image_tags.get("Primary")?;
         Some(format!(
             "{}/Items/{}/Images/Primary?fillWidth=320&quality=90&tag={tag}",
-            self.session.server, item.id
+            self.server, item.id
         ))
     }
 }
@@ -1345,8 +1350,10 @@ pub async fn quick_connect_login(
 #[cfg(test)]
 mod tests {
     use super::{
-        Api, Item, Segment, SegmentKind, Session, SessionExpired, blurred, login, normalize_server,
+        Api, Item, Person, PlaybackItem, Segment, SegmentKind, Session, SessionExpired,
+        TrickplayInfo, blurred, login, normalize_server,
     };
+    use gpui_kit::http_client::Method;
     use std::io::{Read as _, Write as _};
     use std::net::TcpListener;
     use std::sync::Arc;
@@ -1494,7 +1501,8 @@ mod tests {
             token: "tok".into(),
         };
         let http = Arc::new(reqwest_client::ReqwestClient::new());
-        let api = Api::new(http, session, "dev".into(), tx);
+        let server = session.server.clone();
+        let api = Api::new(http, session, server, "dev".into(), tx);
         let get = |path| futures::executor::block_on(api.get::<serde_json::Value>(path));
 
         assert!(get("/Expired").unwrap_err().is::<SessionExpired>());
@@ -1520,6 +1528,65 @@ mod tests {
             ],
             "Intro/Outro only, sorted, in seconds"
         );
+    }
+
+    #[test]
+    fn urls_follow_server_in_use() {
+        let (tx, _rx) = futures::channel::mpsc::unbounded();
+        let session = Session {
+            // nothing listens here: a request built from the saved address fails
+            server: "http://127.0.0.1:1".into(),
+            user_id: "u1".into(),
+            user_name: "mahi".into(),
+            token: "tok".into(),
+        };
+        let in_use = format!("http://{}", fake_server().trim_end_matches('/'));
+        let http = Arc::new(reqwest_client::ReqwestClient::new());
+        let api = Api::new(http, session, in_use.clone(), "dev".into(), tx);
+
+        let segments = futures::executor::block_on(api.segments("ep1"));
+        assert_eq!(
+            segments.unwrap().len(),
+            2,
+            "requests go to the server in use"
+        );
+
+        let item: Item = serde_json::from_value(serde_json::json!({
+            "Id": "i", "Name": "Movie",
+            "ImageTags": {"Primary": "p"}, "BackdropImageTags": ["b"],
+        }))
+        .unwrap();
+        let person: Person = serde_json::from_value(
+            serde_json::json!({"Id": "p1", "Name": "A", "PrimaryImageTag": "t"}),
+        )
+        .unwrap();
+        let playback: PlaybackItem = serde_json::from_value(serde_json::json!({
+            "Id": "i",
+            "MediaSources": [{"Id": "m", "MediaStreams": [{"Type": "Subtitle", "Index": 2, "IsExternal": true}]}],
+        }))
+        .unwrap();
+        let trickplay: TrickplayInfo = serde_json::from_value(serde_json::json!({
+            "Width": 320, "Height": 180, "TileWidth": 10, "TileHeight": 10,
+            "ThumbnailCount": 100, "Interval": 10000,
+        }))
+        .unwrap();
+
+        let urls = [
+            api.poster_url(&item).unwrap(),
+            api.backdrop_url(&item).unwrap(),
+            api.wide_image_url(&item).unwrap(),
+            api.person_image_url(&person).unwrap(),
+            api.direct_stream(&playback).url,
+            api.trickplay_tile_url(&playback, &trickplay, 0),
+            api.external_subtitles(&playback)[0].url.clone(),
+            api.json_request(Method::POST, "/x", serde_json::Value::Null)
+                .unwrap()
+                .uri()
+                .to_string(),
+        ];
+        for url in urls {
+            assert!(url.starts_with(&format!("{in_use}/")), "{url}");
+        }
     }
 
     #[test]

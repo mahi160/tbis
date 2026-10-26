@@ -330,9 +330,12 @@ impl AppView {
         cx: &mut Context<Self>,
     ) -> Screen {
         let (expired_tx, mut expired_rx) = futures::channel::mpsc::unbounded();
+        // server in use: always the saved address for now
+        let server = session.server.clone();
         let api = Api::new(
             cx.http_client(),
             session.clone(),
+            server,
             config.device_id.clone(),
             expired_tx,
         );
