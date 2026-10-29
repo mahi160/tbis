@@ -115,13 +115,23 @@ pub async fn install(http: Arc<dyn HttpClient>, update: &Update) -> Result<()> {
 
     // staged beside the bundle: rename only works within one volume
     let parent = bundle.parent().context("app has no parent folder")?;
-    let staging = parent.join(format!(".tbis-update-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&staging);
+    let staging = create_staging(parent)?;
+    let result = swap_in(&bundle, &staging, &zip, &update.sha256);
+    cleanup_staging(&staging);
+    result
+}
+
+fn create_staging(parent: &Path) -> Result<PathBuf> {
+    let staging = parent.join(format!(".tbis-update-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir(&staging)
         .with_context(|| format!("can't write to {}", parent.display()))?;
-    let result = swap_in(&bundle, &staging, &zip, &update.sha256);
-    let _ = std::fs::remove_dir_all(&staging);
-    result
+    Ok(staging)
+}
+
+fn cleanup_staging(staging: &Path) {
+    if matches!(staging.join("old.app").try_exists(), Ok(false)) {
+        let _ = std::fs::remove_dir_all(staging);
+    }
 }
 
 fn swap_in(bundle: &Path, staging: &Path, zip: &[u8], sha256: &str) -> Result<()> {
@@ -152,12 +162,31 @@ fn swap_in(bundle: &Path, staging: &Path, zip: &[u8], sha256: &str) -> Result<()
     ];
     run("codesign", &verify).context("downloaded app failed its signature check")?;
 
+    replace_bundle(bundle, staging, |from, to| std::fs::rename(from, to))
+}
+
+fn replace_bundle(
+    bundle: &Path,
+    staging: &Path,
+    rename: impl Fn(&Path, &Path) -> std::io::Result<()>,
+) -> Result<()> {
+    let new = staging.join("tbis.app");
     let old = staging.join("old.app");
-    std::fs::rename(bundle, &old).context("can't move the current app aside")?;
-    if let Err(err) = std::fs::rename(&new, bundle) {
-        // put the working app back
-        let _ = std::fs::rename(&old, bundle);
+    rename(bundle, &old).context("can't move the current app aside")?;
+    if let Err(err) = rename(&new, bundle) {
+        if let Err(rollback_err) = rename(&old, bundle) {
+            bail!(
+                "can't move the new app into place: {err}; rollback failed: {rollback_err}; current app backup is at {}",
+                old.display()
+            );
+        }
         bail!("can't move the new app into place: {err}");
+    }
+    if let Err(err) = std::fs::remove_dir_all(&old) {
+        eprintln!(
+            "new app installed, but old app backup at {} could not be removed: {err}",
+            old.display()
+        );
     }
     Ok(())
 }
@@ -188,7 +217,110 @@ pub fn relaunch() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::newer;
+    use super::{cleanup_staging, create_staging, newer, replace_bundle};
+    use std::cell::Cell;
+    use std::fs;
+    use std::io;
+    use std::path::{Path, PathBuf};
+
+    struct Bundles {
+        root: PathBuf,
+        bundle: PathBuf,
+        staging: PathBuf,
+    }
+
+    impl Bundles {
+        fn new() -> Self {
+            let root =
+                std::env::temp_dir().join(format!("tbis-update-test-{}", uuid::Uuid::new_v4()));
+            fs::create_dir(&root).unwrap();
+            let bundle = root.join("tbis.app");
+            fs::create_dir(&bundle).unwrap();
+            fs::write(bundle.join("version"), "old").unwrap();
+            let staging = create_staging(&root).unwrap();
+            let new = staging.join("tbis.app");
+            fs::create_dir(&new).unwrap();
+            fs::write(new.join("version"), "new").unwrap();
+            Self {
+                root,
+                bundle,
+                staging,
+            }
+        }
+    }
+
+    impl Drop for Bundles {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.root).unwrap();
+        }
+    }
+
+    fn replace_with_failures(bundles: &Bundles, failures: &[usize]) -> anyhow::Result<()> {
+        let calls = Cell::new(0);
+        replace_bundle(&bundles.bundle, &bundles.staging, |from: &Path, to: &Path| {
+            let call = calls.get() + 1;
+            calls.set(call);
+            if failures.contains(&call) {
+                Err(io::Error::other(format!("rename {call} failed")))
+            } else {
+                fs::rename(from, to)
+            }
+        })
+    }
+
+    #[test]
+    fn replacement_succeeds_and_cleans_staging() {
+        let bundles = Bundles::new();
+        replace_with_failures(&bundles, &[]).unwrap();
+        cleanup_staging(&bundles.staging);
+        assert_eq!(
+            fs::read_to_string(bundles.bundle.join("version")).unwrap(),
+            "new"
+        );
+        assert!(!bundles.staging.exists());
+    }
+
+    #[test]
+    fn failure_moving_current_app_leaves_it_intact() {
+        let bundles = Bundles::new();
+        let err = replace_with_failures(&bundles, &[1]).unwrap_err();
+        assert!(err.to_string().contains("can't move the current app aside"));
+        cleanup_staging(&bundles.staging);
+        assert_eq!(
+            fs::read_to_string(bundles.bundle.join("version")).unwrap(),
+            "old"
+        );
+        assert!(!bundles.staging.exists());
+    }
+
+    #[test]
+    fn failed_replacement_restores_current_app() {
+        let bundles = Bundles::new();
+        let err = replace_with_failures(&bundles, &[2]).unwrap_err();
+        assert!(err.to_string().contains("can't move the new app into place"));
+        cleanup_staging(&bundles.staging);
+        assert_eq!(
+            fs::read_to_string(bundles.bundle.join("version")).unwrap(),
+            "old"
+        );
+        assert!(!bundles.staging.exists());
+    }
+
+    #[test]
+    fn failed_rollback_preserves_backup_through_cleanup_and_retry() {
+        let bundles = Bundles::new();
+        let backup = bundles.staging.join("old.app");
+        let err = replace_with_failures(&bundles, &[2, 3]).unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("rename 2 failed"));
+        assert!(message.contains("rename 3 failed"));
+        assert!(message.contains(&backup.display().to_string()));
+        cleanup_staging(&bundles.staging);
+        let retry = create_staging(&bundles.root).unwrap();
+        cleanup_staging(&retry);
+        assert_eq!(fs::read_to_string(backup.join("version")).unwrap(), "old");
+        assert!(!bundles.bundle.exists());
+    }
 
     #[test]
     fn compares_versions_numerically() {

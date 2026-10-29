@@ -6,9 +6,10 @@
 
 use crate::platform::video;
 
+use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_void};
 use std::os::raw::{c_char, c_int};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -26,7 +27,21 @@ pub struct Extent {
     pub scale: f32,
 }
 
-pub enum MpvEvent {
+pub struct MpvEvent {
+    pub load: Option<i64>,
+    pub kind: MpvEventKind,
+}
+
+impl MpvEvent {
+    pub fn is_current(&self, load: Option<i64>) -> bool {
+        match self.kind {
+            MpvEventKind::Volume(_) | MpvEventKind::Mute(_) => true,
+            _ => self.load.is_some() && self.load == load,
+        }
+    }
+}
+
+pub enum MpvEventKind {
     TimePos(f64),
     Duration(f64),
     Pause(bool),
@@ -40,6 +55,7 @@ pub enum MpvEvent {
     Mute(bool),
     /// Audio and subtitle tracks of the current file.
     Tracks(Vec<Track>),
+    SubtitleAdded(Result<(), String>),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -103,6 +119,7 @@ pub struct Mpv {
     stop: Arc<AtomicBool>,
     events: Option<JoinHandle<()>>,
     render: Option<JoinHandle<()>>,
+    subtitle_commands: Arc<Mutex<HashMap<u64, i64>>>,
 }
 
 impl Mpv {
@@ -135,14 +152,15 @@ impl Mpv {
         let waker = Arc::new(Waker::default());
         let stop = Arc::new(AtomicBool::new(false));
 
+        let subtitle_commands = Arc::new(Mutex::new(HashMap::new()));
         let (ready_tx, ready_rx) = mpsc::channel();
         let render = {
             let (size, waker, stop) = (size.clone(), waker.clone(), stop.clone());
             std::thread::spawn(move || render_thread(handle, renderer, size, waker, stop, ready_tx))
         };
         let events = {
-            let stop = stop.clone();
-            std::thread::spawn(move || event_thread(handle, stop, events))
+            let (stop, commands) = (stop.clone(), subtitle_commands.clone());
+            std::thread::spawn(move || event_thread(handle, stop, events, commands))
         };
 
         let this = Self {
@@ -153,6 +171,7 @@ impl Mpv {
             stop,
             events: Some(events),
             render: Some(render),
+            subtitle_commands,
         };
         // on Err, drop tears everything down in order
         ready_rx
@@ -162,14 +181,17 @@ impl Mpv {
     }
 
     /// Replaces current file; starts at `start_seconds`.
-    pub fn load(&self, url: &str, start_seconds: f64) -> Result<(), String> {
+    pub fn load(&self, url: &str, start_seconds: f64) -> Result<i64, String> {
         let start = if start_seconds > 0.0 {
             format!("{start_seconds}")
         } else {
             "none".into()
         };
         self.handle.set_property("start", &start)?;
-        self.handle.command(&["loadfile", url, "replace"])
+        self.handle.command(&["loadfile", url, "replace"])?;
+        get_string(self.handle, "playlist/0/id")
+            .and_then(|id| id.parse().ok())
+            .ok_or_else(|| "mpv: cannot identify loaded playlist entry".into())
     }
 
     /// Ends current file; mpv goes idle until next load.
@@ -241,11 +263,27 @@ impl Mpv {
         title: &str,
         lang: &str,
         select: bool,
+        load: i64,
     ) -> Result<(), String> {
         let flag = if select { "select" } else { "auto" };
         // async: sub-add downloads url; sync call froze UI on slow server
-        self.handle
-            .command_async(&["sub-add", url, flag, title, lang])
+        static NEXT_COMMAND: AtomicU64 = AtomicU64::new(1);
+        let command = NEXT_COMMAND.fetch_add(1, Ordering::Relaxed);
+        self.subtitle_commands
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(command, load);
+        if let Err(err) = self
+            .handle
+            .command_async(command, &["sub-add", url, flag, title, lang])
+        {
+            self.subtitle_commands
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(&command);
+            return Err(err);
+        }
+        Ok(())
     }
 
     /// Nudges subtitle/audio timing by `delta` seconds (mpv's own `add <prop>` idiom).
@@ -427,12 +465,12 @@ impl Handle {
     }
 
     /// Returns once queued; failure arrives as `MPV_EVENT_COMMAND_REPLY` on the event thread.
-    fn command_async(self, args: &[&str]) -> Result<(), String> {
+    fn command_async(self, userdata: u64, args: &[&str]) -> Result<(), String> {
         let args = c_args(args)?;
         let mut ptrs = c_ptrs(&args);
         unsafe {
             check(
-                mpv_command_async(self.0, 0, ptrs.as_mut_ptr()),
+                mpv_command_async(self.0, userdata, ptrs.as_mut_ptr()),
                 "mpv_command_async",
             )
         }
@@ -518,6 +556,10 @@ impl TimeThrottle {
         let seconds = self.held.take()?;
         self.last = Some((now, seconds));
         Some(seconds)
+    }
+
+    fn reset(&mut self) {
+        *self = Self::default();
     }
 }
 
@@ -715,47 +757,74 @@ unsafe fn map_get<'a>(node: &'a mpv_node, key: &str) -> Option<&'a mpv_node> {
 }
 
 #[allow(non_upper_case_globals)] // bindgen constant names
-fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent>) {
-    let send = |event| {
-        let _ = tx.unbounded_send(event);
+fn event_thread(
+    mpv: Handle,
+    stop: Arc<AtomicBool>,
+    tx: UnboundedSender<MpvEvent>,
+    subtitle_commands: Arc<Mutex<HashMap<u64, i64>>>,
+) {
+    let send = |load, kind| {
+        let _ = tx.unbounded_send(MpvEvent { load, kind });
     };
     let mut log = LogDedup::default();
     let mut time = TimeThrottle::default();
+    let mut load = None;
     while !stop.load(Ordering::SeqCst) {
         let event = unsafe { &*mpv_wait_event(mpv.0, time.wait()) };
         match event.event_id {
             mpv_event_id_MPV_EVENT_NONE => {
                 if let Some(seconds) = time.flush(Instant::now()) {
-                    send(MpvEvent::TimePos(seconds));
+                    send(load, MpvEventKind::TimePos(seconds));
                 }
             }
             mpv_event_id_MPV_EVENT_SHUTDOWN => return,
+            mpv_event_id_MPV_EVENT_START_FILE => {
+                time.reset();
+                let start = unsafe { &*(event.data as *const mpv_event_start_file) };
+                load = Some(start.playlist_entry_id);
+                if let Some(paused) = get_string(mpv, "pause") {
+                    send(load, MpvEventKind::Pause(paused == "yes"));
+                }
+            }
             mpv_event_id_MPV_EVENT_PROPERTY_CHANGE => {
                 let prop = unsafe { &*(event.data as *const mpv_event_property) };
                 let name = unsafe { CStr::from_ptr(prop.name) }.to_bytes();
                 if name == b"track-list" {
-                    send(MpvEvent::Tracks(read_tracks(mpv)));
+                    if load.is_some() {
+                        send(load, MpvEventKind::Tracks(read_tracks(mpv)));
+                    }
                     continue;
                 }
                 if prop.data.is_null() {
                     continue;
                 }
                 match name {
-                    b"volume" => send(MpvEvent::Volume(unsafe { *(prop.data as *const f64) })),
-                    b"mute" => send(MpvEvent::Mute(unsafe { *(prop.data as *const c_int) } != 0)),
-                    b"time-pos" => {
+                    b"volume" => send(
+                        None,
+                        MpvEventKind::Volume(unsafe { *(prop.data as *const f64) }),
+                    ),
+                    b"mute" => send(
+                        None,
+                        MpvEventKind::Mute(unsafe { *(prop.data as *const c_int) } != 0),
+                    ),
+                    b"time-pos" if load.is_some() => {
                         let seconds = unsafe { *(prop.data as *const f64) };
                         if time.pass(seconds, Instant::now()) {
-                            send(MpvEvent::TimePos(seconds));
+                            send(load, MpvEventKind::TimePos(seconds));
                         }
                     }
-                    b"duration" => send(MpvEvent::Duration(unsafe { *(prop.data as *const f64) })),
-                    b"pause" => send(MpvEvent::Pause(
-                        unsafe { *(prop.data as *const c_int) } != 0,
-                    )),
-                    b"core-idle" => send(MpvEvent::CoreIdle(
-                        unsafe { *(prop.data as *const c_int) } != 0,
-                    )),
+                    b"duration" if load.is_some() => send(
+                        load,
+                        MpvEventKind::Duration(unsafe { *(prop.data as *const f64) }),
+                    ),
+                    b"pause" if load.is_some() => send(
+                        load,
+                        MpvEventKind::Pause(unsafe { *(prop.data as *const c_int) } != 0),
+                    ),
+                    b"core-idle" if load.is_some() => send(
+                        load,
+                        MpvEventKind::CoreIdle(unsafe { *(prop.data as *const c_int) } != 0),
+                    ),
                     b"hwdec-current" => {
                         let value = unsafe { CStr::from_ptr(*(prop.data as *const *const c_char)) };
                         eprintln!("mpv: hwdec-current={}", value.to_string_lossy());
@@ -763,11 +832,31 @@ fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent
                     _ => {}
                 }
             }
-            mpv_event_id_MPV_EVENT_COMMAND_REPLY if event.error < 0 => {
-                let msg = unsafe { CStr::from_ptr(mpv_error_string(event.error)) };
-                eprintln!("mpv async command: {}", msg.to_string_lossy());
+            mpv_event_id_MPV_EVENT_COMMAND_REPLY => {
+                let command = event.reply_userdata;
+                let load = subtitle_commands
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .remove(&command);
+                if let Some(load) = load {
+                    let result = if event.error < 0 {
+                        let msg = unsafe { CStr::from_ptr(mpv_error_string(event.error)) };
+                        Err(msg.to_string_lossy().into_owned())
+                    } else {
+                        Ok(())
+                    };
+                    send(Some(load), MpvEventKind::Tracks(read_tracks(mpv)));
+                    send(Some(load), MpvEventKind::SubtitleAdded(result));
+                } else if event.error < 0 {
+                    let msg = unsafe { CStr::from_ptr(mpv_error_string(event.error)) };
+                    eprintln!("mpv async command: {}", msg.to_string_lossy());
+                }
             }
-            mpv_event_id_MPV_EVENT_FILE_LOADED => send(MpvEvent::FileLoaded),
+            mpv_event_id_MPV_EVENT_FILE_LOADED => {
+                if load.is_some() {
+                    send(load, MpvEventKind::FileLoaded);
+                }
+            }
             mpv_event_id_MPV_EVENT_END_FILE => {
                 let end = unsafe { &*(event.data as *const mpv_event_end_file) };
                 let result = if end.reason == mpv_end_file_reason_MPV_END_FILE_REASON_ERROR as c_int
@@ -778,7 +867,11 @@ fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent
                 } else {
                     Ok(end.reason == mpv_end_file_reason_MPV_END_FILE_REASON_EOF as c_int)
                 };
-                send(MpvEvent::EndFile(result));
+                send(Some(end.playlist_entry_id), MpvEventKind::EndFile(result));
+                if load == Some(end.playlist_entry_id) {
+                    time.reset();
+                    load = None;
+                }
             }
             mpv_event_id_MPV_EVENT_LOG_MESSAGE => {
                 let msg = unsafe { &*(event.data as *const mpv_event_log_message) };
@@ -1070,8 +1163,73 @@ fn render_thread(
 
 #[cfg(test)]
 mod tests {
-    use super::{Instant, TIME_EVERY, TimeThrottle};
+    use super::{Instant, MpvEvent, MpvEventKind, TIME_EVERY, TimeThrottle};
     use std::time::Duration;
+
+    #[test]
+    fn stale_file_events_are_rejected_but_volume_and_mute_are_player_wide() {
+        for kind in [
+            MpvEventKind::TimePos(12.),
+            MpvEventKind::Duration(100.),
+            MpvEventKind::Pause(true),
+            MpvEventKind::CoreIdle(true),
+            MpvEventKind::Tracks(Vec::new()),
+            MpvEventKind::FileLoaded,
+            MpvEventKind::EndFile(Ok(true)),
+            MpvEventKind::EndFile(Err("failure".into())),
+        ] {
+            let event = MpvEvent { load: Some(1), kind };
+            assert!(event.is_current(Some(1)));
+            assert!(!event.is_current(None));
+            assert!(!event.is_current(Some(2)));
+        }
+        for kind in [MpvEventKind::Volume(50.), MpvEventKind::Mute(true)] {
+            let event = MpvEvent { load: None, kind };
+            assert!(event.is_current(None));
+            assert!(event.is_current(Some(2)));
+        }
+    }
+
+    #[test]
+    fn delayed_positions_cannot_change_episode_or_bitrate_reload_positions() {
+        let start = Instant::now();
+        let mut throttle = TimeThrottle::default();
+        let mut position = 20.;
+        assert!(throttle.pass(position, start));
+        assert!(!throttle.pass(20.1, start + Duration::from_millis(40)));
+
+        for next in [2, 3] {
+            throttle.reset();
+            let current = Some(next);
+            assert_eq!(throttle.flush(start + TIME_EVERY), None);
+            let delayed = MpvEvent {
+                load: Some(next - 1),
+                kind: MpvEventKind::TimePos(20.1),
+            };
+            if delayed.is_current(current)
+                && let MpvEventKind::TimePos(seconds) = delayed.kind
+            {
+                position = seconds;
+            }
+            assert_eq!(position, 20.);
+            assert!(throttle.pass(position, start));
+            assert!(!throttle.pass(20.1, start + Duration::from_millis(40)));
+        }
+    }
+
+    #[test]
+    fn throttle_discards_held_positions_on_each_load_boundary() {
+        let start = Instant::now();
+        let mut throttle = TimeThrottle::default();
+        for position in [10., 10.1] {
+            assert!(throttle.pass(position, start));
+            assert!(!throttle.pass(position + 0.04, start + Duration::from_millis(40)));
+            throttle.reset();
+            assert_eq!(throttle.flush(start + TIME_EVERY), None);
+            assert_eq!(throttle.wait(), -1.);
+        }
+        assert!(throttle.pass(10.2, start + Duration::from_millis(50)));
+    }
 
     #[test]
     fn time_throttle_passes_first_interval_and_seeks() {

@@ -153,11 +153,22 @@ pub struct AppView {
     _window_bounds: Subscription,
     /// Update check or install in flight; replacing it cancels the old one.
     _update: Task<()>,
+    /// Cancels pending series Play lookups when their navigation context changes.
+    navigation_generation: u64,
+    navigation_lookup: Task<()>,
 }
 
 impl AppView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let config = config::load();
+        if let Some(err) = config::load_error(&config) {
+            window.push_notification(
+                Notification::error(format!(
+                    "Could not load saved configuration ({err}). It was not overwritten; fix or move config.json to recover."
+                )),
+                cx,
+            );
+        }
         cx.set_global(config.seek);
         cx.set_global(config.hide_spoilers);
         let screen = match config.session.clone() {
@@ -212,6 +223,8 @@ impl AppView {
             focus,
             _window_bounds,
             _update: Task::ready(()),
+            navigation_generation: 0,
+            navigation_lookup: Task::ready(()),
         };
         this.check_for_updates(false, window, cx);
         this
@@ -311,6 +324,7 @@ impl AppView {
         let login = cx.new(|cx| LoginView::new(config.device_id.clone(), window, cx));
         let subscription =
             cx.subscribe_in(&login, window, |this, _, LoggedIn(session), window, cx| {
+                this.invalidate_navigation();
                 this.config.session = Some(session.clone());
                 save_config(&this.config, "session");
                 this.screen = Self::main_screen(session.clone(), &this.config, window, cx);
@@ -452,7 +466,13 @@ impl AppView {
         Screen::Main(main)
     }
 
+    fn invalidate_navigation(&mut self) {
+        self.navigation_generation = self.navigation_generation.wrapping_add(1);
+        self.navigation_lookup = Task::ready(());
+    }
+
     fn select_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.invalidate_navigation();
         let Screen::Main(main) = &mut self.screen else {
             return;
         };
@@ -473,6 +493,8 @@ impl AppView {
 
     /// Every Nav-emitting view (Home/Library/Search rows, Movie/Series detail) routes here.
     fn on_nav(&mut self, nav: &Nav, window: &mut Window, cx: &mut Context<Self>) {
+        self.invalidate_navigation();
+        let generation = self.navigation_generation;
         match nav {
             Nav::Open(item) => match item.kind {
                 Kind::Series => self.open_series(item, window, cx),
@@ -484,9 +506,12 @@ impl AppView {
                     return;
                 };
                 let (api, series) = (main.api.clone(), item.clone());
-                cx.spawn_in(window, async move |this, cx| {
+                self.navigation_lookup = cx.spawn_in(window, async move |this, cx| {
                     let next = api.next_up(&series.id).await;
                     this.update_in(cx, |this, window, cx| {
+                        if this.navigation_generation != generation {
+                            return;
+                        }
                         // slow lookup or double-click: a player is already up
                         if matches!(&this.screen, Screen::Main(m) if m.player.is_some()) {
                             return;
@@ -501,8 +526,7 @@ impl AppView {
                         }
                     })
                     .ok();
-                })
-                .detach();
+                });
             }
             Nav::Play(item) => self.open_player(item, window, cx),
             Nav::Back => {
@@ -538,6 +562,7 @@ impl AppView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.invalidate_navigation();
         let _nav = cx.subscribe_in(&view, window, |this, _, nav, window, cx| {
             this.on_nav(nav, window, cx)
         });
@@ -628,6 +653,9 @@ impl AppView {
     }
 
     fn focus_search(&mut self, _: &FocusSearch, window: &mut Window, cx: &mut Context<Self>) {
+        if matches!(&self.screen, Screen::Main(main) if main.player.is_none()) {
+            self.invalidate_navigation();
+        }
         if let Screen::Main(main) = &mut self.screen
             && main.player.is_none()
         {
@@ -692,9 +720,18 @@ impl AppView {
     }
 
     fn log_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.invalidate_navigation();
         self.config.session = None;
-        save_config(&self.config, "session");
+        let persistence = config::save(&self.config);
         self.screen = Self::login_screen(&self.config, window, cx);
+        if let Err(err) = persistence {
+            window.push_notification(
+                Notification::error(format!(
+                    "Logout is not durably complete: the saved session may remain on disk ({err})."
+                )),
+                cx,
+            );
+        }
         cx.notify();
     }
 

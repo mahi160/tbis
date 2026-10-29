@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs::{self, OpenOptions, Permissions};
 use std::io::{self, Write as _};
 use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use gpui_kit::{Bounds, Pixels, Size, WindowBounds, size};
 use serde::{Deserialize, Serialize};
@@ -55,6 +55,10 @@ pub struct TrackPrefs {
 pub struct Config {
     /// Survives Log out, so the server sees one device per install.
     pub device_id: String,
+    #[serde(skip)]
+    load_failed: bool,
+    #[serde(skip)]
+    load_error: Option<String>,
     pub session: Option<Session>,
     #[serde(default)]
     pub movies_sort: Sort,
@@ -281,35 +285,68 @@ fn path() -> PathBuf {
 }
 
 pub fn load() -> Config {
-    fs::read(path())
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Config>(&bytes).ok())
-        .filter(|config| !config.device_id.is_empty())
-        .unwrap_or_else(|| Config {
-            device_id: uuid::Uuid::new_v4().to_string(),
-            session: None,
-            movies_sort: Sort::default(),
-            series_sort: Sort::default(),
-            volume: full_volume(),
-            track_prefs: TrackPrefs::default(),
-            muted: false,
-            language: LanguagePref::default(),
-            window: None,
-            subtitles: SubtitleStyle::default(),
-            max_bitrate_mbps: None,
-            shaders: ShaderProfile::Off,
-            seek: SeekSteps::default(),
-            recent_searches: Vec::new(),
-            theme: None,
-            hide_spoilers: HideSpoilers::default(),
-            backdrops: ShowBackdrops::default(),
-            audio: AudioStyle::default(),
-        })
+    load_from(&path())
+}
+
+fn load_from(path: &Path) -> Config {
+    match fs::read(path) {
+        Ok(bytes) => match serde_json::from_slice::<Config>(&bytes) {
+            Ok(config) if !config.device_id.is_empty() => config,
+            Ok(_) => failed_config("configuration has an empty device identity"),
+            Err(_) => failed_config("configuration is invalid JSON"),
+        },
+        Err(err) if err.kind() == io::ErrorKind::NotFound => defaults(),
+        Err(err) => failed_config(&format!("could not read configuration: {err}")),
+    }
+}
+
+fn defaults() -> Config {
+    Config {
+        device_id: uuid::Uuid::new_v4().to_string(),
+        load_failed: false,
+        load_error: None,
+        session: None,
+        movies_sort: Sort::default(),
+        series_sort: Sort::default(),
+        volume: full_volume(),
+        track_prefs: TrackPrefs::default(),
+        muted: false,
+        language: LanguagePref::default(),
+        window: None,
+        subtitles: SubtitleStyle::default(),
+        max_bitrate_mbps: None,
+        shaders: ShaderProfile::Off,
+        seek: SeekSteps::default(),
+        recent_searches: Vec::new(),
+        theme: None,
+        hide_spoilers: HideSpoilers::default(),
+        backdrops: ShowBackdrops::default(),
+        audio: AudioStyle::default(),
+    }
+}
+
+fn failed_config(error: &str) -> Config {
+    let mut config = defaults();
+    config.load_failed = true;
+    config.load_error = Some(error.to_string());
+    config
+}
+
+pub fn load_error(config: &Config) -> Option<&str> {
+    config.load_error.as_deref()
 }
 
 /// Holds the access token in plaintext, so only the user may read it.
 pub fn save(config: &Config) -> io::Result<()> {
-    let path = path();
+    save_to(config, &path())
+}
+
+fn save_to(config: &Config, path: &Path) -> io::Result<()> {
+    if config.load_failed {
+        return Err(io::Error::other(
+            "configuration was not loaded; refusing to overwrite it",
+        ));
+    }
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
@@ -323,13 +360,76 @@ pub fn save(config: &Config) -> io::Result<()> {
     file.write_all(&serde_json::to_vec_pretty(config)?)?;
     file.sync_all()?;
     fs::set_permissions(&tmp, Permissions::from_mode(0o600))?;
-    fs::rename(&tmp, &path)
+    fs::rename(&tmp, path)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::WindowState;
+    use super::{WindowState, defaults, load_from, save_to};
+    use std::fs;
+    use std::path::PathBuf;
+
     use gpui_kit::{Bounds, WindowBounds, point, px, size};
+
+    fn temp_path() -> PathBuf {
+        std::env::temp_dir().join(format!("tbis-config-test-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn missing_configuration_creates_saveable_defaults() {
+        let path = temp_path();
+        let config = load_from(&path);
+        assert!(!config.load_failed);
+        assert!(!config.device_id.is_empty());
+        save_to(&config, &path).unwrap();
+        assert!(path.exists());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn invalid_configuration_is_not_overwritten() {
+        let path = temp_path();
+        fs::write(&path, b"{").unwrap();
+        let config = load_from(&path);
+        assert!(config.load_failed);
+        assert!(save_to(&config, &path).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"{");
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn empty_device_identity_is_rejected_without_overwriting() {
+        let path = temp_path();
+        fs::write(&path, br#"{"device_id":""}"#).unwrap();
+        let config = load_from(&path);
+        assert!(config.load_failed);
+        assert!(save_to(&config, &path).is_err());
+        assert_eq!(fs::read(&path).unwrap(), br#"{"device_id":""}"#);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn unreadable_configuration_is_not_first_launch() {
+        let path = temp_path();
+        fs::create_dir(&path).unwrap();
+        let config = load_from(&path);
+        assert!(config.load_failed);
+        assert!(config.load_error.is_some());
+        fs::remove_dir(path).unwrap();
+    }
+
+    #[test]
+    fn valid_configuration_loads_and_remains_saveable() {
+        let config = defaults();
+        let bytes = serde_json::to_vec(&config).unwrap();
+        let path = temp_path();
+        fs::write(&path, bytes).unwrap();
+        let loaded = load_from(&path);
+        assert!(!loaded.load_failed);
+        assert_eq!(loaded.device_id, config.device_id);
+        save_to(&loaded, &path).unwrap();
+        fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn restores_only_on_a_visible_display() {

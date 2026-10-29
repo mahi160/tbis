@@ -30,8 +30,10 @@ pub struct SeriesView {
     next_up: Option<Item>,
     loading: bool,
     error: Option<SharedString>,
+    mutation_error: Option<(String, bool, SharedString)>,
     /// Kept by the view so Back from an Episode page lands where the user was.
     scroll: ScrollHandle,
+    mutations: detail::UserDataMutations,
     _load: Task<()>,
     _next_up: Task<()>,
 }
@@ -49,12 +51,35 @@ impl UserDataView for SeriesView {
             .map(|e| &mut e.user_data)
     }
 
-    fn set_error(&mut self, error: SharedString) {
-        self.error = Some(error);
+    fn mutations(&mut self) -> &mut detail::UserDataMutations {
+        &mut self.mutations
+    }
+
+    fn set_error(&mut self, id: &str, toggle: Toggle, error: SharedString) {
+        self.mutation_error = Some((
+            id.to_string(),
+            matches!(toggle, Toggle::Favorite),
+            error,
+        ));
     }
 
     /// Whole-Series watched flips every Episode server-side; reload them.
     fn saved(&mut self, id: &str, toggle: Toggle, cx: &mut Context<Self>) {
+        if self.mutation_error.as_ref().is_some_and(|(failed_id, favorite, _)| {
+            failed_id == id && *favorite == matches!(toggle, Toggle::Favorite)
+        })
+        {
+            self.mutation_error = None;
+        }
+        if matches!(toggle, Toggle::Played) {
+            if id == self.series.id {
+                self.load_episodes(cx);
+            }
+            self.load_next_up(cx);
+        }
+    }
+
+    fn failed(&mut self, id: &str, toggle: Toggle, cx: &mut Context<Self>) {
         if matches!(toggle, Toggle::Played) {
             if id == self.series.id {
                 self.load_episodes(cx);
@@ -75,7 +100,9 @@ impl SeriesView {
             next_up: None,
             loading: true,
             error: None,
+            mutation_error: None,
             scroll: ScrollHandle::new(),
+            mutations: detail::UserDataMutations::default(),
             _load: Task::ready(()),
             _next_up: Task::ready(()),
         };
@@ -87,17 +114,29 @@ impl SeriesView {
     fn load_series(&mut self, cx: &mut Context<Self>) {
         let api = self.api.clone();
         let id = self.series.id.clone();
+        let mutation_snapshot = self.mutations.snapshot();
+        let watched_revision = self.mutations.watched_revision();
         self._load = cx.spawn(async move |this, cx| {
             let (details, seasons, next_up) =
                 futures::join!(api.item(&id), api.seasons(&id), api.next_up(&id));
             this.update(cx, |this, cx| match seasons {
                 Ok(seasons) => {
-                    if let Ok(details) = details {
+                    if let Ok(mut details) = details {
+                        this.mutations.preserve_refresh(
+                            &id,
+                            &mutation_snapshot,
+                            Some(&this.series.user_data),
+                            &mut details.user_data,
+                        );
                         this.series = details;
                     }
                     let next_up = next_up.ok().flatten();
                     let next_season = next_up.as_ref().and_then(|e| e.season_id.clone());
-                    this.next_up = next_up;
+                    if this.mutations.watched_revision() == watched_revision
+                        && !this.mutations.has_watched_pending()
+                    {
+                        this.next_up = next_up;
+                    }
                     this.selected = seasons
                         .iter()
                         .position(|s| Some(&s.id) == next_season.as_ref())
@@ -128,10 +167,15 @@ impl SeriesView {
     /// Own task: `load_episodes` replaces `_load`, which would cancel this fetch.
     fn load_next_up(&mut self, cx: &mut Context<Self>) {
         let (api, id) = (self.api.clone(), self.series.id.clone());
+        let mutation_revision = self.mutations.watched_revision();
         self._next_up = cx.spawn(async move |this, cx| {
             if let Ok(next_up) = api.next_up(&id).await {
                 this.update(cx, |this, cx| {
-                    this.next_up = next_up;
+                    if this.mutations.watched_revision() == mutation_revision
+                        && !this.mutations.has_watched_pending()
+                    {
+                        this.next_up = next_up;
+                    }
                     cx.notify();
                 })
                 .ok();
@@ -156,13 +200,27 @@ impl SeriesView {
         };
         let (api, series_id, season_id) =
             (self.api.clone(), self.series.id.clone(), season.id.clone());
+        let mutation_snapshot = self.mutations.snapshot();
         self.loading = true;
         self._load = cx.spawn(async move |this, cx| {
             let result = api.episodes(&series_id, &season_id).await;
             this.update(cx, |this, cx| {
                 this.loading = false;
                 match result {
-                    Ok(episodes) => {
+                    Ok(mut episodes) => {
+                        for episode in &mut episodes {
+                            let current = this
+                                .episodes
+                                .iter()
+                                .find(|item| item.id == episode.id)
+                                .map(|item| &item.user_data);
+                            this.mutations.preserve_refresh(
+                                &episode.id,
+                                &mutation_snapshot,
+                                current,
+                                &mut episode.user_data,
+                            );
+                        }
                         this.episodes = episodes;
                         this.error = None;
                     }
@@ -330,7 +388,10 @@ impl Render for SeriesView {
 
         let none = self.episodes.is_empty();
         let status = Status::pick(
-            self.error.clone(),
+            self.mutation_error
+                .as_ref()
+                .map(|(_, _, error)| error.clone())
+                .or_else(|| self.error.clone()),
             self.loading && none,
             none.then(|| "No episodes".into()),
         );

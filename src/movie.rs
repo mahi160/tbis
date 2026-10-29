@@ -23,6 +23,8 @@ pub struct MovieView {
     movie: Item,
     loading: bool,
     error: Option<SharedString>,
+    mutation_error: Option<(String, bool, SharedString)>,
+    mutations: detail::UserDataMutations,
     _load: Task<()>,
 }
 
@@ -33,8 +35,24 @@ impl UserDataView for MovieView {
         (self.movie.id == id).then_some(&mut self.movie.user_data)
     }
 
-    fn set_error(&mut self, error: SharedString) {
-        self.error = Some(error);
+    fn mutations(&mut self) -> &mut detail::UserDataMutations {
+        &mut self.mutations
+    }
+
+    fn set_error(&mut self, id: &str, toggle: Toggle, error: SharedString) {
+        self.mutation_error = Some((
+            id.to_string(),
+            matches!(toggle, Toggle::Favorite),
+            error,
+        ));
+    }
+
+    fn saved(&mut self, id: &str, toggle: Toggle, _: &mut Context<Self>) {
+        if self.mutation_error.as_ref().is_some_and(|(failed_id, favorite, _)| {
+            failed_id == id && *favorite == matches!(toggle, Toggle::Favorite)
+        }) {
+            self.mutation_error = None;
+        }
     }
 }
 
@@ -45,6 +63,8 @@ impl MovieView {
             movie,
             loading: true,
             error: None,
+            mutation_error: None,
+            mutations: detail::UserDataMutations::default(),
             _load: Task::ready(()),
         };
         this.refresh(cx);
@@ -55,6 +75,7 @@ impl MovieView {
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         let api = self.api.clone();
         let id = self.movie.id.clone();
+        let mutation_snapshot = self.mutations.snapshot();
         self.loading = true;
         cx.notify();
         self._load = cx.spawn(async move |this, cx| {
@@ -62,7 +83,13 @@ impl MovieView {
             this.update(cx, |this, cx| {
                 this.loading = false;
                 match result {
-                    Ok(details) => {
+                    Ok(mut details) => {
+                        this.mutations.preserve_refresh(
+                            &id,
+                            &mutation_snapshot,
+                            Some(&this.movie.user_data),
+                            &mut details.user_data,
+                        );
                         this.movie = details;
                         this.error = None;
                     }
@@ -158,7 +185,14 @@ impl Render for MovieView {
         };
         let header = detail_header(image, back, body, cx);
 
-        let status = Status::pick(self.error.clone(), self.loading, None);
+        let status = Status::pick(
+            self.mutation_error
+                .as_ref()
+                .map(|(_, _, error)| error.clone())
+                .or_else(|| self.error.clone()),
+            self.loading,
+            None,
+        );
 
         scroll_page("movie-detail")
             .relative()

@@ -7,7 +7,7 @@ use futures::channel::mpsc::{self, UnboundedSender};
 use gpui_kit::*;
 
 use crate::jellyfin::{Api, Item, Kind, PlaybackItem, Report, Segment, SegmentKind};
-use crate::mpv::{MpvEvent, Track, TrackKind};
+use crate::mpv::{MpvEvent, MpvEventKind, Track, TrackKind};
 
 use super::PlayerView;
 use super::controls::StaticInfo;
@@ -18,6 +18,31 @@ const UP_NEXT_AT: f64 = 30.;
 const REDRAW_STEP: f64 = 0.1;
 /// Seconds before a segment's end at which its skip button hides.
 const SEGMENT_END_MARGIN: f64 = 0.5;
+
+#[derive(Default)]
+struct SubtitleReadiness {
+    pending: usize,
+    applied: bool,
+}
+
+impl SubtitleReadiness {
+    fn begin(&mut self, count: usize) {
+        self.pending = count;
+    }
+
+    fn settle(&mut self) {
+        self.pending = self.pending.saturating_sub(1);
+    }
+
+    fn take_ready(&mut self, has_tracks: bool) -> bool {
+        if self.pending == 0 && has_tracks && !self.applied {
+            self.applied = true;
+            true
+        } else {
+            false
+        }
+    }
+}
 
 /// Time-driven overlay state; a time update redraws a hidden-controls Player only when it changes.
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -51,6 +76,7 @@ pub(super) struct Playback {
     /// `S01E01 · Name` under an Episode's series title.
     pub(super) subtitle: Option<SharedString>,
     pub(super) item: Option<Arc<PlaybackItem>>,
+    pub(super) load: Option<i64>,
     /// Episode that Autoplay continues with.
     pub(super) next: Option<Item>,
     /// Episode before this one, for the previous button.
@@ -59,6 +85,7 @@ pub(super) struct Playback {
     pub(super) started: bool,
     /// Guards external `sub-add` against a repeat `FileLoaded` for the same item.
     pub(super) subs_added: bool,
+    subtitle_readiness: SubtitleReadiness,
     pub(super) finished: bool,
     pub(super) time: f64,
     /// Time last drawn; throttles redraws to `REDRAW_STEP`.
@@ -70,9 +97,6 @@ pub(super) struct Playback {
     /// Playback info's file/track values, read once; cleared when the tracks change.
     pub(super) info_static: Option<StaticInfo>,
     pub(super) tracks: Vec<Track>,
-    /// Guards the remembered-pick apply to once per item, the first time the track
-    /// list is non-empty (see `PlayerView::apply_remembered_tracks`).
-    pub(super) tracks_applied: bool,
     pub(super) error: Option<SharedString>,
     /// Intro/credits ranges; empty until fetched or on servers without media segments.
     pub(super) segments: Vec<Segment>,
@@ -97,11 +121,13 @@ impl Playback {
             title,
             subtitle,
             item: None,
+            load: None,
             next: None,
             previous: None,
             next_cancelled: false,
             started: false,
             subs_added: false,
+            subtitle_readiness: SubtitleReadiness::default(),
             finished: false,
             time: 0.,
             shown_time: 0.,
@@ -110,7 +136,6 @@ impl Playback {
             overlays: TimeOverlays::default(),
             info_static: None,
             tracks: Vec::new(),
-            tracks_applied: false,
             error: None,
             segments: Vec::new(),
             artwork_url: api.wide_image_url(item).or_else(|| api.poster_url(item)),
@@ -146,8 +171,11 @@ impl PlayerView {
     }
 
     pub(super) fn on_mpv(&mut self, event: MpvEvent, window: &mut Window, cx: &mut Context<Self>) {
-        match event {
-            MpvEvent::TimePos(time) => {
+        if !event.is_current(self.playback.load) {
+            return;
+        }
+        match event.kind {
+            MpvEventKind::TimePos(time) => {
                 if !self.update_time(time) {
                     return;
                 }
@@ -161,19 +189,19 @@ impl PlayerView {
                 self.playback.overlays = overlays;
             }
             // resume jump arrives before duration is known
-            MpvEvent::Duration(duration) => {
+            MpvEventKind::Duration(duration) => {
                 self.playback.duration = duration;
                 self.sync_seek_bar(window, cx);
             }
-            MpvEvent::Pause(paused) => {
+            MpvEventKind::Pause(paused) => {
                 self.paused = paused;
                 if self.playback.started {
                     self.report(Report::Progress);
                 }
                 self.show_controls(window, cx);
             }
-            MpvEvent::CoreIdle(idle) => self.core_idle = idle,
-            MpvEvent::Volume(volume) => {
+            MpvEventKind::CoreIdle(idle) => self.core_idle = idle,
+            MpvEventKind::Volume(volume) => {
                 self.volume = volume;
                 let shown = self.volume_slider.read(cx).value().end() as f64;
                 if (shown - volume).abs() >= 0.5 {
@@ -181,8 +209,8 @@ impl PlayerView {
                         .update(cx, |s, cx| s.set_value(volume as f32, window, cx));
                 }
             }
-            MpvEvent::Mute(muted) => self.muted = muted,
-            MpvEvent::Tracks(tracks) => {
+            MpvEventKind::Mute(muted) => self.muted = muted,
+            MpvEventKind::Tracks(tracks) => {
                 self.playback.tracks = tracks;
                 self.playback.info_static = None;
                 // The embedded track list can turn up before `FileLoaded`'s sub-add for
@@ -194,15 +222,11 @@ impl PlayerView {
                         .item
                         .as_ref()
                         .is_some_and(|item| !self.api.external_subtitles(item).is_empty());
-                if !self.playback.tracks_applied
-                    && !self.playback.tracks.is_empty()
-                    && !subs_pending
-                {
-                    self.playback.tracks_applied = true;
-                    self.apply_remembered_tracks();
+                if !subs_pending {
+                    self.apply_tracks_if_ready();
                 }
             }
-            MpvEvent::FileLoaded => {
+            MpvEventKind::FileLoaded => {
                 if !self.playback.started {
                     self.playback.started = true;
                     self.report(Report::Start);
@@ -212,15 +236,35 @@ impl PlayerView {
                 // Guarded: a repeat FILE_LOADED for this item would otherwise re-add every
                 // external subtitle and double up the track menu.
                 if !self.playback.subs_added
-                    && let (Some(mpv), Some(item)) = (&self.mpv, &self.playback.item)
+                    && let (Some(mpv), Some(item), Some(load)) =
+                        (&self.mpv, &self.playback.item, self.playback.load)
                 {
                     self.playback.subs_added = true;
-                    for sub in self.api.external_subtitles(item) {
-                        let _ = mpv.add_subtitle(&sub.url, &sub.title, &sub.lang, sub.is_default);
+                    let subtitles = self.api.external_subtitles(item);
+                    self.playback.subtitle_readiness.begin(subtitles.len());
+                    for sub in subtitles {
+                        if let Err(err) = mpv.add_subtitle(
+                            &sub.url,
+                            &sub.title,
+                            &sub.lang,
+                            sub.is_default,
+                            load,
+                        ) {
+                            eprintln!("external subtitle addition failed: {err}");
+                            self.playback.subtitle_readiness.settle();
+                        }
                     }
+                    self.apply_tracks_if_ready();
                 }
             }
-            MpvEvent::EndFile(Ok(true)) => {
+            MpvEventKind::SubtitleAdded(result) => {
+                if let Err(err) = result {
+                    eprintln!("external subtitle addition failed: {err}");
+                }
+                self.playback.subtitle_readiness.settle();
+                self.apply_tracks_if_ready();
+            }
+            MpvEventKind::EndFile(Ok(true)) => {
                 self.playback.finished = true;
                 self.playback.time = self.playback.duration;
                 match self
@@ -234,12 +278,22 @@ impl PlayerView {
                 }
                 return;
             }
-            MpvEvent::EndFile(Ok(false)) => {}
-            MpvEvent::EndFile(Err(err)) => {
+            MpvEventKind::EndFile(Ok(false)) => {}
+            MpvEventKind::EndFile(Err(err)) => {
                 self.playback.error = Some(format!("Playback failed: {err}").into())
             }
         }
         cx.notify();
+    }
+
+    fn apply_tracks_if_ready(&mut self) {
+        if self
+            .playback
+            .subtitle_readiness
+            .take_ready(!self.playback.tracks.is_empty())
+        {
+            self.apply_remembered_tracks();
+        }
     }
 
     /// Segment the playhead is in, while the in-window Player plays without error.
@@ -311,6 +365,7 @@ impl PlayerView {
             let _ = mpv.stop();
             let _ = mpv.set_pause(false);
         }
+        self.paused = false;
         self.playback = Playback::new(&next, &self.api, cx);
         self.seek.update(cx, |s, cx| s.set_value(0., window, cx));
         self.load(next.id, None, cx);
@@ -626,4 +681,33 @@ fn spawn_reporter(
     })
     .detach();
     tx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SubtitleReadiness;
+
+    #[test]
+    fn selection_waits_until_all_subtitle_additions_settle() {
+        let mut readiness = SubtitleReadiness::default();
+        readiness.begin(2);
+        assert!(!readiness.take_ready(true));
+        readiness.settle();
+        assert!(!readiness.take_ready(true));
+        readiness.settle();
+        assert!(readiness.take_ready(true));
+        assert!(!readiness.take_ready(true));
+    }
+
+    #[test]
+    fn failed_additions_settle_and_no_additions_do_not_wait() {
+        let mut readiness = SubtitleReadiness::default();
+        readiness.begin(1);
+        readiness.settle();
+        assert!(readiness.take_ready(true));
+
+        readiness = SubtitleReadiness::default();
+        readiness.begin(0);
+        assert!(readiness.take_ready(true));
+    }
 }

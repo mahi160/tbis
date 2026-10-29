@@ -373,8 +373,9 @@ impl PlayerView {
             return;
         };
         let start = start_at.unwrap_or_else(|| item.resume_seconds());
-        if let Err(err) = mpv.load(&item.stream.url, start) {
-            self.playback.error = Some(err.into());
+        match mpv.load(&item.stream.url, start) {
+            Ok(load) => self.playback.load = Some(load),
+            Err(err) => self.playback.error = Some(err.into()),
         }
         self.playback.item = result.ok().map(std::sync::Arc::new);
         cx.notify();
