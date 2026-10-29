@@ -35,6 +35,10 @@ actions!(
         SeekForward,
         SeekBackLong,
         SeekForwardLong,
+        SeekBackNudge,
+        SeekForwardNudge,
+        FrameBack,
+        FrameForward,
         ToggleFullscreen,
         Escape,
         ToggleMute,
@@ -44,8 +48,10 @@ actions!(
         VolumeDown,
         CycleAudio,
         CycleSubtitle,
+        ToggleSubtitle,
         SpeedUp,
         SpeedDown,
+        SpeedReset,
         ChapterPrev,
         ChapterNext,
         SubDelayLater,
@@ -63,7 +69,8 @@ actions!(
 
 const CONTEXT: &str = "Player";
 const VOLUME_STEP: f64 = 5.;
-const DELAY_STEP: f64 = 0.1;
+const AUDIO_DELAY_STEP: f64 = 0.1;
+const SUB_DELAY_STEP: f64 = 5.;
 
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
@@ -73,6 +80,10 @@ pub fn bind_keys(cx: &mut App) {
         // not ctrl: macOS switches Spaces on ctrl-arrows
         KeyBinding::new("alt-left", SeekBackLong, Some(CONTEXT)),
         KeyBinding::new("alt-right", SeekForwardLong, Some(CONTEXT)),
+        KeyBinding::new("h", SeekBackNudge, Some(CONTEXT)),
+        KeyBinding::new("l", SeekForwardNudge, Some(CONTEXT)),
+        KeyBinding::new(",", FrameBack, Some(CONTEXT)),
+        KeyBinding::new(".", FrameForward, Some(CONTEXT)),
         KeyBinding::new("f", ToggleFullscreen, Some(CONTEXT)),
         KeyBinding::new("escape", Escape, Some(CONTEXT)),
         KeyBinding::new("m", ToggleMute, Some(CONTEXT)),
@@ -82,6 +93,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("down", VolumeDown, Some(CONTEXT)),
         KeyBinding::new("a", CycleAudio, Some(CONTEXT)),
         KeyBinding::new("c", CycleSubtitle, Some(CONTEXT)),
+        KeyBinding::new("v", ToggleSubtitle, Some(CONTEXT)),
+        KeyBinding::new("backspace", SpeedReset, Some(CONTEXT)),
         KeyBinding::new("shift-.", SpeedUp, Some(CONTEXT)), // '>'
         KeyBinding::new("shift-,", SpeedDown, Some(CONTEXT)), // '<'
         KeyBinding::new("shift-left", ChapterPrev, Some(CONTEXT)),
@@ -123,6 +136,7 @@ pub struct PlayerView {
     /// mpv not advancing; with `!paused`, means buffering.
     core_idle: bool,
     speed: f64,
+    audio_delay: f64,
     volume: f64,
     muted: bool,
     seek: Entity<SliderState>,
@@ -131,12 +145,14 @@ pub struct PlayerView {
     controls_visible: bool,
     /// Volume slider forced open by VolumeUp/VolumeDown, independent of mute-button hover.
     volume_hud: bool,
+    sync_hud: Option<SharedString>,
     menu_open: bool,
     track_prefs: TrackPrefs,
     /// Settings' preferred languages (read-only here).
     language: LanguagePref,
     /// Settings' streaming cap; over it the server may transcode.
     max_bitrate_mbps: Option<u32>,
+    default_bitrate_mbps: Option<u32>,
     /// Upscaling shaders active in mpv.
     shaders: ShaderProfile,
     /// Held while video actually plays; synced in `render`.
@@ -149,6 +165,7 @@ pub struct PlayerView {
     _info: Task<()>,
     _hide: Task<()>,
     _volume_hud: Task<()>,
+    _sync_hud: Task<()>,
     _tasks: Vec<Task<()>>,
     _subscriptions: [Subscription; 2],
 }
@@ -263,6 +280,7 @@ impl PlayerView {
             paused: false,
             core_idle: true,
             speed: 1.,
+            audio_delay: 0.,
             volume,
             muted,
             seek,
@@ -270,10 +288,12 @@ impl PlayerView {
             focus,
             controls_visible: true,
             volume_hud: false,
+            sync_hud: None,
             menu_open: false,
             track_prefs: config.track_prefs.clone(),
             language: config.language.clone(),
             max_bitrate_mbps: config.max_bitrate_mbps,
+            default_bitrate_mbps: config.max_bitrate_mbps,
             shaders: ShaderProfile::Off,
             awake: None,
             now_playing: None,
@@ -282,12 +302,14 @@ impl PlayerView {
             _info: Task::ready(()),
             _hide: Task::ready(()),
             _volume_hud: Task::ready(()),
+            _sync_hud: Task::ready(()),
             _tasks: tasks,
             _subscriptions,
         };
         if config.shaders != ShaderProfile::Off {
             this.apply_shaders(config.shaders, false, window, cx);
         }
+        this.restore_item_preferences();
         this.load(item.id.clone(), None, cx);
         this.show_controls(window, cx);
         this

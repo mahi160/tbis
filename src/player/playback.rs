@@ -228,6 +228,23 @@ impl PlayerView {
             }
             MpvEventKind::FileLoaded => {
                 if !self.playback.started {
+                    if let Some(mpv) = &self.mpv {
+                        let delay = self
+                            .track_prefs
+                            .playback
+                            .get(&self.playback.source.id)
+                            .and_then(|prefs| prefs.subtitle_delay)
+                            .unwrap_or(0.);
+                        for (name, value) in [
+                            ("speed", self.speed),
+                            ("sub-delay", delay),
+                            ("audio-delay", self.audio_delay),
+                        ] {
+                            if let Err(err) = mpv.set_property(name, &value.to_string()) {
+                                eprintln!("failed to restore {name}: {err}");
+                            }
+                        }
+                    }
                     self.playback.started = true;
                     self.report(Report::Start);
                 }
@@ -367,6 +384,7 @@ impl PlayerView {
         }
         self.paused = false;
         self.playback = Playback::new(&next, &self.api, cx);
+        self.restore_item_preferences();
         self.seek.update(cx, |s, cx| s.set_value(0., window, cx));
         self.load(next.id, None, cx);
         self.refocus(window, cx);
@@ -380,6 +398,13 @@ impl PlayerView {
             return;
         }
         self.max_bitrate_mbps = mbps;
+        let prefs = self
+            .track_prefs
+            .playback
+            .entry(self.playback.source.id.clone())
+            .or_default();
+        prefs.bitrate_set = true;
+        prefs.max_bitrate_mbps = mbps;
         let item = self.playback.source.clone();
         let at = if self.playback.time > 0. {
             Some(self.playback.time)
@@ -410,11 +435,33 @@ impl PlayerView {
         }
     }
 
+    pub(super) fn restore_item_preferences(&mut self) {
+        let prefs = self
+            .track_prefs
+            .playback
+            .get(&self.playback.source.id)
+            .copied()
+            .unwrap_or_default();
+        self.speed = prefs.speed.unwrap_or(1.);
+        self.audio_delay = 0.;
+        self.sync_hud = None;
+        self.max_bitrate_mbps = if prefs.bitrate_set {
+            prefs.max_bitrate_mbps
+        } else {
+            self.default_bitrate_mbps
+        };
+    }
+
     pub(super) fn set_speed(&mut self, speed: f64) {
         if let Some(mpv) = self.active_mpv()
             && mpv.set_speed(speed).is_ok()
         {
             self.speed = speed;
+            self.track_prefs
+                .playback
+                .entry(self.playback.source.id.clone())
+                .or_default()
+                .speed = Some(speed);
         }
     }
 
@@ -565,6 +612,37 @@ impl PlayerView {
                         .is_some_and(|l| crate::settings::same_language(l, lang))
             })
             .map(|t| t.id)
+    }
+
+    pub(super) fn toggle_subtitle(&mut self) {
+        let tracks: Vec<&Track> = self
+            .playback
+            .tracks
+            .iter()
+            .filter(|t| t.kind == TrackKind::Subtitle)
+            .collect();
+        if let Some(selected) = tracks.iter().find(|t| t.selected) {
+            let id = selected.id;
+            self.select_track(TrackKind::Subtitle, None);
+            if let Some(item) = &self.playback.item
+                && let Some(choice) = self.track_prefs.memory.get_mut(&item.id)
+            {
+                choice.subtitle = Some(id);
+            }
+        } else {
+            let remembered = self
+                .playback
+                .item
+                .as_ref()
+                .and_then(|item| self.track_prefs.memory.get(&item.id))
+                .and_then(|choice| choice.subtitle);
+            let id = remembered
+                .filter(|id| tracks.iter().any(|t| t.id == *id))
+                .or_else(|| tracks.first().map(|t| t.id));
+            if let Some(id) = id {
+                self.select_track(TrackKind::Subtitle, Some(id));
+            }
+        }
     }
 
     /// Selects the next track of `kind`, wrapping. Subtitle also cycles through "off".

@@ -24,11 +24,13 @@ use super::clock::format_time;
 mod chrome;
 
 use super::{
-    AudioDelayEarlier, AudioDelayLater, CONTEXT, ChapterNext, ChapterPrev, CycleAudio,
-    CycleShaders, CycleSubtitle, DELAY_STEP, Escape, HIDE_CONTROLS_AFTER, NextEpisode, PlayNext,
-    PlayerView, PreviousEpisode, Screenshot, SeekBack, SeekBackLong, SeekForward, SeekForwardLong,
-    SkipSegment, SpeedDown, SpeedUp, SubDelayEarlier, SubDelayLater, ToggleFullscreen, ToggleMute,
-    TogglePause, TogglePip, TogglePlaybackInfo, VOLUME_STEP, VolumeDown, VolumeUp, hide_cursor,
+    AUDIO_DELAY_STEP, AudioDelayEarlier, AudioDelayLater, CONTEXT, ChapterNext, ChapterPrev,
+    CycleAudio, CycleShaders, CycleSubtitle, Escape, FrameBack, FrameForward, HIDE_CONTROLS_AFTER,
+    NextEpisode, PlayNext, PlayerView, PreviousEpisode, SUB_DELAY_STEP, Screenshot, SeekBack,
+    SeekBackLong, SeekBackNudge, SeekForward, SeekForwardLong, SeekForwardNudge, SkipSegment,
+    SpeedDown, SpeedReset, SpeedUp, SubDelayEarlier, SubDelayLater, ToggleFullscreen, ToggleMute,
+    TogglePause, TogglePip, TogglePlaybackInfo, ToggleSubtitle, VOLUME_STEP, VolumeDown, VolumeUp,
+    hide_cursor,
 };
 
 const INFO_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
@@ -151,6 +153,39 @@ impl PlayerView {
         self.seek_step(true, true, window, cx);
     }
 
+    fn seek_back_nudge(&mut self, _: &SeekBackNudge, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(mpv) = self.active_mpv() {
+            let _ = mpv.seek_by(-5.);
+        }
+        self.show_controls(window, cx);
+    }
+
+    fn seek_forward_nudge(
+        &mut self,
+        _: &SeekForwardNudge,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(mpv) = self.active_mpv() {
+            let _ = mpv.seek_by(5.);
+        }
+        self.show_controls(window, cx);
+    }
+
+    fn frame_back(&mut self, _: &FrameBack, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(mpv) = self.active_mpv() {
+            let _ = mpv.frame_step(false);
+        }
+        self.show_controls(window, cx);
+    }
+
+    fn frame_forward(&mut self, _: &FrameForward, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(mpv) = self.active_mpv() {
+            let _ = mpv.frame_step(true);
+        }
+        self.show_controls(window, cx);
+    }
+
     fn toggle_mute(&mut self, _: &ToggleMute, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(mpv) = self.active_mpv() {
             let _ = mpv.set_mute(!self.muted);
@@ -186,6 +221,16 @@ impl PlayerView {
         self.refocus(window, cx);
     }
 
+    fn toggle_subtitle_action(
+        &mut self,
+        _: &ToggleSubtitle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_subtitle();
+        self.refocus(window, cx);
+    }
+
     fn chapter_prev(&mut self, _: &ChapterPrev, window: &mut Window, cx: &mut Context<Self>) {
         self.seek_chapter(-1);
         self.show_controls(window, cx);
@@ -197,10 +242,7 @@ impl PlayerView {
     }
 
     fn sub_delay_later(&mut self, _: &SubDelayLater, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.adjust_sub_delay(DELAY_STEP);
-        }
-        self.show_controls(window, cx);
+        self.adjust_delay(true, SUB_DELAY_STEP, window, cx);
     }
 
     fn sub_delay_earlier(
@@ -209,10 +251,7 @@ impl PlayerView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.adjust_sub_delay(-DELAY_STEP);
-        }
-        self.show_controls(window, cx);
+        self.adjust_delay(true, -SUB_DELAY_STEP, window, cx);
     }
 
     fn audio_delay_later(
@@ -221,10 +260,7 @@ impl PlayerView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.adjust_audio_delay(DELAY_STEP);
-        }
-        self.show_controls(window, cx);
+        self.adjust_delay(false, AUDIO_DELAY_STEP, window, cx);
     }
 
     fn audio_delay_earlier(
@@ -233,9 +269,54 @@ impl PlayerView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.adjust_audio_delay(-DELAY_STEP);
+        self.adjust_delay(false, -AUDIO_DELAY_STEP, window, cx);
+    }
+
+    fn adjust_delay(
+        &mut self,
+        subtitle: bool,
+        delta: f64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mpv) = self.active_mpv() else {
+            return;
+        };
+        let result = if subtitle {
+            mpv.adjust_sub_delay(delta)
+        } else {
+            mpv.adjust_audio_delay(delta)
+        };
+        if let Err(err) = result {
+            eprintln!("failed to adjust sync: {err}");
+            return;
         }
+        let property = if subtitle { "sub-delay" } else { "audio-delay" };
+        let Some(delay) = mpv.property(property).and_then(|value| value.parse::<f64>().ok()) else {
+            eprintln!("failed to read {property}");
+            return;
+        };
+        if subtitle {
+            self.track_prefs
+                .playback
+                .entry(self.playback.source.id.clone())
+                .or_default()
+                .subtitle_delay = Some(delay);
+        } else {
+            self.audio_delay = delay;
+        }
+        let label = if subtitle { "Subtitle" } else { "Audio" };
+        self.sync_hud = Some(format!("{label} sync: {delay:+.1} s").into());
+        self._sync_hud = cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor()
+                .timer(super::VOLUME_HUD_AFTER)
+                .await;
+            this.update(cx, |this, cx| {
+                this.sync_hud = None;
+                cx.notify();
+            })
+            .ok();
+        });
         self.show_controls(window, cx);
     }
 
@@ -245,6 +326,11 @@ impl PlayerView {
 
     fn speed_down(&mut self, _: &SpeedDown, window: &mut Window, cx: &mut Context<Self>) {
         self.step_speed(-1, window, cx);
+    }
+
+    fn speed_reset(&mut self, _: &SpeedReset, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_speed(1.);
+        self.show_controls(window, cx);
     }
 
     /// `SPEEDS[2]` is `1.` -- the fallback if `self.speed` somehow isn't in the list.
@@ -721,6 +807,10 @@ impl Render for PlayerView {
             .on_action(cx.listener(Self::seek_forward))
             .on_action(cx.listener(Self::seek_back_long))
             .on_action(cx.listener(Self::seek_forward_long))
+            .on_action(cx.listener(Self::seek_back_nudge))
+            .on_action(cx.listener(Self::seek_forward_nudge))
+            .on_action(cx.listener(Self::frame_back))
+            .on_action(cx.listener(Self::frame_forward))
             .on_action(cx.listener(Self::toggle_mute))
             .on_action(cx.listener(Self::toggle_fullscreen))
             .on_action(cx.listener(Self::escape))
@@ -730,8 +820,10 @@ impl Render for PlayerView {
             .on_action(cx.listener(Self::volume_down))
             .on_action(cx.listener(Self::cycle_audio))
             .on_action(cx.listener(Self::cycle_subtitle))
+            .on_action(cx.listener(Self::toggle_subtitle_action))
             .on_action(cx.listener(Self::speed_up))
             .on_action(cx.listener(Self::speed_down))
+            .on_action(cx.listener(Self::speed_reset))
             .on_action(cx.listener(Self::chapter_prev))
             .on_action(cx.listener(Self::chapter_next))
             .on_action(cx.listener(Self::sub_delay_later))
@@ -758,6 +850,7 @@ impl Render for PlayerView {
             .children(error)
             .children(pip_notice)
             .children(buffering)
+            .children(self.sync_hud.clone().map(overlay_banner))
             // stays up until closed (x or i), independent of the controls
             .children(info)
             .children(up_next)
