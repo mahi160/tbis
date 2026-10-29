@@ -36,6 +36,15 @@ pub struct LanguagePref {
     pub subtitles_enabled: Option<bool>,
 }
 
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ItemPlaybackPrefs {
+    pub speed: Option<f64>,
+    pub bitrate_set: bool,
+    pub max_bitrate_mbps: Option<u32>,
+    pub subtitle_delay: Option<f64>,
+}
+
 /// Audio/subtitle memory across the whole app: exact per-item picks, a per-series
 /// language (an Episode never played before still comes up in the language the rest
 /// of its Series was watched in, without dragging that pick into an unrelated Series
@@ -45,6 +54,8 @@ pub struct LanguagePref {
 pub struct TrackPrefs {
     #[serde(default)]
     pub memory: HashMap<String, TrackChoice>,
+    #[serde(default)]
+    pub playback: HashMap<String, ItemPlaybackPrefs>,
     #[serde(default)]
     pub series: HashMap<String, LanguagePref>,
     #[serde(default)]
@@ -429,6 +440,33 @@ mod tests {
         assert_eq!(loaded.device_id, config.device_id);
         save_to(&loaded, &path).unwrap();
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn playback_preferences_preserve_old_track_memory() {
+        let mut prefs: super::TrackPrefs =
+            serde_json::from_str(r#"{"memory":{"episode":{"audio":2,"subtitle":3}},"global":{}}"#)
+                .unwrap();
+        assert!(prefs.playback.is_empty());
+        assert_eq!(prefs.memory["episode"].audio, Some(2));
+        prefs.playback.insert(
+            "episode".into(),
+            super::ItemPlaybackPrefs {
+                speed: Some(1.5),
+                bitrate_set: true,
+                max_bitrate_mbps: None,
+                subtitle_delay: Some(-5.),
+            },
+        );
+        let saved = serde_json::to_string(&prefs).unwrap();
+        let loaded: super::TrackPrefs = serde_json::from_str(&saved).unwrap();
+        assert_eq!(loaded.memory["episode"].subtitle, Some(3));
+        let item = loaded.playback["episode"];
+        assert_eq!(item.speed, Some(1.5));
+        assert!(item.bitrate_set);
+        assert_eq!(item.max_bitrate_mbps, None);
+        assert_eq!(item.subtitle_delay, Some(-5.));
+        assert!(!loaded.playback.contains_key("other"));
     }
 
     #[test]
