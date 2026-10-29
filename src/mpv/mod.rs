@@ -213,6 +213,14 @@ impl Mpv {
             .command(&["seek", &format!("{seconds}"), "relative"])
     }
 
+    pub fn frame_step(&self, forward: bool) -> Result<(), String> {
+        self.handle.command(&[if forward {
+            "frame-step"
+        } else {
+            "frame-back-step"
+        }])
+    }
+
     /// 0–100.
     pub fn set_volume(&self, volume: f64) -> Result<(), String> {
         self.handle
