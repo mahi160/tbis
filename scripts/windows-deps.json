@@ -1,18 +1,268 @@
 {
-  "mirrorTag": "windows-deps-20261103",
-  "mpv": {
-    "archive": "mpv-dev-x86_64-20261103-git-a687796d9d.7z",
-    "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261103/mpv-dev-x86_64-20261103-git-a687796d9d.7z",
-    "sha256": "41cbfda596aaf1dc30053679bcd22828afaeec411340de6bf4c0e786fed1480b"
-  },
-  "loader": {
-    "url": "https://codeload.github.com/KhronosGroup/Vulkan-Loader/tar.gz/32fcb949e253cbeb40cda7ea76122b492db579ae",
-    "sha256": "610fa9017226c49bc4f19398d94fce9e3c9ff94c14f6420f9fe24822707feacf",
-    "directory": "Vulkan-Loader-32fcb949e253cbeb40cda7ea76122b492db579ae"
-  },
-  "headers": {
-    "url": "https://codeload.github.com/KhronosGroup/Vulkan-Headers/tar.gz/refs/tags/v1.4.341",
-    "sha256": "8876aad926b2e72bdefddc34885472d5332e2d20aa3ed57313466f0bc982cf3f",
-    "directory": "Vulkan-Headers-1.4.341"
-  }
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "name": "mpv",
+      "version": "0.42.0",
+      "url": "https://codeload.github.com/mpv-player/mpv/tar.gz/b0841e8c4d156b8403dc1876c4cbd9011eb583f3",
+      "sha256": "a4a79fa6ca728762ac407734b0f93dbcbba250c3bb3bf97b77a342042be802e4",
+      "archive": "mpv.tar.gz"
+    },
+    {
+      "name": "ffmpeg",
+      "version": "meson-9.0",
+      "url": "https://gitlab.freedesktop.org/gstreamer/meson-ports/ffmpeg/-/archive/7cb50518315d038e0f8c585f9ea11195cbea7553/ffmpeg-7cb50518315d038e0f8c585f9ea11195cbea7553.tar.gz",
+      "sha256": "aba22d4e3b351a7b9a55aa5e24ba7c5eab5f5d7b08ea569c9288d47680a3a362",
+      "archive": "ffmpeg.tar.gz",
+      "provides": [
+        "libavcodec",
+        "libavfilter",
+        "libavformat",
+        "libavutil",
+        "libswresample",
+        "libswscale"
+      ]
+    },
+    {
+      "name": "libplacebo",
+      "version": "7.387.0",
+      "url": "https://codeload.github.com/haasn/libplacebo/tar.gz/275f7dea27924cdd34ab2e6c20e448b6bc4fab65",
+      "sha256": "adbca47395410ada01414bc527e0103c716b9b758be857464c40e5ff0ec695be",
+      "archive": "libplacebo.tar.gz",
+      "provides": [
+        "libplacebo"
+      ]
+    },
+    {
+      "name": "libass",
+      "version": "0.17.5",
+      "url": "https://codeload.github.com/libass/libass/tar.gz/4a05d8127f525943ebf45fdc6497c9e665947f0d",
+      "sha256": "3546ecc8748c62e100a9dd18e52ea2d17d7facedf89cfcad97000ad60b1bce2b",
+      "archive": "libass.tar.gz",
+      "provides": [
+        "libass"
+      ]
+    },
+    {
+      "name": "dav1d",
+      "version": "1.5.4",
+      "url": "https://codeload.github.com/videolan/dav1d/tar.gz/54706fc6bc0cdecab7e9593974a4039cc038fca7",
+      "sha256": "9edb11a2108b375cc58370354e705feebc93430bb780130363815c1e1ac0c250",
+      "archive": "dav1d.tar.gz",
+      "provides": [
+        "dav1d"
+      ]
+    },
+    {
+      "name": "freetype2",
+      "version": "2.15.0",
+      "url": "https://codeload.github.com/freetype/freetype/tar.gz/37515cf56ba3349656049edbed89ffc6f6466f2d",
+      "sha256": "9efee8b0508e142f38d1c7e2e192d3e5041aa4bbf6c2ab1a901518211f76a914",
+      "archive": "freetype2.tar.gz",
+      "provides": [
+        "freetype2"
+      ]
+    },
+    {
+      "name": "fribidi",
+      "version": "1.0.18",
+      "url": "https://github.com/fribidi/fribidi/releases/download/v1.0.18/fribidi-1.0.18.tar.xz",
+      "sha256": "1de5e8073d035388b71d0b2d452b1da1f8caeea8a7702997b401fe1b6250727f",
+      "archive": "fribidi.tar.xz",
+      "provides": [
+        "fribidi"
+      ]
+    },
+    {
+      "name": "harfbuzz",
+      "version": "13.0.1",
+      "url": "https://github.com/harfbuzz/harfbuzz/releases/download/13.0.1/harfbuzz-13.0.1.tar.xz",
+      "sha256": "3553d943401c34ab9b8c75f35cdb8452ca660233b0e9d4a22395ce5245484bd7",
+      "archive": "harfbuzz.tar.xz",
+      "provides": [
+        "harfbuzz"
+      ]
+    },
+    {
+      "name": "zlib",
+      "version": "1.3.2",
+      "url": "https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.xz",
+      "sha256": "d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3",
+      "archive": "zlib.tar.xz",
+      "provides": [
+        "zlib"
+      ]
+    },
+    {
+      "name": "wrapdb",
+      "version": "cb21768447ab48bb5f5401683a04a1fd028cc658",
+      "url": "https://codeload.github.com/mesonbuild/wrapdb/tar.gz/cb21768447ab48bb5f5401683a04a1fd028cc658",
+      "sha256": "67f50b4b16b9b61641656aae89eb479b8d6c1ece477504dc45254d097c1f7c55",
+      "archive": "wrapdb.tar.gz"
+    },
+    {
+      "name": "glad",
+      "version": "73db193f853e2ee079bf3ca8a64aa2eaf6459043",
+      "url": "https://codeload.github.com/Dav1dde/glad/tar.gz/73db193f853e2ee079bf3ca8a64aa2eaf6459043",
+      "sha256": "33dbeae44d8315ece57e14eba4b1b4a02ac5406d1c4f49cd20048c91522a6b9a",
+      "archive": "glad.tar.gz"
+    },
+    {
+      "name": "jinja",
+      "version": "15206881c006c79667fe5154fe80c01c65410679",
+      "url": "https://codeload.github.com/pallets/jinja/tar.gz/15206881c006c79667fe5154fe80c01c65410679",
+      "sha256": "b88a20dcc2e34072fcf4159325bc6c34cd4b29a81a8b83d15d2f28ba561da296",
+      "archive": "jinja.tar.gz"
+    },
+    {
+      "name": "markupsafe",
+      "version": "297fc8e356e6836a62087949245d09a28e9f1b13",
+      "url": "https://codeload.github.com/pallets/markupsafe/tar.gz/297fc8e356e6836a62087949245d09a28e9f1b13",
+      "sha256": "da7c010c9c81a66ac73036558c1fcb6212b50482f43211cd1254035b94f82414",
+      "archive": "markupsafe.tar.gz"
+    },
+    {
+      "name": "fast_float",
+      "version": "97b54ca9e75f5303507699d27c6b4f4efe4641a1",
+      "url": "https://codeload.github.com/fastfloat/fast_float/tar.gz/97b54ca9e75f5303507699d27c6b4f4efe4641a1",
+      "sha256": "2b132274539286e41f37857cac22aa8441d21bd86d55de825a3342b149f66801",
+      "archive": "fast_float.tar.gz"
+    },
+    {
+      "name": "vulkan_headers",
+      "version": "74d8a6cb930c68ef617b202c3ff3c59d919e086b",
+      "url": "https://codeload.github.com/KhronosGroup/Vulkan-Headers/tar.gz/74d8a6cb930c68ef617b202c3ff3c59d919e086b",
+      "sha256": "75967a8288ff16044a86d1af462b96d2e75c435937efb75f2bb4102ab0382f29",
+      "archive": "vulkan_headers.tar.gz"
+    }
+  ],
+  "tools": [
+    {
+      "name": "meson",
+      "version": "1.12.1",
+      "archive": "meson-1.12.1-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/57/99/36cd25f9598eef70db97577440a70a360af505f6f01c2338a18d1556079c/meson-1.12.1-py3-none-any.whl",
+      "sha256": "930bc7542cbd9f57009e182fd014eba48cf1a0180a7b9006d2d32d8f168d8b02"
+    },
+    {
+      "name": "ninja",
+      "version": "1.13.2",
+      "archive": "ninja-1.13.2-py3-none-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/3f/dd/3766b5f4d32e8a9b97d195496b0b01fbbe2e1a41669dab0cd6492a6ce199/ninja-1.13.2-py3-none-win_amd64.whl",
+      "sha256": "1293f4078278b70d0ee4b6cc8f3a9e030656c9b2f59909970343c4fe76070118"
+    },
+    {
+      "name": "nasm",
+      "version": "2.16.03",
+      "archive": "nasm-2.16.03-win64.zip",
+      "url": "https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip",
+      "sha256": "3ee4782247bcb874378d02f7eab4e294a84d3d15f3f6ee2de2f47a46aa7226e6"
+    }
+  ],
+  "buildOptions": [
+    "default_library=shared",
+    "auto_features=auto",
+    "b_vscrt=mt",
+    "buildtype=release",
+    "cplayer=false",
+    "libmpv=true",
+    "gpl=true",
+    "lua=disabled",
+    "cdda=disabled",
+    "dvda=disabled",
+    "dvdnav=disabled",
+    "javascript=disabled",
+    "jpeg=disabled",
+    "lcms2=disabled",
+    "libarchive=disabled",
+    "libavdevice=disabled",
+    "libbluray=disabled",
+    "libcurl=disabled",
+    "rubberband=disabled",
+    "subrandr=disabled",
+    "uchardet=disabled",
+    "vapoursynth=disabled",
+    "zimg=disabled",
+    "shaderc=disabled",
+    "spirv-cross=disabled",
+    "build-date=false",
+    "gl=enabled",
+    "plain-gl=enabled",
+    "gl-win32=enabled",
+    "d3d-hwaccel=enabled",
+    "wasapi=enabled",
+    "win32-threads=enabled",
+    "zlib=enabled",
+    "vulkan=disabled",
+    "ffmpeg:default_library=static",
+    "libplacebo:default_library=static",
+    "libass:default_library=static",
+    "dav1d:default_library=static",
+    "freetype2:default_library=static",
+    "fribidi:default_library=static",
+    "harfbuzz:default_library=static",
+    "zlib:default_library=static",
+    "libplacebo:opengl=enabled",
+    "libplacebo:gl-proc-addr=enabled",
+    "libplacebo:vulkan=disabled",
+    "libplacebo:d3d11=disabled",
+    "libplacebo:shaderc=disabled",
+    "libplacebo:glslang=disabled",
+    "libplacebo:demos=false",
+    "libplacebo:tests=false",
+    "libass:directwrite=enabled",
+    "libass:asm=enabled",
+    "libass:test=disabled",
+    "libass:compare=disabled",
+    "libass:profile=disabled",
+    "libass:fuzz=disabled",
+    "libass:checkasm=disabled",
+    "zlib:tests=disabled",
+    "freetype2:harfbuzz=disabled",
+    "freetype2:zlib=external",
+    "fribidi:docs=false",
+    "fribidi:bin=false",
+    "fribidi:tests=false",
+    "harfbuzz:tests=disabled",
+    "harfbuzz:utilities=disabled",
+    "harfbuzz:raster=disabled",
+    "harfbuzz:vector=disabled",
+    "harfbuzz:subset=disabled",
+    "dav1d:enable_tools=false",
+    "dav1d:enable_tests=false",
+    "dav1d:enable_docs=false",
+    "ffmpeg:programs=disabled",
+    "ffmpeg:tests=disabled",
+    "ffmpeg:checkasm=disabled",
+    "ffmpeg:avdevice=disabled",
+    "ffmpeg:devices=disabled",
+    "ffmpeg:network=enabled",
+    "ffmpeg:libdav1d=enabled",
+    "ffmpeg:zlib=enabled",
+    "ffmpeg:schannel=enabled",
+    "ffmpeg:d3d11va=enabled",
+    "ffmpeg:bzlib=disabled",
+    "ffmpeg:iconv=disabled",
+    "ffmpeg:lzma=disabled",
+    "ffmpeg:ffnvcodec=disabled",
+    "ffmpeg:ff_cuda_nvcc=disabled",
+    "ffmpeg:ff_cuda_llvm=disabled",
+    "ffmpeg:ff_cuda_sdk=disabled",
+    "ffmpeg:crystalhd=disabled",
+    "ffmpeg:whisper=disabled",
+    "ffmpeg:vulkan=disabled",
+    "ffmpeg:vulkan_1_4=disabled",
+    "ffmpeg:d3d12va=disabled",
+    "ffmpeg:mediafoundation=disabled",
+    "ffmpeg:h264_decoder=enabled",
+    "ffmpeg:hevc_decoder=enabled",
+    "ffmpeg:aac_decoder=enabled",
+    "ffmpeg:ass_decoder=enabled",
+    "ffmpeg:subrip_decoder=enabled",
+    "ffmpeg:libdav1d_decoder=enabled",
+    "ffmpeg:png_encoder=enabled",
+    "ffmpeg:http_protocol=enabled",
+    "ffmpeg:https_protocol=enabled",
+    "ffmpeg:tls_protocol=enabled"
+  ]
 }

@@ -36,31 +36,22 @@ If hardware validation shows this bottom-target/interop design is a no-go, the f
 
 ## libmpv dependency and distribution
 
-The current source of the pin is [`.github/workflows/windows.yml`](../../.github/workflows/windows.yml):
+The pin lives in [`scripts/windows-deps.json`](../../scripts/windows-deps.json), not in the workflow. Normal Windows CI and local setup build it directly through `scripts/build-windows-mpv.ps1`:
 
-- Upstream: `shinchiro/mpv-winbuild-cmake`, release `20261103`.
-- Archive: `mpv-dev-x86_64-20261103-git-a687796d9d.7z`.
-- URL: `https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261103/mpv-dev-x86_64-20261103-git-a687796d9d.7z`.
-- SHA256: `41cbfda596aaf1dc30053679bcd22828afaeec411340de6bf4c0e786fed1480b`.
+- mpv 0.42.0 at `b0841e8c4d156b8403dc1876c4cbd9011eb583f3`.
+- FFmpeg 9.0 Meson port at `7cb50518315d038e0f8c585f9ea11195cbea7553`.
+- libplacebo 7.387.0, libass 0.17.5 and all remaining dependency/build inputs pinned by source URL and SHA256 in the manifest.
+- Meson 1.12.1, Ninja 1.13.2 and NASM 2.16.03 checksum-pinned.
 
-The parent task verified the digest through the GitHub API; it was not independently downloaded or verified for this ADR. The workflow verifies the downloaded archive against the pin. These nightly assets are subject to upstream deletion, so mirroring and release tooling remain follow-up work, not an available guarantee.
+The native Windows recipe uses GNU-frontend Clang targeting MSVC and the Windows SDK. All dependency libraries and the CRT are static; only libmpv is shared. Vulkan is disabled in mpv, FFmpeg and libplacebo. libplacebo's public `vulkan.h` still unconditionally requires Vulkan-Headers, so the manifest pins this header-only source at `74d8a6cb930c68ef617b202c3ff3c59d919e086b` and preparation installs it under `libplacebo/3rdparty/Vulkan-Headers`, preserving its original archive, licenses and inventory records. This build-only header dependency does not enable the Vulkan backend or require a Vulkan loader binary (`vulkan-1.dll`). The recipe generates MSVC `mpv.lib` from the built DLL's actual exports and verifies client/render exports and imports.
 
-The archive supplies a MinGW import library. The workflow instead creates the MSVC `mpv.lib` from the actual DLL exports in an x64 MSVC developer environment, after extracting the checksum-validated archive to `mpv`:
+Python 3.12 standard-library tooling verifies source downloads/extraction and generates source/license/provenance records tied to the actual DLL hash, current scripts and manifest pins. No pre-created mirror, manual source URL/SHA variables or supplied reviewer attestation is required. Compiler/SDK/runner identities are recorded, not fully pinned for bit-for-bit reproducibility.
 
-```powershell
-$dll = Get-ChildItem mpv -Recurse -Filter libmpv-2.dll | Select-Object -First 1
-if (-not $dll) { throw 'libmpv-2.dll not found' }
-$names = dumpbin /nologo /exports $dll.FullName |
-  Select-String '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]{8}\s+(\S+)' |
-  ForEach-Object { $_.Matches[0].Groups[1].Value }
-if (-not $names) { throw 'no exports read from libmpv-2.dll' }
-@('LIBRARY libmpv-2', 'EXPORTS') + $names | Set-Content mpv\mpv.def
-lib /nologo /def:mpv\mpv.def /out:mpv\mpv.lib /machine:x64
-if ($LASTEXITCODE) { throw 'lib failed' }
-$env:MPV_LIB_DIR = (Resolve-Path mpv).Path
-```
+Ship `libmpv-2.dll` beside `tbis.exe` with the licenses and component records in the flat updater-compatible zip; the updater is unchanged. Distribution must satisfy [ADR-0004](0004-bundle-libmpv-and-license-as-gpl.md). Checksum, matching-source and PE import gates remain fail-closed. The optional **Build Windows dependencies** dispatch defaults to `publish=false`; later explicit publication can create a dedicated immutable matched binary/source/provenance archive, never the latest application release. Normal CI builds from source without it.
 
-Ship `libmpv-2.dll` beside `tbis.exe`, as the current workflow stages it. That staging is not a completed release process. Distribution must satisfy [ADR-0004](0004-bundle-libmpv-and-license-as-gpl.md): GPL-3.0-or-later licensing, bundled dependency notices/licenses and Corresponding Source for tbis and the exact bundled dependencies. An upstream binary download link alone does not satisfy the source obligation.
+This session configured, audited and cross-compiled the entire pinned Windows source graph on macOS with the actual MSVC SDK and GNU-frontend LLVM 23.1.4, linking `mpv-2.dll` in 2,979 steps. The actual helper generated and verified its paired source inventory under `target/windows-source-final-validated`; mechanical inventory validation does not establish legal completeness. The DLL imports only Windows system libraries, with no Vulkan or Visual C++ runtime DLL imports, and exposes all 54 mpv client/render exports. All 20 Python tests, 30 Rust release tests, six PowerShell script parses, portable updater rollback tests and three workflow YAML parses passed.
+
+Cross-validation used native Mac Ninja 1.13.2 and NASM 3.02 rather than the native recipe's pinned NASM 2.16.03. The exact native PowerShell recipe, native CI, packaging and executable self-test remain unproven; no new CI was pushed or dispatched and no product or dependency release was published. Earlier Windows application cross-debug-link and Clippy evidence used the old nightly and remains historical, not validation against this DLL. See [Windows build instructions](../windows-build.md#source-pipeline-validation) for commands and limits. Compilation does not prove playback or GPU acceptance.
 
 ## Acceptance evidence still required
 

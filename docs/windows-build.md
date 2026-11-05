@@ -2,20 +2,45 @@
 
 ## Status and installation
 
-The Windows target is x86_64 Windows 10/11 with MSVC. A Windows debug executable has cross-built and linked successfully on macOS, and Windows all-target cross-Clippy passed with `-D warnings`. Windows release cross-building was attempted but is blocked by gpui's Windows-host-only HLSL generation; native Windows CI must verify release and `dist` builds. Native Windows runtime, GPU behavior, CI, packaging and source-gate execution remain **unverified**. See [Windows validation status](windows.md) for the GPU matrix. A successful dependency self-test is not a playback test or evidence of a self-contained application.
+The Windows target is x86_64 Windows 10/11 with MSVC. The implemented dependency pipeline builds libmpv directly from pinned sources on native Windows; it no longer requires a pre-created binary mirror or manually supplied source bundle. The entire pinned source graph has been configured, audited and cross-compiled on macOS, linking the Windows DLL and validating its paired source inventory. Native Windows CI, packaging, executable self-test and playback remain pending; Windows runtime and GPU behavior remain **unverified**. See [Windows validation status](windows.md) for the GPU matrix. A successful dependency self-test is not a playback test.
 
-Once a release includes `tbis-<version>-windows-x86_64.zip`, download that asset from [Releases](https://github.com/mahi160/tbis/releases), extract the **entire** zip into a writable folder, and run `tbis.exe`. Keep `libmpv-2.dll`, `vulkan-1.dll`, `LICENSE`, `licenses/`, `components/` and `bundled-components.txt` beside it. Do not run from inside the zip or copy only the executable. The application is not Windows-code-signed; review Windows download warnings and verify the release's provenance before running it. GPU drivers remain a system prerequisite.
+Once a release includes `tbis-<version>-windows-x86_64.zip`, download that asset from [Releases](https://github.com/mahi160/tbis/releases), extract the **entire** zip into a writable folder, and run `tbis.exe`. Keep `libmpv-2.dll`, `LICENSE`, `licenses/`, `components/` and `bundled-components.txt` beside it. Do not run from inside the zip or copy only the executable. The application is not Windows-code-signed; review Windows download warnings and verify the release's provenance before running it. GPU drivers remain a system prerequisite.
+
+## Source pipeline validation
+
+This session's evidence on macOS covers the actual source helper and the entire pinned Windows-target dependency graph:
+
+- `prepare` downloaded, SHA256-validated and safely extracted all 15 pinned source components and three pinned tools. All 20 Python provenance/manifest/archive tests passed on Python 3.15.2; the helper also supports CI's Python 3.12.
+- The full Rust release suite passed all 30 tests. All six PowerShell scripts parsed, the existing portable updater rollback tests passed, and all three workflow YAML files parsed. These are not native Windows runtime results.
+- Configuration and the actual helper's graph audit passed with the MSVC/Windows SDK and GNU-frontend LLVM 23.1.4. Native Mac Ninja 1.13.2 and NASM 3.02 completed all 2,979 build steps, linking `mpv-2.dll`. The dependency tree is `target/windows-source-final-validated`; its normalized DLL/import library are in `target/windows-source-final-validated/mpv`.
+- The built DLL imported only Windows system libraries: no `vulkan-1.dll`, `vcruntime`, `msvcp` or `concrt`. All 54 mpv client/render exports were present. Vulkan-Headers remains preserved as a build-only source dependency, not a Vulkan runtime requirement.
+- The actual helper generated and verified the paired `corresponding-source/inventory.json`, binding sources, recipes and notices to the built binaries. This validates the mechanical inventory, not legal completeness.
+- Generated metadata reports `FFMPEG_VERSION` as `9.0.2`; libass does not inherit tbis's parent Git identity. `GIT_CEILING_DIRECTORIES` isolates source probes through configuration and compilation. Standards review found no issues; the Spec review's CRLF-patch and parent-Git-version findings were fixed with LF patch attributes and the Git ceiling. The patch attribute disables only blank-at-EOL whitespace checking for valid unified-diff context lines.
+
+The helper invocations and Ninja compilation used these existing contracts (paths are parameterized):
+
+```sh
+python -B scripts/windows_sources.py prepare --repo "$REPO" --deps "$DEPS"
+python -B scripts/windows_sources.py audit --repo "$REPO" --deps "$DEPS"
+ninja -C "$DEPS/build"
+python -B scripts/windows_sources.py inventory --repo "$REPO" --deps "$DEPS"
+python -B scripts/windows_sources.py verify --repo "$REPO" --deps "$DEPS"
+```
+
+`REPO` is the absolute repository root; `DEPS` was its `target/windows-source-final-validated` directory. `python` and `ninja` stand for the validation executables above. `prepare` requires a fresh dependency directory; `audit` requires the configured Meson graph and SDK environment. Configuration occurred between `prepare` and `audit`; DLL/import-library normalization and toolchain/build records preceded `inventory`. These helper actions are the same contracts used by the native recipe, not a standalone build command sequence. The temporary cross file and Mac-only helper tools were validation scaffolding, not a newly supported repository cross-build CLI.
+
+The default native PowerShell recipe uses pinned NASM 2.16.03, not the cross-validation host's NASM 3.02. This evidence does not prove the exact native PowerShell recipe, native CI, packaging, executable self-test or playback. No new CI was pushed or dispatched, and no product or dependency release was published. Native Windows CI remains pending; the GPU matrix remains unverified.
 
 ## Recorded validation evidence
 
-The following validation ran on an Apple Silicon macOS host, not on Windows. Temporary tools were used without a global installation. Commands below omit log redirection and use tool names on `PATH` rather than temporary installation paths.
+The following is historical application validation on an Apple Silicon macOS host, not validation of the new source-built dependency pipeline. Temporary tools were used without a global installation. Commands omit log redirection and use tool names on `PATH` rather than temporary installation paths.
 
 - `cargo test --release --locked`: 30 tests passed on macOS.
 - `cargo check --locked`, `cargo clippy --all-targets --locked -- -D warnings` and `cargo fmt --all -- --check`: passed on macOS.
-- `pwsh -NoLogo -NoProfile -File src/platform/windows/update.tests.ps1`: portable updater tests passed using the official PowerShell 7.6.9 macOS arm64 archive. This does not exercise Windows process handling or runtime behavior.
-- PowerShell parsing passed for all five scripts in `scripts/*.ps1` and `src/platform/windows/*.ps1`, using `[Management.Automation.Language.Parser]::ParseFile`. Workflow YAML also parsed with Ruby; neither result is a native Windows or CI execution result.
+- `pwsh -NoLogo -NoProfile -File src/platform/windows/update.tests.ps1`: portable updater tests passed using PowerShell 7.6.9 for macOS arm64, not Windows process handling or runtime behavior.
+- PowerShell parsing passed for the five scripts then present in `scripts/*.ps1` and `src/platform/windows/*.ps1`, using `[Management.Automation.Language.Parser]::ParseFile`. Workflow YAML also parsed with Ruby. These results do not cover the newly added recipe or native CI execution.
 
-Windows cross-compilation used cargo-xwin with the downloaded actual MSVC CRT/Windows SDK, LLVM 23.1.4 (`clang-cl`, `lld-link`, `llvm-lib` and `llvm-readobj`) on `PATH`, and the repository's static-CRT target configuration. On this host, `DYLD_FALLBACK_LIBRARY_PATH` included the temporary Z3 5.3.3 and LLVM library directories and Homebrew's zstd library directory. `MPV_LIB_DIR` named the temporary directory containing `mpv.lib`, generated from the pinned DLL's exports with `llvm-lib /def:mpv.def /out:mpv.lib /machine:x64`; `TBIS_WINDOWS_ICON` named the generated `icon.ico`. With that environment, these commands succeeded:
+Windows cross-compilation used cargo-xwin with the actual MSVC CRT/Windows SDK, LLVM 23.1.4 (`clang-cl`, `lld-link`, `llvm-lib` and `llvm-readobj`) and the repository's static-CRT target configuration. `DYLD_FALLBACK_LIBRARY_PATH` included temporary Z3 5.3.3 and LLVM libraries and Homebrew's zstd library directory. `MPV_LIB_DIR` contained `mpv.lib`, generated with `llvm-lib /def:mpv.def /out:mpv.lib /machine:x64` from the previous shinchiro `20261103` nightly DLL, not the new source build. `TBIS_WINDOWS_ICON` named the generated `icon.ico`. These commands succeeded:
 
 ```sh
 cargo-xwin check --target x86_64-pc-windows-msvc --locked
@@ -23,94 +48,122 @@ cargo-xwin clippy --target x86_64-pc-windows-msvc --all-targets --locked -- -D w
 cargo-xwin build --target x86_64-pc-windows-msvc --locked
 ```
 
-The build produced `target/x86_64-pc-windows-msvc/debug/tbis.exe`; it was linked, not executed. This is debug evidence only, not a release or `dist` build, Windows test run, packaged self-test or playback result. `cargo-xwin build --release --target x86_64-pc-windows-msvc --locked` was also attempted and failed in `gpui-pre-windows 0.3.9` because `shaders_bytes.rs` was missing. Its build script compiles HLSL only on a Windows host, while the release renderer includes those generated bytes for a Windows target. No shader stubs, dependency patches or weakened release settings were used to hide this limitation.
+The resulting `target/x86_64-pc-windows-msvc/debug/tbis.exe` was linked, not executed. This is debug application evidence only. `cargo-xwin build --release --target x86_64-pc-windows-msvc --locked` failed in `gpui-pre-windows 0.3.9` because `shaders_bytes.rs` was missing: HLSL generation runs only on a Windows host. No shader stubs, dependency patches or weakened release settings hid this limitation.
 
-`llvm-readobj --coff-imports /tmp/tbis-cross-tools/libmpv-2.dll` and `llvm-readobj --coff-imports target/x86_64-pc-windows-msvc/debug/tbis.exe` supplied the observed imports used to extend the bundle's explicit Windows 10/11 system allowlist. The DLL came from the archive whose SHA256 matched the manifest pin. Neither import list contained `vcruntime`, `msvcp` or `concrt`. This inspection does not replace native Windows `dumpbin /dependents` over every staged executable/DLL, including the built Vulkan loader; that packaging gate remains unrun. Unknown imports and the forbidden CRT imports still fail closed.
+`llvm-readobj --coff-imports` inspected the old nightly DLL and debug executable; neither imported `vcruntime`, `msvcp` or `concrt`. The nightly archive matched its then-pinned SHA256. This is not import evidence for the new source-built DLL and does not replace native `dumpbin /dependents` packaging checks.
 
-## One-time provisioning blocker
+Old Windows CI run `41985341022` failed downloading the nonexistent `windows-deps-20261103` mirror. That failure belongs to the replaced bootstrap, not the new pipeline. It does not describe execution of the new pipeline; current source-pipeline evidence and remaining native CI work are recorded above.
 
-There is currently no libmpv mirror in `mahi160/tbis`. Normal development and CI deliberately download only the durable repository dependency release, never fall back to the expiring nightly. A maintainer must provision that release before setup can succeed.
+## Pinned source build
 
-The pinned upstream archive is shinchiro's `20261103` x86_64 development build, SHA256 `41cbfda596aaf1dc30053679bcd22828afaeec411340de6bf4c0e786fed1480b`. Upstream workflow run `41549600510`, revision `bda10a2816ce9908d419b3f4b564227330457e76`, publishes binaries and logs, not complete exact Corresponding Source. Its moving refs and cached inputs do not establish the source of every incorporated component. Upstream links or a checkout of that workflow alone do not satisfy the source obligation.
+[`scripts/windows-deps.json`](../scripts/windows-deps.json) is the source and build-option manifest. Every source archive has an HTTPS URL and SHA256. Current pins include:
 
-**Public distribution is blocked until a maintainer obtains and verifies complete matching Corresponding Source and licenses.** Do not substitute the current source trees, invent a component list, or assert that a build log is complete source. If the exact source cannot be recovered, this pin cannot be publicly mirrored or shipped; replace it with a verifiably sourced build in a separate change.
+- mpv 0.42.0 at `b0841e8c4d156b8403dc1876c4cbd9011eb583f3`.
+- FFmpeg 9.0 Meson port at `7cb50518315d038e0f8c585f9ea11195cbea7553` (`meson-9.0` in the manifest).
+- libplacebo 7.387.0, libass 0.17.5, dav1d 1.5.4, FreeType 2.15.0, FriBidi 1.0.18, HarfBuzz 13.0.1 and zlib 1.3.2.
+- Exact WrapDB, glad, Jinja, MarkupSafe and fast_float revisions for the zlib overlay and libplacebo build inputs.
+- Checksum-pinned Meson 1.12.1, Ninja 1.13.2 and NASM 2.16.03 tool archives.
 
-After reviewing that source bundle, deliberately run **Provision Windows dependency mirror** (`mirror-windows-deps.yml`) with its HTTPS URL and SHA256. The workflow validates the inventory and all listed hashes before downloading the pinned binary and creating the dedicated `windows-deps-20261103` dependency release. It attaches both the binary and `corresponding-source.zip`, and does not mark this as the latest application release. An existing release is not overwritten. Treat its assets as immutable; enable GitHub release immutability where available.
+`scripts/build-windows-mpv.ps1` uses native Windows x64 GNU-frontend `clang`/`clang++` targeting MSVC, with `lld-link`, `llvm-lib`, `llvm-rc` and the MSVC/Windows SDK environment. It does not use `clang-cl` for this recipe. All dependency libraries are static, libmpv alone is shared, and Meson requires the static MSVC CRT (`b_vscrt=mt`). Rust's Windows target also uses the static CRT through `.cargo/config.toml`.
 
-To bump libmpv, edit only `scripts/windows-deps.json`: change `mirrorTag` and the mpv upstream URL, archive filename and SHA256 together. Obtain matching reviewed sources and provision the new dependency release before using the pin, then update the source bundle variables. Do not modify or replace the old mirror's assets.
+Vulkan is disabled in mpv, FFmpeg and libplacebo. libplacebo's public `vulkan.h` unconditionally requires Vulkan-Headers even with its Vulkan backend disabled. The manifest pins this header-only source at `74d8a6cb930c68ef617b202c3ff3c59d919e086b`; preparation places it in `libplacebo/3rdparty/Vulkan-Headers` and preserves its original archive, licenses and inventory records. The Windows presentation backend uses WGL/OpenGL with D3D11/DirectComposition; no Vulkan loader binary (`vulkan-1.dll`) or Vulkan SDK loader build is required. FFmpeg enables D3D11VA, Schannel HTTPS, dav1d, zlib and the required decoding/screenshot features, which the graph audit checks.
 
-Set repository variables `WINDOWS_SOURCE_URL` and `WINDOWS_SOURCE_SHA256` to the reviewed bundle (prefer the new mirror's `corresponding-source.zip` URL and its original SHA256). These explicit values are required for packaging in both Windows CI and production releases. They are not credentials. Missing values, downloads, mismatched hashes or incomplete inventories stop packaging and all application publishing. Compilation and tests may run before this gate.
+Our build patch [`mpv-d3d11-hwdec-helpers.patch`](../scripts/patches/mpv-d3d11-hwdec-helpers.patch) ensures D3D11 helpers and feature probes are enabled when only hardware decoding is enabled, preserving the existing D3D11/EGL/Vulkan conditions. An earlier cross-compilation attempt reached 2975/2978 before `vf_d3d11vpp.c` failed with a `DXGI_DEBUG_D3D11` redefinition because the probe was omitted; the patched graph subsequently completed all 2,979 steps. Preparation applies the patch strictly with Git before recording prepared-source hashes; the original archive and exact patch are preserved in the source inventory. Native compilation remains unverified. `.gitattributes` keeps build patches LF-terminated on Windows so they match extracted upstream sources.
 
-## Corresponding Source bundle contract
+The source builder sets `GIT_CEILING_DIRECTORIES` to its resolved dependency root before preparation and retains it through Meson configuration and Ninja compilation. Dependency source version probes are isolated from the parent application Git repository and use preserved upstream release metadata or git-archive substitutions instead.
 
-Supply a zip with these paths at its root, not inside an enclosing directory:
+Python 3.12's standard library in `scripts/windows_sources.py` handles verified downloads, safe extraction and provenance. Extraction rejects unsafe paths, collisions and escaping links, and materializes valid internal archive links as files. Preparation creates the pinned subprojects, generated wraps and zlib overlay. Meson uses `--wrap-mode=nodownload` and forced fallbacks; external pkg-config/CMake discovery is disabled. The audit rejects unexpected projects, shared dependencies, external libraries, non-static CRT settings and missing required FFmpeg features. The recipe checks the DLL's imports and client/render exports before generating MSVC `mpv.lib` from its actual exports.
 
-```text
-inventory.json
-sources/<component>/<exact-source-archive-or-source-files>
-recipes/<component>/<build-scripts-patches-and-configuration>
-licenses/<component>/<license-and-notice-files>
-```
-
-`inventory.json` has this schema; placeholders below are not valid release data:
-
-```json
-{
-  "completeCorrespondingSource": true,
-  "binarySha256": "<exact pinned libmpv archive SHA256>",
-  "reviewedBy": "<maintainer identity and review reference>",
-  "components": [
-    {
-      "name": "mpv",
-      "version": "<exact revision>",
-      "sources": [{"path": "sources/mpv/source.tar.gz", "sha256": "<64 hex digits>"}],
-      "recipes": [{"path": "recipes/mpv/build.sh", "sha256": "<64 hex digits>"}],
-      "licenses": [{"path": "licenses/mpv/COPYING", "sha256": "<64 hex digits>"}]
-    }
-  ]
-}
-```
-
-List **every** component incorporated into libmpv, including FFmpeg, codecs, libraries and statically linked dependencies, not just the two top-level projects. Each entry needs exact identity/version, source, build recipes and applicable license/notice files. Include all patches, configure options, toolchain identities and scripts needed to reproduce the matching binary, including cached inputs. Use arrays even for one file. Paths must use relative forward slashes, with letters, numbers, `_`, `.`, `/`, `+` or `-`; no traversal, links, duplicate paths or Windows-invalid names. Keep source payloads as archives when their internal paths cannot meet this contract.
-
-The gate requires the matching binary checksum, a completeness attestation, a reviewer, mpv and FFmpeg entries, all three nonempty file lists for every component and matching file hashes. This validates the supplied evidence's integrity, **not legal completeness or reproducibility**. The named maintainer must establish both before supplying the bundle. No automatic list assembled from upstream URLs is accepted as that review.
-
-The application zip carries the supplied licenses and inventory, Vulkan notices, notices from vendored Rust crates, the locked Rust dependency inventory and pinned dependency metadata. The separate `tbis-<version>-windows-sources.tar` contains tbis at the built Git revision, the complete supplied source/recipe/license tree, and both checksum-pinned Vulkan source archives. The tbis tree contains the Windows build recipes and pin manifest, plus `cargo vendor --locked --versioned-dirs` output and the corresponding Cargo source configuration. Vulkan source archives retain all upstream license and notice files.
+Compiler/tool hashes and identities, SDK environment and runner image identity are recorded, not fully pinned for bit-for-bit reproducibility. Pinned sources and recipes do **not** establish bit-reproducible binaries, legal completeness or successful native compilation.
 
 ## Build locally
 
-Install stable Rust with the `x86_64-pc-windows-msvc` target and Clippy, Visual Studio C++ Build Tools with the Windows SDK, CMake (3.22.1 or newer), Git and 7-Zip. Use PowerShell 7 in an x64 Visual Studio developer environment so `lib`, `dumpbin` and the resource compiler are available. Setup needs network access and the provisioned mirror.
+Install stable Rust with the `x86_64-pc-windows-msvc` target and Clippy, PowerShell 7, Python 3.12, Git, Visual Studio C++ Build Tools with the Windows SDK, and LLVM providing `clang`, `clang++`, `lld-link`, `llvm-lib` and `llvm-rc`. Use an x64 Visual Studio developer environment with `lib` and `dumpbin` available. Setup downloads its pinned Meson, Ninja and NASM tools; it does not require CMake or 7-Zip for dependency extraction.
 
 From the repository root, in the same PowerShell session:
 
 ```powershell
 ./scripts/setup-windows-deps.ps1
-cargo test --release --locked
-cargo clippy --all-targets --locked -- -D warnings
-./src/platform/windows/update.tests.ps1
 cargo run --release --locked
 ```
 
-The shared setup reads `scripts/windows-deps.json`, verifies every downloaded archive, creates `mpv.lib` from the DLL's exports and sets `MPV_LIB_DIR` to its directory. `MPV_DLL` identifies the pinned DLL. It builds and installs the static-CRT Vulkan loader from pinned Loader and Headers sources, puts both DLL directories on `PATH`, and generates a PNG-backed ICO from `assets/icon.png` at `target/windows-deps/icon.ico`. `TBIS_WINDOWS_ICON` lets `build.rs` embed that icon and the Cargo package version as Windows resources. CI exports the same environment to later steps. A fresh PowerShell session must rerun setup or explicitly restore these variables and DLL paths.
+Setup invokes the source recipe, recreating `target/windows-deps`, then generates `target/windows-deps/icon.ico` from `assets/icon.png`. It sets `MPV_LIB_DIR` to `target/windows-deps/mpv`, `MPV_DLL` to that directory's `libmpv-2.dll`, and `TBIS_WINDOWS_ICON` to the icon, and adds the DLL directory to `PATH`. CI exports the same values for later steps. A fresh session must rerun setup or restore those values and paths.
 
-`.cargo/config.toml` enables the static Rust CRT for `x86_64-pc-windows-msvc`. This does not prove that third-party DLLs have no extra dependencies: packaging checks imports separately. The Vulkan loader uses its upstream static MSVC runtime setting; Headers are installed first and Loader finds their installed CMake package. Setup disables upstream tests and code generation; no Vulkan SDK binary download is used.
-
-To package locally after supplying reviewed source evidence:
+For a dependency-only build, use the owned recipe directly:
 
 ```powershell
-$env:WINDOWS_SOURCE_URL = 'https://<reviewed-source-bundle>'
-$env:WINDOWS_SOURCE_SHA256 = '<64 hex digits>'
+./scripts/build-windows-mpv.ps1
+```
+
+The approved provenance unittest command, also used by Windows CI, is:
+
+```powershell
+python -B scripts/windows_sources_tests.py
+```
+
+It covers manifest pins, safe extraction, notices and inventory integrity; it is not a native compiler or GPU test. The existing application and updater checks are:
+
+```powershell
+cargo test --release --locked
+cargo clippy --all-targets --locked -- -D warnings
+./src/platform/windows/update.tests.ps1
+```
+
+These commands are instructions, not new passing results.
+
+## Generated source and provenance contract
+
+`target/windows-deps/corresponding-source/` is generated by the build, not supplied with a `reviewedBy` attestation:
+
+```text
+inventory.json
+sources/<pinned-source-archives>
+licenses/<component>/<upstream-notices>
+recipes/scripts/<owned-recipes-and-manifest>
+recipes/.github/workflows/<Windows-workflows>
+recipes/prepared-source-sha256.json
+recipes/generated/<wraps-and-zlib-overlay>
+recipes/build/<configuration-logs-and-toolchain-records>
+```
+
+`RECIPES` in `scripts/windows_sources.py` defines the preserved inputs: `.gitattributes`, the manifest, common/setup/build/bundle PowerShell scripts, Python helper and unittest file, and both Windows workflows. Build records include Meson introspection and logs, generated configuration headers, Ninja files, compile commands where present, `native.ini`, `toolchain.json`, `build-command.json` and `build.log`. The prepared-source record hashes the assembled source tree before configuration; the graph audit checks it before and after compilation and rejects any source mutation.
+
+The schema-version-1 inventory binds `binarySha256` to the actual `libmpv-2.dll`, `binaries` to all files in the generated `mpv` directory, `manifestSha256` to the current manifest and `recipeInputs` to current `RECIPES` hashes. `files` records every preserved source/recipe/license file. Each component must match the manifest's name, version, URL and source archive hash and have nonempty, exact source/recipe/license record lists.
+
+Verification rehashes the DLL, binary files, manifest, current recipes, preserved recipes and source archives, and compares the complete recorded file set. Missing, changed or mismatched evidence fails closed. No `WINDOWS_SOURCE_URL` or `WINDOWS_SOURCE_SHA256` variables are required. Mechanical provenance checks do not replace maintainer review of source/license completeness.
+
+To verify an existing local dependency build without rebuilding:
+
+```powershell
+python -B scripts/windows_sources.py verify --repo . --deps target/windows-deps
+```
+
+## Packaging and source archive rebuild
+
+Package only a clean, committed source revision: the bundle script rejects tracked changes and untracked source inputs and uses `git archive HEAD`. After setup, run:
+
+```powershell
 ./scripts/bundle-windows.ps1
 ```
 
-Package only a clean, committed source revision: the source archive uses `git archive HEAD`. The script builds the `dist` profile with `--locked`, stages a flat updater-compatible zip root and checks every staged executable/DLL's direct and delay-load imports with `dumpbin /dependents`. Checking every bundled DLL closes the recursive import graph. Only bundled files and explicitly listed Windows system libraries/API contracts are allowed. `vcruntime`, `msvcp` and `concrt` imports are forbidden even if bundled. A failed dumpbin invocation, unparsed empty import list or any other unbundled dependency fails packaging; investigate new imports rather than broadening the allowlist blindly.
+Packaging requires the locally source-built DLL and matching generated provenance. It builds the `dist` profile with `--locked`, stages the flat updater-compatible root and inspects every staged executable/DLL with `dumpbin /dependents`, including delay-load imports. Only bundled dependencies and explicitly allowed Windows system imports pass; `vcruntime`, `msvcp` and `concrt` imports are forbidden even if bundled. Failed inspection, empty parsed imports or unknown dependencies stop packaging; do not bypass or weaken the gates.
 
-The staged executable runs `--self-test` with its own directory on `PATH` before compression. The existing runtime path initializes libmpv and reports its version before any UI/GPU initialization. It does not exercise graphics or playback. Outputs are `target/tbis-<version>-windows-x86_64.zip` and `target/tbis-<version>-windows-sources.tar`. Use a fresh workspace for packaging; an existing source extraction is rejected instead of mixed with new evidence.
+The staged executable runs its existing GPU-free `--self-test` with its directory on `PATH`. This initializes libmpv and reports its version before UI/GPU initialization; it does not prove playback. Outputs are `target/tbis-<version>-windows-x86_64.zip` and `target/tbis-<version>-windows-sources.tar`. The zip includes dependency licenses/inventory, manifest, Cargo.lock and vendored Rust notices. Its flat layout and the updater are unchanged.
 
-## CI and coordinated releases
+The source tar contains `sources/tbis/` at the built Git revision, `sources/tbis-revision.txt` and `sources/dependencies/` with the full generated dependency source/provenance tree. The tbis tree includes `cargo vendor --locked --versioned-dirs` output and the corresponding Cargo configuration.
 
-`windows.yml` supports manual runs, pushes to `feat/windows`, and reuse by `release.yml`. It uses the same setup script as local development, runs release tests, warning-denying Clippy and the updater PowerShell tests with the pinned DLLs and built Vulkan loader on `PATH`, then runs the source/license gate, dist build, import gate and packaged self-test before uploading artifacts.
+To rebuild from a released source archive:
 
-A `prod` push or deliberate **Release** workflow dispatch computes the version once. Preparation updates Cargo.toml and Cargo.lock together and creates a local version-bump commit when needed. A Git bundle transfers that exact revision to both platform builders and the publisher. Neither a version commit nor tag is pushed during preparation. Both platforms must finish tests, packaging and their GPL source archives before the publisher pushes the prepared commit/tag and creates one release containing both application zips and both source archives. The existing macOS conventional-commit versioning, release notes and Homebrew cask update remain in place. If Windows source provisioning fails, no application release or cask update is published. Manual dispatch is restricted to `prod`.
+1. Verify the release archive's checksum/provenance, then extract the tar into a fresh directory. Read `sources/tbis-revision.txt` and `sources/dependencies/inventory.json`; retain the original records for comparison.
+2. Use the native Windows prerequisites above. From `sources/tbis`, run `./scripts/setup-windows-deps.ps1`, then `cargo build --profile dist --locked`. The vendored Cargo configuration supplies the locked Rust sources. Setup recreates its work directory and fetches source/tool archives against the preserved manifest hashes; it is not an offline rebuild command.
+3. Run the Python `verify` command above against the new dependency build. Compare its pins, recipes, prepared-source hashes and build/toolchain records with `sources/dependencies/`. The original pinned source archives and generated wraps/overlay are preserved there for inspection; build records describe the original machine and are not portable commands to replay blindly. Different compiler/SDK/runner identities can produce different DLL hashes.
 
-No workflow was dispatched, dependency mirror provisioned, release created or remote pushed as part of implementing this tooling. The local evidence above does not establish native Windows runtime or GPU acceptance, real CI execution, native `dumpbin` packaging, or successful source/license gating; all remain **unverified**.
+The extracted tar is not a Git checkout, so rebuilding the executable does not require running the bundle script. Repackaging requires a clean checkout of the recorded revision and the same source/provenance gates; no integrity bypass is supported.
+
+## CI and optional dependency publication
+
+`windows.yml` supports manual runs, pushes to `feat/windows` and reuse by `release.yml`. On `windows-2025`, it sets up Python 3.12 and the x64 MSVC environment, runs provenance unittests, builds dependencies directly through setup, runs release tests, warning-denying Clippy and updater tests, then bundles through the source/import gates and packaged self-test. Every normal run builds from source; it does not consume a dependency mirror.
+
+The optional **Build Windows dependencies** workflow (`mirror-windows-deps.yml`) is dispatch-only with `publish=false` by default. It runs the same dependency recipe and verification, then archives `mpv/` and `corresponding-source/` together in `windows-mpv-dependency.tar` with internal and external `SHA256SUMS`. A later deliberate `publish=true` run can create the dedicated `windows-deps-<full Git SHA>` release, never the latest product release. It does not replace existing release assets; treat the matched binary/source/provenance archive as immutable. This is optional publication, not setup bootstrap.
+
+A `prod` push or deliberate **Release** dispatch prepares one version/revision for both platform builders. A Git bundle transfers the prepared revision; preparation does not push its version commit or tag. Only after both platforms' tests, bundles and GPL source archives succeed does publication push the prepared commit/tag and create one release with both application zips and source archives, followed by the existing Homebrew cask update. Windows checksum/source/import failures block public application release. Central tests and source-helper inventory validation passed as recorded above; native CI and end-to-end release wiring remain unproven. Runtime/GPU acceptance is separate and still unverified.
