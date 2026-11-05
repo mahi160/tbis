@@ -31,7 +31,7 @@ SYSTEM_LIBRARIES = {
     'advapi32', 'avrt', 'bcrypt', 'crypt32', 'd3d11', 'd3d12', 'd3d9',
     'd3dcompiler', 'dbghelp', 'dwmapi', 'dwrite', 'dxgi', 'dxva2', 'gdi32',
     'imm32', 'kernel32', 'mfplat', 'mfuuid', 'ncrypt', 'ntdll', 'ole32',
-    'oleaut32', 'opengl32', 'pathcch', 'psapi', 'secur32', 'setupapi',
+    'oleaut32', 'opengl32', 'pathcch', 'psapi', 'runtimeobject', 'secur32', 'setupapi',
     'shcore', 'shell32', 'shlwapi', 'strmiids', 'user32', 'userenv', 'uuid',
     'uxtheme', 'version', 'winmm', 'winspool', 'comdlg32', 'ws2_32', 'libcmt', 'libcpmt',
     'libucrt', 'libvcruntime', 'oldnames',

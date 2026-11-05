@@ -192,6 +192,7 @@
     "d3d-hwaccel=enabled",
     "wasapi=enabled",
     "win32-threads=enabled",
+    "win32-smtc=disabled",
     "zlib=enabled",
     "vulkan=disabled",
     "ffmpeg:default_library=static",
