@@ -288,11 +288,7 @@ impl Renderer {
         cmd.commit();
         if let Some(phases) = &mut self.phases {
             let ms = |d: Duration| d.as_secs_f64() * 1000.;
-            phases.frame(
-                ms(rendered - start),
-                ms(got_drawable - rendered),
-                cmd,
-            );
+            phases.frame(ms(rendered - start), ms(got_drawable - rendered), cmd);
         }
         true
     }

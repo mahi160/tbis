@@ -10,6 +10,12 @@
 //! `noop` holds do-nothing versions of the last four, for OSes that haven't
 //! implemented them yet. An OS replaces one by adding its own file.
 
+pub mod log;
+
+#[cfg(all(test, not(target_os = "windows")))]
+#[path = "windows/update.rs"]
+mod windows_update_tests;
+
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]

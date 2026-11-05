@@ -1,0 +1,18 @@
+{
+  "mirrorTag": "windows-deps-20261103",
+  "mpv": {
+    "archive": "mpv-dev-x86_64-20261103-git-a687796d9d.7z",
+    "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261103/mpv-dev-x86_64-20261103-git-a687796d9d.7z",
+    "sha256": "41cbfda596aaf1dc30053679bcd22828afaeec411340de6bf4c0e786fed1480b"
+  },
+  "loader": {
+    "url": "https://codeload.github.com/KhronosGroup/Vulkan-Loader/tar.gz/32fcb949e253cbeb40cda7ea76122b492db579ae",
+    "sha256": "610fa9017226c49bc4f19398d94fce9e3c9ff94c14f6420f9fe24822707feacf",
+    "directory": "Vulkan-Loader-32fcb949e253cbeb40cda7ea76122b492db579ae"
+  },
+  "headers": {
+    "url": "https://codeload.github.com/KhronosGroup/Vulkan-Headers/tar.gz/refs/tags/v1.4.341",
+    "sha256": "8876aad926b2e72bdefddc34885472d5332e2d20aa3ed57313466f0bc982cf3f",
+    "directory": "Vulkan-Headers-1.4.341"
+  }
+}

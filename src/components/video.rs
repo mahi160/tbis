@@ -116,6 +116,7 @@ pub fn overlay_spinner() -> AnyElement {
 
 /// Picture-in-Picture window chrome: `buttons` centered in a scrim and `seek_bar`
 /// along the bottom, shown on hover. Dragging anywhere else moves the window.
+#[cfg(not(target_os = "windows"))]
 pub fn pip_frame(
     buttons: impl IntoIterator<Item = impl IntoElement>,
     seek_bar: impl IntoElement,

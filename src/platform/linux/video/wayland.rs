@@ -122,17 +122,18 @@ impl Surface {
     ) -> Result<(), String> {
         let parent = parent_surface(&self.conn, window)?;
         self.subsurface.destroy();
-        self.subsurface =
-            place_under(&self.subcompositor, &self.surface, &parent, &self._queue.handle());
+        self.subsurface = place_under(
+            &self.subcompositor,
+            &self.surface,
+            &parent,
+            &self._queue.handle(),
+        );
         self.conn.flush().map_err(|e| e.to_string())
     }
 }
 
 /// gpui's own `wl_surface` for `window`.
-fn parent_surface(
-    conn: &Connection,
-    window: &impl HasWindowHandle,
-) -> Result<WlSurface, String> {
+fn parent_surface(conn: &Connection, window: &impl HasWindowHandle) -> Result<WlSurface, String> {
     let RawWindowHandle::Wayland(parent) =
         window.window_handle().map_err(|e| e.to_string())?.as_raw()
     else {

@@ -1,6 +1,6 @@
 # tbis
 
-A native macOS client for [Jellyfin](https://jellyfin.org), built with [GPUI](https://gpui.rs) and playing video through an embedded [mpv](https://mpv.io).
+A native macOS and Windows client for [Jellyfin](https://jellyfin.org), built with [GPUI](https://gpui.rs) and playing video through an embedded [mpv](https://mpv.io).
 
 ## Install
 
@@ -23,6 +23,10 @@ Or by hand:
      ```
 
 You only need to do this once. The app bundles everything it needs, including mpv, so you don't need Homebrew.
+
+### Windows 10/11 (x86_64)
+
+When available in [Releases](https://github.com/mahi160/tbis/releases), download `tbis-*-windows-x86_64.zip`, extract the entire zip into a writable folder, and run `tbis.exe`. Keep both DLLs and the license/component directories beside the executable. Windows packaging and playback remain unverified pending CI and Windows acceptance; public release is blocked until the matching dependency source/license bundle and durable mirror are provisioned. See [Windows builds and releases](docs/windows-build.md).
 
 ## Updates
 
@@ -99,16 +103,23 @@ These numbers are rough. Energy Impact is an estimate from macOS, not a measurem
 
 ## Build from source
 
-You need Rust and Homebrew's mpv (`brew install mpv`).
+On macOS, you need Rust and Homebrew's mpv (`brew install mpv`).
 
 ```sh
 cargo run --release         # run straight from the build
 sh scripts/bundle.sh        # build a self-contained target/tbis.app
 ```
 
+On Windows, use PowerShell 7 in an x64 Visual Studio developer environment with Rust, CMake and 7-Zip installed. After the one-time mirror provisioning described in [Windows build instructions](docs/windows-build.md):
+
+```powershell
+./scripts/setup-windows-deps.ps1  # sets MPV_LIB_DIR to the generated mpv.lib directory and DLLs on PATH
+cargo run --release --locked
+```
+
 ## Releases
 
-Pushing to the `prod` branch builds and publishes a release through GitHub Actions (`.github/workflows/release.yml`). The version is bumped from the commit messages since the last release:
+Pushing to the `prod` branch (or deliberately dispatching Release on `prod`) builds both platforms and publishes one release only after both application bundles and GPL source archives succeed through GitHub Actions (`.github/workflows/release.yml`). Windows packaging requires explicitly configured, reviewed matching dependency sources; missing evidence fails closed. The macOS and Windows builds use the same prepared version and Git revision. The version is bumped from the commit messages since the last release:
 
 - a breaking change (`feat!:` or `BREAKING CHANGE`) bumps the major version
 - any `feat:` commit bumps the minor version
@@ -118,4 +129,4 @@ The first release has no earlier tag to bump from, so it uses the version in `Ca
 
 ## License
 
-tbis is licensed under the [GNU General Public License v3.0 or later](LICENSE). The app bundles GPL builds of mpv and FFmpeg (see [ADR-0004](docs/adr/0004-bundle-libmpv-and-license-as-gpl.md)). Each release includes a `sources` archive with the source code of tbis and of every bundled library, and the app carries their license files in `tbis.app/Contents/Resources/licenses`.
+tbis is licensed under the [GNU General Public License v3.0 or later](LICENSE). The app bundles GPL builds of mpv and FFmpeg (see [ADR-0004](docs/adr/0004-bundle-libmpv-and-license-as-gpl.md)). Releases include corresponding source archives for the shipped platforms. License files are in `tbis.app/Contents/Resources/licenses` on macOS and `licenses/` beside `tbis.exe` on Windows. Windows source and mirror provisioning requirements are documented in [Windows builds and releases](docs/windows-build.md).

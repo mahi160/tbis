@@ -6,6 +6,7 @@
 
 mod clock;
 mod controls;
+#[cfg(not(target_os = "windows"))]
 mod pip;
 mod playback;
 
@@ -39,7 +40,6 @@ actions!(
         Escape,
         ToggleMute,
         PlayNext,
-        TogglePip,
         VolumeUp,
         VolumeDown,
         CycleAudio,
@@ -61,6 +61,9 @@ actions!(
     ]
 );
 
+#[cfg(not(target_os = "windows"))]
+actions!(player, [TogglePip]);
+
 const CONTEXT: &str = "Player";
 const VOLUME_STEP: f64 = 5.;
 const DELAY_STEP: f64 = 0.1;
@@ -77,6 +80,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", Escape, Some(CONTEXT)),
         KeyBinding::new("m", ToggleMute, Some(CONTEXT)),
         KeyBinding::new("enter", PlayNext, Some(CONTEXT)),
+        #[cfg(not(target_os = "windows"))]
         KeyBinding::new("p", TogglePip, Some(CONTEXT)),
         KeyBinding::new("up", VolumeUp, Some(CONTEXT)),
         KeyBinding::new("down", VolumeDown, Some(CONTEXT)),
@@ -118,6 +122,7 @@ pub struct PlayerView {
     /// Picture-in-Picture window currently showing this Player's video.
     pip: Option<AnyWindowHandle>,
     /// Window the Player lives in; PiP hands the video back to it.
+    #[cfg(not(target_os = "windows"))]
     main_window: AnyWindowHandle,
     paused: bool,
     /// mpv not advancing; with `!paused`, means buffering.
@@ -259,6 +264,7 @@ impl PlayerView {
             mpv,
             playback,
             pip: None,
+            #[cfg(not(target_os = "windows"))]
             main_window: window.window_handle(),
             paused: false,
             core_idle: true,
@@ -436,6 +442,7 @@ impl PlayerView {
             window.toggle_fullscreen();
         }
         self.end_current();
+        #[cfg(not(target_os = "windows"))]
         self.drop_pip(cx);
         cx.emit(Closed {
             volume: self.volume,

@@ -2,7 +2,7 @@
 //! in its official "Mode A" chains. mpv reads shader files from disk, so
 //! [`extract_dir`] writes them under Application Support, like `fonts.rs` does.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
@@ -75,19 +75,26 @@ impl ShaderProfile {
         }
     }
 
-    /// `glsl-shaders` value: `:`-separated paths, `""` for Off. Errors when the
+    /// `glsl-shaders` value: platform-separated paths, `""` for Off. Errors when the
     /// files could not be written, so callers fall back to no shaders.
     pub fn mpv_value(self) -> Result<String, String> {
         if self == Self::Off {
             return Ok(String::new());
         }
         let dir = extract_dir().ok_or("could not write shader files")?;
-        Ok(self
-            .chain()
+        Ok(self.path_list(&dir))
+    }
+
+    fn path_list(self, dir: &Path) -> String {
+        self.chain()
             .iter()
             .map(|name| dir.join(name).to_string_lossy().into_owned())
             .collect::<Vec<_>>()
-            .join(":"))
+            .join(if cfg!(target_os = "windows") {
+                ";"
+            } else {
+                ":"
+            })
     }
 }
 
@@ -108,6 +115,21 @@ fn extract_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mpv_path_list() {
+        assert_eq!(ShaderProfile::Off.mpv_value(), Ok(String::new()));
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            ShaderProfile::Anime4kFast.path_list(Path::new(r"C:\Users\Viewer\shaders")),
+            r"C:\Users\Viewer\shaders\Anime4K_Clamp_Highlights.glsl;C:\Users\Viewer\shaders\Anime4K_Restore_CNN_M.glsl;C:\Users\Viewer\shaders\Anime4K_Upscale_CNN_x2_M.glsl;C:\Users\Viewer\shaders\Anime4K_AutoDownscalePre_x2.glsl;C:\Users\Viewer\shaders\Anime4K_AutoDownscalePre_x4.glsl;C:\Users\Viewer\shaders\Anime4K_Upscale_CNN_x2_S.glsl"
+        );
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(
+            ShaderProfile::Anime4kFast.path_list(Path::new("/home/viewer/shaders")),
+            "/home/viewer/shaders/Anime4K_Clamp_Highlights.glsl:/home/viewer/shaders/Anime4K_Restore_CNN_M.glsl:/home/viewer/shaders/Anime4K_Upscale_CNN_x2_M.glsl:/home/viewer/shaders/Anime4K_AutoDownscalePre_x2.glsl:/home/viewer/shaders/Anime4K_AutoDownscalePre_x4.glsl:/home/viewer/shaders/Anime4K_Upscale_CNN_x2_S.glsl"
+        );
+    }
 
     #[test]
     fn every_chained_shader_is_bundled() {

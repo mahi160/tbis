@@ -1,20 +1,16 @@
-//! Self-update from GitHub Releases (built by .github/workflows/release.yml):
-//! find a newer release, download its app zip, check it against the SHA-256
-//! GitHub records for the asset, swap it in for the running `tbis.app`, and
-//! relaunch. Only works when running from an app bundle.
-
-use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result, anyhow, bail, ensure};
+use anyhow::{Context as _, Result, anyhow, ensure};
 use futures::AsyncReadExt as _;
 use gpui_kit::http_client::HttpClient;
-use gpui_kit::http_client::github::latest_github_release;
+use gpui_kit::http_client::github::{GithubReleaseAsset, latest_github_release};
+use sha2::{Digest as _, Sha256};
+
+use crate::platform::update as native;
+
+pub use native::{bundle_path, relaunch};
 
 const REPO: &str = "mahi160/tbis";
-const ASSET_SUFFIX: &str = "-macos-arm64.zip";
 pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Clone)]
@@ -29,29 +25,16 @@ pub struct Update {
     sha256: String,
 }
 
-/// `…/tbis.app` when running from one; `None` for `cargo run`.
-pub fn bundle_path() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let bundle = exe.parent()?.parent()?.parent()?; // tbis.app/Contents/MacOS/tbis
-    (bundle.extension()? == "app").then(|| bundle.to_path_buf())
-}
-
-/// Newest non-prerelease, if it is newer than this build.
 pub async fn check(http: Arc<dyn HttpClient>) -> Result<Option<Update>> {
+    let suffix = native::asset_suffix()?;
     let release = latest_github_release(REPO, true, false, http.clone()).await?;
     let version = release.tag_name.trim_start_matches('v').to_string();
     if !newer(&version, CURRENT) {
         return Ok(None);
     }
-    let asset = release
-        .assets
-        .into_iter()
-        .find(|asset| asset.name.ends_with(ASSET_SUFFIX))
-        .ok_or_else(|| anyhow!("release {version} has no macOS download"))?;
-    // never install bytes we can't verify
-    let sha256 = asset
-        .digest
-        .ok_or_else(|| anyhow!("release {version} has no checksum"))?;
+    let asset = select_asset(release.assets, suffix)?;
+    let sha256 = asset.digest.context("release has no SHA-256 checksum")?;
+    validate_checksum(&sha256)?;
     let notes = match notes(&http, &release.tag_name).await {
         Ok(notes) => notes,
         Err(err) => {
@@ -62,13 +45,47 @@ pub async fn check(http: Arc<dyn HttpClient>) -> Result<Option<Update>> {
     Ok(Some(Update {
         version,
         notes,
-        page: format!("https://github.com/{REPO}/releases/tag/{}", release.tag_name),
+        page: format!(
+            "https://github.com/{REPO}/releases/tag/{}",
+            release.tag_name
+        ),
         url: asset.browser_download_url,
         sha256,
     }))
 }
 
-/// Markdown notes of the release tagged `tag` (gpui's release type has no body).
+fn select_asset(assets: Vec<GithubReleaseAsset>, suffix: &str) -> Result<GithubReleaseAsset> {
+    let mut matching = assets
+        .into_iter()
+        .filter(|asset| asset.name.ends_with(suffix));
+    let asset = matching
+        .next()
+        .ok_or_else(|| anyhow!("release has no download ending in {suffix}"))?;
+    ensure!(
+        matching.next().is_none(),
+        "release has ambiguous downloads for {suffix}"
+    );
+    Ok(asset)
+}
+
+fn validate_checksum(checksum: &str) -> Result<()> {
+    ensure!(
+        checksum.len() == 64 && checksum.bytes().all(|byte| byte.is_ascii_hexdigit()),
+        "release has an invalid SHA-256 checksum"
+    );
+    Ok(())
+}
+
+fn verify_checksum(bytes: &[u8], expected: &str) -> Result<()> {
+    validate_checksum(expected)?;
+    let actual = format!("{:x}", Sha256::digest(bytes));
+    ensure!(
+        actual.eq_ignore_ascii_case(expected),
+        "download is corrupt (checksum mismatch)"
+    );
+    Ok(())
+}
+
 async fn notes(http: &Arc<dyn HttpClient>, tag: &str) -> Result<String> {
     #[derive(serde::Deserialize)]
     struct Release {
@@ -87,7 +104,6 @@ async fn notes(http: &Arc<dyn HttpClient>, tag: &str) -> Result<String> {
     Ok(release.body.unwrap_or_default())
 }
 
-/// Whether `a` is a higher `x.y.z` than `b`; unparsable versions never are.
 fn newer(a: &str, b: &str) -> bool {
     let parse = |v: &str| -> Option<(u64, u64, u64)> {
         let mut parts = v.split('.').map(|p| p.parse().ok());
@@ -97,10 +113,10 @@ fn newer(a: &str, b: &str) -> bool {
     matches!((parse(a), parse(b)), (Some(a), Some(b)) if a > b)
 }
 
-/// Downloads, verifies, and swaps in `update` for the running bundle. The old app
-/// is only replaced once the new one is fully in place and its signature checks out.
 pub async fn install(http: Arc<dyn HttpClient>, update: &Update) -> Result<()> {
-    let bundle = bundle_path().ok_or_else(|| anyhow!("not running from tbis.app"))?;
+    let bundle =
+        bundle_path().context("automatic updates are unavailable for this installation")?;
+    validate_checksum(&update.sha256)?;
     let mut response = http
         .get(&update.url, Default::default(), true)
         .await
@@ -112,83 +128,13 @@ pub async fn install(http: Arc<dyn HttpClient>, update: &Update) -> Result<()> {
     );
     let mut zip = Vec::new();
     response.body_mut().read_to_end(&mut zip).await?;
-
-    // staged beside the bundle: rename only works within one volume
-    let parent = bundle.parent().context("app has no parent folder")?;
-    let staging = parent.join(format!(".tbis-update-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&staging);
-    std::fs::create_dir(&staging)
-        .with_context(|| format!("can't write to {}", parent.display()))?;
-    let result = swap_in(&bundle, &staging, &zip, &update.sha256);
-    let _ = std::fs::remove_dir_all(&staging);
-    result
-}
-
-fn swap_in(bundle: &Path, staging: &Path, zip: &[u8], sha256: &str) -> Result<()> {
-    let zip_path = staging.join("tbis.zip");
-    std::fs::write(&zip_path, zip)?;
-    let actual = run(
-        "shasum",
-        &[OsStr::new("-a"), OsStr::new("256"), zip_path.as_os_str()],
-    )?;
-    let actual = actual.split_whitespace().next().unwrap_or_default();
-    ensure!(
-        actual.eq_ignore_ascii_case(sha256),
-        "download is corrupt (checksum mismatch)"
-    );
-    let extract = [
-        OsStr::new("-x"),
-        OsStr::new("-k"),
-        zip_path.as_os_str(),
-        staging.as_os_str(),
-    ];
-    run("ditto", &extract)?;
-    let new = staging.join("tbis.app");
-    let verify = [
-        OsStr::new("--verify"),
-        OsStr::new("--deep"),
-        OsStr::new("--strict"),
-        new.as_os_str(),
-    ];
-    run("codesign", &verify).context("downloaded app failed its signature check")?;
-
-    let old = staging.join("old.app");
-    std::fs::rename(bundle, &old).context("can't move the current app aside")?;
-    if let Err(err) = std::fs::rename(&new, bundle) {
-        // put the working app back
-        let _ = std::fs::rename(&old, bundle);
-        bail!("can't move the new app into place: {err}");
-    }
-    Ok(())
-}
-
-fn run(program: &str, args: &[&OsStr]) -> Result<String> {
-    let output = Command::new(program).args(args).output()?;
-    ensure!(
-        output.status.success(),
-        "{program} failed: {}",
-        String::from_utf8_lossy(&output.stderr).trim()
-    );
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
-/// Starts the (new) bundle once this process has exited; call right before quitting.
-pub fn relaunch() -> Result<()> {
-    let bundle = bundle_path().ok_or_else(|| anyhow!("not running from tbis.app"))?;
-    Command::new("/bin/sh")
-        .args([
-            "-c",
-            r#"while kill -0 "$0" 2>/dev/null; do sleep 0.2; done; open "$1""#,
-        ])
-        .arg(std::process::id().to_string())
-        .arg(bundle)
-        .spawn()?;
-    Ok(())
+    verify_checksum(&zip, &update.sha256)?;
+    native::install(&bundle, &zip)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::newer;
+    use super::*;
 
     #[test]
     fn compares_versions_numerically() {
@@ -197,9 +143,64 @@ mod tests {
         assert!(newer("1.0.0", "0.99.99"));
         assert!(!newer("0.0.1", "0.0.1"));
         assert!(!newer("0.0.1", "0.0.2"));
+        assert!(!newer("0.0.2-beta", "0.0.1"));
+    }
+
+    fn asset(name: &str) -> GithubReleaseAsset {
+        GithubReleaseAsset {
+            name: name.into(),
+            browser_download_url: format!("https://example.com/{name}"),
+            digest: None,
+        }
+    }
+
+    #[test]
+    fn selects_only_the_platform_asset() {
+        for suffix in ["-macos-arm64.zip", "-windows-x86_64.zip"] {
+            let selected = select_asset(
+                vec![
+                    asset("tbis-1.0.0-macos-arm64.zip"),
+                    asset("tbis-1.0.0-windows-x86_64.zip"),
+                ],
+                suffix,
+            )
+            .unwrap();
+            assert!(selected.name.ends_with(suffix));
+        }
         assert!(
-            !newer("0.0.2-beta", "0.0.1"),
-            "unparsable never counts as newer"
+            select_asset(vec![asset("tbis-windows-arm64.zip")], "-windows-x86_64.zip").is_err()
         );
+        assert!(
+            select_asset(
+                vec![asset("a-windows-x86_64.zip"), asset("b-windows-x86_64.zip")],
+                "-windows-x86_64.zip",
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn requires_exact_sha256_and_checks_download_bytes() {
+        let digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        assert!(verify_checksum(b"abc", digest).is_ok());
+        assert!(verify_checksum(b"abc", &digest.to_uppercase()).is_ok());
+        assert!(verify_checksum(b"changed", digest).is_err());
+        for invalid in [
+            String::new(),
+            "f".repeat(63),
+            "f".repeat(65),
+            "g".repeat(64),
+            format!("sha256:{digest}"),
+            format!("{digest}\n"),
+        ] {
+            assert!(validate_checksum(&invalid).is_err());
+        }
+        let parsed: GithubReleaseAsset = serde_json::from_value(serde_json::json!({
+            "name": "tbis-windows-x86_64.zip",
+            "browser_download_url": "https://example.com/tbis.zip",
+            "digest": format!("sha256:{digest}")
+        }))
+        .unwrap();
+        assert_eq!(parsed.digest.as_deref(), Some(digest));
     }
 }

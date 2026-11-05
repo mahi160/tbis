@@ -1,5 +1,6 @@
 //! Do-nothing platform pieces; see `platform/mod.rs`.
 
+#[cfg(target_os = "linux")]
 pub mod now_playing {
     use futures::channel::mpsc::UnboundedSender;
 
@@ -8,7 +9,7 @@ pub mod now_playing {
     pub struct NowPlaying;
 
     impl NowPlaying {
-        pub fn new(_: UnboundedSender<RemoteCommand>, _: f64) -> Self {
+        pub fn new(_: &gpui_kit::Window, _: UnboundedSender<RemoteCommand>, _: f64) -> Self {
             Self
         }
         pub fn update(&self, _: &Info) {}
@@ -17,22 +18,16 @@ pub mod now_playing {
     }
 }
 
-pub mod power {
-    pub struct Awake;
-
-    impl Awake {
-        pub fn new() -> Self {
-            Self
-        }
-    }
-}
-
+#[cfg(target_os = "linux")]
 pub mod cursor {
     pub fn hide() {}
+    pub fn show() {}
 }
 
 pub mod window {
     pub fn prepare(_: &gpui_kit::Window) {}
+    #[cfg(not(target_os = "windows"))]
     pub fn hide_title_buttons(_: &gpui_kit::Window) {}
+    #[cfg(not(target_os = "windows"))]
     pub fn lock_aspect(_: &gpui_kit::Window, _: f32, _: f32) {}
 }

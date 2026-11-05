@@ -1,0 +1,47 @@
+name: Provision Windows dependency mirror
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_url:
+        description: HTTPS URL of reviewed complete matching Corresponding Source/license zip
+        type: string
+        required: true
+      source_sha256:
+        description: SHA256 of that zip
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-dependency-mirror
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate sources before downloading or distributing binaries
+        env:
+          SOURCE_URL: ${{ inputs.source_url }}
+          SOURCE_SHA256: ${{ inputs.source_sha256 }}
+        run: |
+          . ./scripts/windows-common.ps1
+          Get-WindowsSources $env:SOURCE_URL $env:SOURCE_SHA256 "$env:RUNNER_TEMP/source" | Out-Null
+      - name: Check upstream binary and provision immutable mirror
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA256: ${{ inputs.source_sha256 }}
+        run: |
+          . ./scripts/windows-common.ps1
+          $archive = Join-Path $env:RUNNER_TEMP $Pins.mpv.archive
+          Get-PinnedFile $Pins.mpv.url $Pins.mpv.sha256 $archive
+          $notes = "Pinned libmpv dependency, not an application update. Matching reviewed Corresponding Source and license inventory are attached. Binary SHA256: $($Pins.mpv.sha256). Source SHA256: $env:SOURCE_SHA256."
+          Invoke-Native gh @('release', 'create', $Pins.mirrorTag, $archive, "$env:RUNNER_TEMP/source/corresponding-source.zip", '--target', $env:GITHUB_SHA, '--title', $Pins.mirrorTag, '--notes', $notes, '--latest=false')

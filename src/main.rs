@@ -1,3 +1,8 @@
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
+
 mod app;
 mod assets;
 mod backdrops;
@@ -56,6 +61,28 @@ fn raise_open_file_limit() {
 }
 
 fn main() {
+    #[cfg(target_os = "windows")]
+    {
+        if let Err(error) = platform::log::init() {
+            eprintln!("could not initialize tbis.log: {error}");
+            std::process::exit(1);
+        }
+        if std::env::args_os().any(|argument| argument == "--self-test") {
+            match mpv::self_test() {
+                Ok(()) => return,
+                Err(error) => {
+                    platform::log::write(&error);
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    let _runtime = platform::Runtime::new().unwrap_or_else(|error| {
+        platform::log::write(&format!("Windows runtime initialization failed: {error}"));
+        std::process::exit(1);
+    });
+
     #[cfg(unix)]
     raise_open_file_limit();
 
@@ -110,7 +137,10 @@ fn main() {
                     window_min_size: Some(min),
                     // recentre traffic lights in 52px title bar (app.rs)
                     titlebar: Some(TitlebarOptions {
+                        #[cfg(target_os = "macos")]
                         traffic_light_position: Some(design::window::TRAFFIC_LIGHTS),
+                        #[cfg(not(target_os = "macos"))]
+                        traffic_light_position: None,
                         ..TitleBar::title_bar_options()
                     }),
                     ..TitleBar::window_options()

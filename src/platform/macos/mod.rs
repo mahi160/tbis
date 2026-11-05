@@ -3,5 +3,6 @@
 pub mod cursor;
 pub mod now_playing;
 pub mod power;
+pub mod update;
 pub mod video;
 pub mod window;

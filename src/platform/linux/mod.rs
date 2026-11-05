@@ -4,4 +4,5 @@
 pub use super::noop::{cursor, now_playing, window};
 
 pub mod power;
+pub mod update;
 pub mod video;

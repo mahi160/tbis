@@ -1,24 +1,17 @@
-# Windows build: compile tbis.exe against a pinned libmpv and upload it with the dll
-# as a zip artifact to run by hand. No release.
 name: Windows
 
 on:
   push:
     branches: [feat/windows]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      prepared:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
-
-concurrency:
-  group: windows-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  # shinchiro's nightlies are deleted after about a month: bump all three together
-  MPV_TAG: "20261103"
-  MPV_ARCHIVE: mpv-dev-x86_64-20261103-git-a687796d9d.7z
-  MPV_SHA256: 41cbfda596aaf1dc30053679bcd22828afaeec411340de6bf4c0e786fed1480b
 
 jobs:
   build:
@@ -26,49 +19,49 @@ jobs:
     defaults:
       run:
         shell: pwsh
+    env:
+      WINDOWS_SOURCE_URL: ${{ vars.WINDOWS_SOURCE_URL }}
+      WINDOWS_SOURCE_SHA256: ${{ vars.WINDOWS_SOURCE_SHA256 }}
     steps:
       - uses: actions/checkout@v4
-
+      - uses: actions/download-artifact@v4
+        if: inputs.prepared
+        with:
+          name: release-revision
+          path: prepared
+      - name: Use prepared release revision
+        if: inputs.prepared
+        run: |
+          git fetch prepared/release.bundle HEAD
+          if ($LASTEXITCODE) { throw 'fetch failed' }
+          git checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE) { throw 'checkout failed' }
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
-
+          components: clippy
       - uses: Swatinem/rust-cache@v2
-
-      # puts dumpbin and lib on PATH
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-
-      # libmpv ships a mingw import lib only; MSVC needs mpv.lib built from the dll's exports
-      - name: libmpv
+      - name: Pinned dependencies
+        run: ./scripts/setup-windows-deps.ps1 -Repository '${{ github.repository }}'
+      - name: Test
         run: |
-          $url = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/$env:MPV_TAG/$env:MPV_ARCHIVE"
-          Invoke-WebRequest $url -OutFile mpv.7z
-          if ((Get-FileHash mpv.7z -Algorithm SHA256).Hash -ne $env:MPV_SHA256) { throw "mpv.7z checksum mismatch" }
-          7z x -ompv mpv.7z | Out-Null
-          $dll = Get-ChildItem mpv -Recurse -Filter libmpv-2.dll | Select-Object -First 1
-          if (-not $dll) { throw "libmpv-2.dll not in $env:MPV_ARCHIVE" }
-          $names = dumpbin /nologo /exports $dll.FullName |
-            Select-String '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]{8}\s+(\S+)' |
-            ForEach-Object { $_.Matches[0].Groups[1].Value }
-          if (-not $names) { throw "no exports read from libmpv-2.dll" }
-          @('LIBRARY libmpv-2', 'EXPORTS') + $names | Set-Content mpv\mpv.def
-          lib /nologo /def:mpv\mpv.def /out:mpv\mpv.lib /machine:x64
-          if ($LASTEXITCODE) { throw "lib failed" }
-          "MPV_LIB_DIR=$((Resolve-Path mpv).Path)" >> $env:GITHUB_ENV
-          "MPV_DLL=$($dll.FullName)" >> $env:GITHUB_ENV
-
-      - name: Build
-        run: cargo build --release --locked
-
-      - name: Stage
+          cargo test --release --locked
+          if ($LASTEXITCODE) { throw 'cargo test failed' }
+      - name: Clippy
         run: |
-          New-Item -ItemType Directory dist | Out-Null
-          Copy-Item target\release\tbis.exe, $env:MPV_DLL dist
-
+          cargo clippy --all-targets --locked -- -D warnings
+          if ($LASTEXITCODE) { throw 'clippy failed' }
+      - name: Updater PowerShell tests
+        run: ./src/platform/windows/update.tests.ps1
+      - name: Bundle, import gate and self-test
+        run: ./scripts/bundle-windows.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: tbis-windows-x86_64
-          path: dist/
+          name: windows-release
+          path: |
+            target/tbis-*-windows-x86_64.zip
+            target/tbis-*-windows-sources.tar
           if-no-files-found: error

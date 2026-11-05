@@ -41,7 +41,7 @@ pub struct NowPlaying {
 
 impl NowPlaying {
     /// `skip` is the seconds a skip-forward/back command moves.
-    pub fn new(tx: UnboundedSender<RemoteCommand>, skip: f64) -> Self {
+    pub fn new(_: &gpui_kit::Window, tx: UnboundedSender<RemoteCommand>, skip: f64) -> Self {
         // SAFETY: MediaPlayer calls on the main thread; handlers only forward to `tx`
         unsafe {
             let center = MPRemoteCommandCenter::sharedCommandCenter();

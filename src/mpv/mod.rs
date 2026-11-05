@@ -126,6 +126,7 @@ impl Mpv {
         let (surface, renderer) = match video::Surface::attach(window) {
             Ok(parts) => parts,
             Err(err) => {
+                crate::platform::log::write(&format!("video surface attachment failed: {err}"));
                 unsafe { mpv_terminate_destroy(handle.0) };
                 return Err(err);
             }
@@ -137,12 +138,39 @@ impl Mpv {
 
         let (ready_tx, ready_rx) = mpsc::channel();
         let render = {
+            #[cfg(target_os = "windows")]
+            let errors = events.clone();
             let (size, waker, stop) = (size.clone(), waker.clone(), stop.clone());
-            std::thread::spawn(move || render_thread(handle, renderer, size, waker, stop, ready_tx))
+            std::thread::spawn(move || {
+                render_thread(
+                    handle,
+                    renderer,
+                    size,
+                    waker,
+                    stop,
+                    ready_tx,
+                    #[cfg(target_os = "windows")]
+                    errors,
+                )
+            })
         };
         let events = {
             let stop = stop.clone();
-            std::thread::spawn(move || event_thread(handle, stop, events))
+            #[cfg(target_os = "windows")]
+            let secrets: Vec<String> = std::iter::once(auth_header)
+                .chain(auth_header.split('"').skip(1).step_by(2))
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .collect();
+            std::thread::spawn(move || {
+                event_thread(
+                    handle,
+                    stop,
+                    events,
+                    #[cfg(target_os = "windows")]
+                    secrets,
+                )
+            })
         };
 
         let this = Self {
@@ -214,6 +242,7 @@ impl Mpv {
 
     /// Shows the video in `window` instead (Picture-in-Picture); playback carries on.
     /// Must run on the main thread.
+    #[cfg(not(target_os = "windows"))]
     pub fn move_to(
         &mut self,
         window: &(impl HasWindowHandle + HasDisplayHandle),
@@ -283,8 +312,54 @@ fn yes_no(b: bool) -> &'static str {
     if b { "yes" } else { "no" }
 }
 
+#[cfg(target_os = "windows")]
+pub(crate) fn self_test() -> Result<(), String> {
+    let handle = Handle(unsafe { mpv_create() });
+    if handle.0.is_null() {
+        return Err("self-test: mpv_create failed".into());
+    }
+    let result = (|| {
+        unsafe {
+            check(
+                mpv_set_option_string(handle.0, c"config".as_ptr(), c"no".as_ptr()),
+                "config",
+            )?;
+            check(
+                mpv_set_option_string(handle.0, c"terminal".as_ptr(), c"no".as_ptr()),
+                "terminal",
+            )?;
+            check(mpv_initialize(handle.0), "self-test mpv_initialize")?;
+        }
+        let version = get_string(handle, "mpv-version").ok_or("self-test: missing mpv version")?;
+        crate::platform::log::write(&format!(
+            "self-test: {version}; client API={:#x}; no GPU test performed",
+            unsafe { mpv_client_api_version() }
+        ));
+        Ok(())
+    })();
+    unsafe { mpv_terminate_destroy(handle.0) };
+    result
+}
+
 impl Drop for Mpv {
     fn drop(&mut self) {
+        #[cfg(target_os = "windows")]
+        {
+            let decoder = get_string(self.handle, "hwdec-current");
+            let decoder = match decoder.as_deref() {
+                Some("d3d11va") => "d3d11va",
+                Some("d3d11va-copy") => "d3d11va-copy",
+                Some("no") => "software",
+                _ => "unknown",
+            };
+            let dropped = get_string(self.handle, "frame-drop-count")
+                .and_then(|value| value.parse::<u64>().ok());
+            let decoder_dropped = get_string(self.handle, "decoder-frame-drop-count")
+                .and_then(|value| value.parse::<u64>().ok());
+            crate::platform::log::write(&format!(
+                "player session closed: decoder={decoder}, VO frames dropped={dropped:?}, decoder frames dropped={decoder_dropped:?}"
+            ));
+        }
         self.stop.store(true, Ordering::SeqCst);
         unsafe { mpv_wakeup(self.handle.0) };
         self.waker.notify();
@@ -715,7 +790,12 @@ unsafe fn map_get<'a>(node: &'a mpv_node, key: &str) -> Option<&'a mpv_node> {
 }
 
 #[allow(non_upper_case_globals)] // bindgen constant names
-fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent>) {
+fn event_thread(
+    mpv: Handle,
+    stop: Arc<AtomicBool>,
+    tx: UnboundedSender<MpvEvent>,
+    #[cfg(target_os = "windows")] secrets: Vec<String>,
+) {
     let send = |event| {
         let _ = tx.unbounded_send(event);
     };
@@ -758,14 +838,28 @@ fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent
                     )),
                     b"hwdec-current" => {
                         let value = unsafe { CStr::from_ptr(*(prop.data as *const *const c_char)) };
+                        #[cfg(not(target_os = "windows"))]
                         eprintln!("mpv: hwdec-current={}", value.to_string_lossy());
+                        #[cfg(target_os = "windows")]
+                        {
+                            let decoder = match value.to_bytes() {
+                                b"d3d11va" => "d3d11va",
+                                b"d3d11va-copy" => "d3d11va-copy",
+                                b"no" => "software",
+                                _ => "unknown",
+                            };
+                            crate::platform::log::write(&format!("mpv: decoder={decoder}"));
+                        }
                     }
                     _ => {}
                 }
             }
             mpv_event_id_MPV_EVENT_COMMAND_REPLY if event.error < 0 => {
                 let msg = unsafe { CStr::from_ptr(mpv_error_string(event.error)) };
-                eprintln!("mpv async command: {}", msg.to_string_lossy());
+                crate::platform::log::write(&format!(
+                    "mpv async command: {}",
+                    msg.to_string_lossy()
+                ));
             }
             mpv_event_id_MPV_EVENT_FILE_LOADED => send(MpvEvent::FileLoaded),
             mpv_event_id_MPV_EVENT_END_FILE => {
@@ -784,7 +878,14 @@ fn event_thread(mpv: Handle, stop: Arc<AtomicBool>, tx: UnboundedSender<MpvEvent
                 let msg = unsafe { &*(event.data as *const mpv_event_log_message) };
                 let prefix = unsafe { CStr::from_ptr(msg.prefix) }.to_string_lossy();
                 let text = unsafe { CStr::from_ptr(msg.text) }.to_string_lossy();
+                #[cfg(not(target_os = "windows"))]
                 log.print(format!("mpv [{prefix}] {}", text.trim_end()));
+                #[cfg(target_os = "windows")]
+                {
+                    let prefix = crate::platform::log::redact(&prefix, &secrets, false);
+                    let text = crate::platform::log::redact(text.trim_end(), &secrets, true);
+                    log.print(format!("mpv [{prefix}] {text}"));
+                }
             }
             _ => {}
         }
@@ -806,9 +907,12 @@ impl LogDedup {
             return;
         }
         if self.repeats > 0 {
-            eprintln!("{} (repeated {} more times)", self.last, self.repeats);
+            crate::platform::log::write(&format!(
+                "{} (repeated {} more times)",
+                self.last, self.repeats
+            ));
         }
-        eprintln!("{line}");
+        crate::platform::log::write(&line);
         self.last = line;
         self.repeats = 0;
     }
@@ -992,7 +1096,7 @@ pub(crate) fn render_gl(
     unsafe { mpv_render_context_render(ctx, params.as_mut_ptr()) >= 0 }
 }
 
-fn skip_frame(ctx: *mut mpv_render_context) {
+pub(crate) fn skip_frame(ctx: *mut mpv_render_context) {
     let mut skip: c_int = 1;
     let mut params = [
         param(
@@ -1014,10 +1118,12 @@ fn render_thread(
     waker: Arc<Waker>,
     stop: Arc<AtomicBool>,
     ready: mpsc::Sender<Result<(), String>>,
+    #[cfg(target_os = "windows")] errors: UnboundedSender<MpvEvent>,
 ) {
     let ctx = match renderer.init(mpv) {
         Ok(ctx) => ctx,
         Err(err) => {
+            crate::platform::log::write(&format!("video initialization failed: {err}"));
             let _ = ready.send(Err(err));
             return;
         }
@@ -1031,9 +1137,13 @@ fn render_thread(
     };
     let _ = ready.send(Ok(()));
 
+    #[cfg(target_os = "windows")]
+    let (mut frames_drawn, mut frames_skipped) = (0_u64, 0_u64);
     let mut drawn_size = Extent::default();
     let mut stats = FrameStats::from_env();
-    let pass_logger = stats.is_some().then(|| spawn_pass_logger(mpv, stop.clone()));
+    let pass_logger = stats
+        .is_some()
+        .then(|| spawn_pass_logger(mpv, stop.clone()));
     while !stop.load(Ordering::SeqCst) {
         if let Some(stats) = &mut stats {
             stats.maybe_log(drawn_size);
@@ -1045,19 +1155,44 @@ fn render_thread(
         if extent.width <= 0 || extent.height <= 0 {
             if new_frame {
                 skip_frame(ctx); // drain, else mpv stalls waiting for render
+                #[cfg(target_os = "windows")]
+                {
+                    frames_skipped += 1;
+                }
             }
             continue;
         }
         let start = Instant::now();
         if (new_frame || drawn_size != extent) && renderer.draw(ctx, extent) {
+            #[cfg(target_os = "windows")]
+            {
+                frames_drawn += 1;
+            }
             drawn_size = extent;
             unsafe { mpv_render_context_report_swap(ctx) };
             if let Some(stats) = &mut stats {
                 stats.frame(start);
             }
+        } else {
+            #[cfg(target_os = "windows")]
+            if new_frame {
+                frames_skipped += 1;
+            }
+        }
+        #[cfg(target_os = "windows")]
+        if let Some(error) = renderer.take_error() {
+            skip_frame(ctx);
+            crate::platform::log::write(&error);
+            let _ = errors.unbounded_send(MpvEvent::EndFile(Err(error)));
+            stop.store(true, Ordering::SeqCst);
+            break;
         }
     }
 
+    #[cfg(target_os = "windows")]
+    crate::platform::log::write(&format!(
+        "player rendering closed: frames drawn={frames_drawn}, skipped={frames_skipped}"
+    ));
     unsafe {
         mpv_render_context_set_update_callback(ctx, None, std::ptr::null_mut());
         mpv_render_context_free(ctx);

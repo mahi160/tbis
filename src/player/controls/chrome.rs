@@ -19,9 +19,12 @@ use crate::mpv::{Track, TrackKind};
 use super::super::clock::{clock, format_time};
 use super::super::{
     CONTEXT, NextEpisode, PlayerView, PreviousEpisode, ToggleFullscreen, ToggleMute, TogglePause,
-    TogglePip, TogglePlaybackInfo,
+    TogglePlaybackInfo,
 };
 use super::SPEEDS;
+
+#[cfg(not(target_os = "windows"))]
+use super::TogglePip;
 
 impl PlayerView {
     /// Top bar: back, title, media tags, wall clock.
@@ -186,29 +189,30 @@ impl PlayerView {
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.toggle_playback_info(&TogglePlaybackInfo, window, cx)
                 })),
-            )
-            .child(
-                round_icon_button("player-pip", "icons/pip.svg", "Picture in Picture")
-                    .tooltip_with_action("Picture in Picture", &TogglePip, Some(CONTEXT))
-                    .on_click(
-                        cx.listener(|this, _, window, cx| this.toggle_pip(&TogglePip, window, cx)),
-                    ),
-            )
-            .child(
-                round_icon_button(
-                    "player-fullscreen",
-                    if window.is_fullscreen() {
-                        "icons/minimize.svg"
-                    } else {
-                        "icons/maximize.svg"
-                    },
-                    fullscreen_label,
-                )
-                .tooltip_with_action(fullscreen_label, &ToggleFullscreen, Some(CONTEXT))
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.toggle_fullscreen(&ToggleFullscreen, window, cx)
-                })),
             );
+        #[cfg(not(target_os = "windows"))]
+        let controls = controls.child(
+            round_icon_button("player-pip", "icons/pip.svg", "Picture in Picture")
+                .tooltip_with_action("Picture in Picture", &TogglePip, Some(CONTEXT))
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.toggle_pip(&TogglePip, window, cx)),
+                ),
+        );
+        let controls = controls.child(
+            round_icon_button(
+                "player-fullscreen",
+                if window.is_fullscreen() {
+                    "icons/minimize.svg"
+                } else {
+                    "icons/maximize.svg"
+                },
+                fullscreen_label,
+            )
+            .tooltip_with_action(fullscreen_label, &ToggleFullscreen, Some(CONTEXT))
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.toggle_fullscreen(&ToggleFullscreen, window, cx)
+            })),
+        );
 
         bottom_bar(v_flex().w_full().child(timeline).child(controls)).into_any_element()
     }
