@@ -4,14 +4,14 @@ if (-not $IsWindows) { throw 'The libmpv recipe requires native Windows x64 with
 if ($env:VSCMD_ARG_TGT_ARCH -ne 'x64') { throw 'Initialize the x64 MSVC developer environment first' }
 if (Test-Path $Deps) { Remove-Item -Recurse -Force $Deps }
 New-Item -ItemType Directory -Force $Deps | Out-Null
-$python = (Get-Command python -CommandType Application).Source
+$python = (Get-Command python -CommandType Application | Select-Object -First 1).Source
 $env:PYTHONDONTWRITEBYTECODE = '1'
 $env:GIT_CEILING_DIRECTORIES = [IO.Path]::GetFullPath($Deps)
 Invoke-Native $python @("$PSScriptRoot/windows_sources.py", 'prepare', '--repo', $Repo, '--deps', $Deps)
 
 $tools = @{}
 foreach ($name in @('clang', 'clang++', 'lld-link', 'llvm-lib', 'llvm-rc', 'dumpbin', 'lib')) {
-    $path = (Get-Command $name -CommandType Application).Source
+    $path = (Get-Command $name -CommandType Application | Select-Object -First 1).Source
     $tools[$name] = @{
         path = $path
         sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
