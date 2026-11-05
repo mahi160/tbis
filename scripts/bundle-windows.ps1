@@ -19,8 +19,24 @@ $inventory.components | ForEach-Object { "$($_.name) $($_.version)" } | Set-Cont
 
 Assert-WindowsImports @(Get-ChildItem $dist -File | Where-Object { $_.Extension -in @('.exe', '.dll') })
 $env:PATH = "$dist;$env:PATH"
-Push-Location $dist
-try { Invoke-Native "$dist/tbis.exe" @('--self-test') } finally { Pop-Location }
+$info = [Diagnostics.ProcessStartInfo]::new()
+$info.FileName = "$dist/tbis.exe"
+$info.WorkingDirectory = $dist
+$info.UseShellExecute = $false
+$info.Arguments = '--self-test'
+$process = [Diagnostics.Process]::Start($info)
+try {
+    if (-not $process.WaitForExit(60000)) {
+        try { $process.Kill() } catch {
+            $process.Refresh()
+            if (-not $process.HasExited) { throw }
+        }
+        if (-not $process.WaitForExit(10000)) { throw 'tbis self-test did not exit after timeout termination' }
+        throw 'tbis self-test did not exit within 60 seconds'
+    }
+    if ($process.ExitCode -ne 0) { throw "tbis self-test failed (code $($process.ExitCode))" }
+} finally { $process.Dispose() }
+if (-not (Test-Path "$dist/tbis.log")) { throw 'tbis self-test did not create tbis.log' }
 Remove-Item "$dist/tbis.log"
 
 $version = (Select-String '^version = "([^"]+)"' "$Repo/Cargo.toml" | Select-Object -First 1).Matches[0].Groups[1].Value
