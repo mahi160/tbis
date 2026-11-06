@@ -2,13 +2,17 @@
 
 ## Status and installation
 
-The Windows target is x86_64 Windows 10/11 with MSVC. The implemented dependency pipeline builds libmpv directly from pinned sources on native Windows; it no longer requires a pre-created binary mirror or manually supplied source bundle. The entire pinned source graph has been configured, audited and cross-compiled on macOS, linking the Windows DLL and validating its paired source inventory. Native Windows CI, packaging, executable self-test and playback remain pending; Windows runtime and GPU behavior remain **unverified**. See [Windows validation status](windows.md) for the GPU matrix. A successful dependency self-test is not a playback test.
+The Windows target is x86_64 Windows 10/11 with MSVC. The implemented dependency pipeline builds libmpv directly from pinned sources on native Windows; it no longer requires a pre-created binary mirror or manually supplied source bundle. The entire pinned source graph has been configured, audited and cross-compiled on macOS, linking the Windows DLL and validating its paired source inventory. Native Windows CI run [42158586879](https://github.com/mahi160/tbis/actions/runs/42158586879) at commit `a35e1a1` completed **SUCCESS**, including packaging and the GPU-free executable self-test. Actual Windows UI/app-window, login, network playback, GPU interoperability and SMTC/power/cursor behavior on a human PC remain **unverified**. See [Windows validation status](windows.md) for the GPU matrix. A successful dependency self-test is not a playback test.
 
-Once a release includes `tbis-<version>-windows-x86_64.zip`, download that asset from [Releases](https://github.com/mahi160/tbis/releases), extract the **entire** zip into a writable folder, and run `tbis.exe`. Keep `libmpv-2.dll`, `LICENSE`, `licenses/`, `components/` and `bundled-components.txt` beside it. Do not run from inside the zip or copy only the executable. The application is not Windows-code-signed; review Windows download warnings and verify the release's provenance before running it. GPU drivers remain a system prerequisite.
+Download `windows-release` from **Artifacts** in [run 42158586879](https://github.com/mahi160/tbis/actions/runs/42158586879). Extract the artifact container first, then extract the **entire** inner `tbis-0.4.0-windows-x86_64.zip` into a writable folder and run `tbis.exe`. Keep the included corresponding Windows sources tar available when distributing. No product or dependency release was published. Keep `libmpv-2.dll`, `LICENSE`, `licenses/`, `components/` and `bundled-components.txt` beside it. Do not run from inside the zip or copy only the executable. The application is not Windows-code-signed; review Windows download warnings and verify the release's provenance before running it. GPU drivers remain a system prerequisite.
 
 ## Source pipeline validation
 
-This session's evidence on macOS covers the actual source helper and the entire pinned Windows-target dependency graph:
+Native Windows CI run [42158586879](https://github.com/mahi160/tbis/actions/runs/42158586879) at `a35e1a1` completed **SUCCESS**. The run records **Source provenance tests**, **Test**, **Clippy**, **Updater PowerShell tests** and **Bundle, import gate and self-test** as successful. All 22 provenance/archive tests passed locally and in CI; all 29 native Rust release tests, warning-denying Clippy (`-D warnings`) and updater rollback tests passed. The native source-built DLL with static dependencies, source inventory checks, dist application/FXC/icon build, strict import checks, explicitly waited GUI `--self-test` and its log, Python PAX source archival and zip upload all passed.
+
+The nonexpired `windows-release` artifact (ID `13477178106`, 258876147 bytes) contains the produced `tbis-0.4.0-windows-x86_64.zip` and corresponding Windows sources tar. This is CI evidence, not a published product/dependency release or production publish/update end-to-end test. It does not establish hardware playback or manual Windows acceptance.
+
+Earlier macOS evidence covers the actual source helper and the entire pinned Windows-target dependency graph:
 
 - `prepare` downloaded, SHA256-validated and safely extracted all 15 pinned source components and three pinned tools. All 20 Python provenance/manifest/archive tests passed on Python 3.15.2; the helper also supports CI's Python 3.12.
 - The full Rust release suite passed all 30 tests. All six PowerShell scripts parsed, the existing portable updater rollback tests passed, and all three workflow YAML files parsed. These are not native Windows runtime results.
@@ -29,7 +33,7 @@ python -B scripts/windows_sources.py verify --repo "$REPO" --deps "$DEPS"
 
 `REPO` is the absolute repository root; `DEPS` was its `target/windows-source-final-validated` directory. `python` and `ninja` stand for the validation executables above. `prepare` requires a fresh dependency directory; `audit` requires the configured Meson graph and SDK environment. Configuration occurred between `prepare` and `audit`; DLL/import-library normalization and toolchain/build records preceded `inventory`. These helper actions are the same contracts used by the native recipe, not a standalone build command sequence. The temporary cross file and Mac-only helper tools were validation scaffolding, not a newly supported repository cross-build CLI.
 
-The default native PowerShell recipe uses pinned NASM 2.16.03, not the cross-validation host's NASM 3.02. This evidence does not prove the exact native PowerShell recipe, native CI, packaging, executable self-test or playback. No new CI was pushed or dispatched, and no product or dependency release was published. Native Windows CI remains pending; the GPU matrix remains unverified.
+The default native PowerShell recipe uses pinned NASM 2.16.03, not the cross-validation host's NASM 3.02. The cross-build alone did not prove native execution; the successful native CI run above now covers the recipe, packaging and executable self-test. The GPU matrix remains unverified.
 
 ## Recorded validation evidence
 
@@ -52,7 +56,7 @@ The resulting `target/x86_64-pc-windows-msvc/debug/tbis.exe` was linked, not exe
 
 `llvm-readobj --coff-imports` inspected the old nightly DLL and debug executable; neither imported `vcruntime`, `msvcp` or `concrt`. The nightly archive matched its then-pinned SHA256. This is not import evidence for the new source-built DLL and does not replace native `dumpbin /dependents` packaging checks.
 
-Old Windows CI run `41985341022` failed downloading the nonexistent `windows-deps-20261103` mirror. That failure belongs to the replaced bootstrap, not the new pipeline. It does not describe execution of the new pipeline; current source-pipeline evidence and remaining native CI work are recorded above.
+Old Windows CI run `41985341022` failed downloading the nonexistent `windows-deps-20261103` mirror. That failure belongs to the replaced bootstrap, not the new pipeline. It does not describe execution of the new pipeline; current successful native source-pipeline evidence is recorded above.
 
 ## Pinned source build
 
@@ -68,13 +72,13 @@ Old Windows CI run `41985341022` failed downloading the nonexistent `windows-dep
 
 Vulkan is disabled in mpv, FFmpeg and libplacebo. libplacebo's public `vulkan.h` unconditionally requires Vulkan-Headers even with its Vulkan backend disabled. The manifest pins this header-only source at `74d8a6cb930c68ef617b202c3ff3c59d919e086b`; preparation places it in `libplacebo/3rdparty/Vulkan-Headers` and preserves its original archive, licenses and inventory records. The Windows presentation backend uses WGL/OpenGL with D3D11/DirectComposition; no Vulkan loader binary (`vulkan-1.dll`) or Vulkan SDK loader build is required. FFmpeg enables D3D11VA, Schannel HTTPS, dav1d, zlib and the required decoding/screenshot features, which the graph audit checks. mpv's own SMTC support is disabled because tbis owns the Windows media-control session.
 
-Our build patch [`mpv-d3d11-hwdec-helpers.patch`](../scripts/patches/mpv-d3d11-hwdec-helpers.patch) ensures D3D11 helpers and feature probes are enabled when only hardware decoding is enabled, preserving the existing D3D11/EGL/Vulkan conditions. An earlier cross-compilation attempt reached 2975/2978 before `vf_d3d11vpp.c` failed with a `DXGI_DEBUG_D3D11` redefinition because the probe was omitted; the patched graph subsequently completed all 2,979 steps. Preparation applies the patch strictly with Git before recording prepared-source hashes; the original archive and exact patch are preserved in the source inventory. Native compilation remains unverified. `.gitattributes` keeps build patches LF-terminated on Windows so they match extracted upstream sources.
+Our build patch [`mpv-d3d11-hwdec-helpers.patch`](../scripts/patches/mpv-d3d11-hwdec-helpers.patch) ensures D3D11 helpers and feature probes are enabled when only hardware decoding is enabled, preserving the existing D3D11/EGL/Vulkan conditions. An earlier cross-compilation attempt reached 2975/2978 before `vf_d3d11vpp.c` failed with a `DXGI_DEBUG_D3D11` redefinition because the probe was omitted; the patched graph subsequently completed all 2,979 steps. Preparation applies the patch strictly with Git before recording prepared-source hashes; the original archive and exact patch are preserved in the source inventory. Native compilation also passed in run `42158586879`. `.gitattributes` keeps build patches LF-terminated on Windows so they match extracted upstream sources.
 
 The source builder sets `GIT_CEILING_DIRECTORIES` to its resolved dependency root before preparation and retains it through Meson configuration and Ninja compilation. Dependency source version probes are isolated from the parent application Git repository and use preserved upstream release metadata or git-archive substitutions instead.
 
 Python 3.12's standard library in `scripts/windows_sources.py` handles verified downloads, safe extraction and provenance. Extraction rejects unsafe paths, collisions and escaping links, and materializes valid internal archive links as files. Preparation creates the pinned subprojects, generated wraps and zlib overlay. Meson uses `--wrap-mode=nodownload` and forced fallbacks; external pkg-config/CMake discovery is disabled. The audit rejects unexpected projects, shared dependencies, external libraries, non-static CRT settings and missing required FFmpeg features. The recipe checks the DLL's imports and client/render exports before generating MSVC `mpv.lib` from its actual exports.
 
-Compiler/tool hashes and identities, SDK environment and runner image identity are recorded, not fully pinned for bit-for-bit reproducibility. Pinned sources and recipes do **not** establish bit-reproducible binaries, legal completeness or successful native compilation.
+Compiler/tool hashes and identities, SDK environment and runner image identity are recorded, not fully pinned for bit-for-bit reproducibility. Pinned sources and recipes do **not** establish bit-reproducible binaries or legal completeness; successful native compilation is recorded separately above.
 
 ## Build locally
 
@@ -109,7 +113,7 @@ cargo clippy --all-targets --locked -- -D warnings
 ./src/platform/windows/update.tests.ps1
 ```
 
-These commands are instructions, not new passing results.
+The native CI results for these checks are recorded above; these commands are local instructions.
 
 ## Generated source and provenance contract
 
@@ -166,4 +170,4 @@ The extracted tar is not a Git checkout, so rebuilding the executable does not r
 
 The optional **Build Windows dependencies** workflow (`mirror-windows-deps.yml`) is dispatch-only with `publish=false` by default. It runs the same dependency recipe and verification, then archives `mpv/` and `corresponding-source/` together in `windows-mpv-dependency.tar` with internal and external `SHA256SUMS`. Both tar artifacts use Python's standard-library PAX archive creation; the optional dependency archive has an explicit `windows-mpv-dependency/` root. A later deliberate `publish=true` run can create the dedicated `windows-deps-<full Git SHA>` release, never the latest product release. It does not replace existing release assets; treat the matched binary/source/provenance archive as immutable. This is optional publication, not setup bootstrap.
 
-A `prod` push or deliberate **Release** dispatch prepares one version/revision for both platform builders. A Git bundle transfers the prepared revision; preparation does not push its version commit or tag. Only after both platforms' tests, bundles and GPL source archives succeed does publication push the prepared commit/tag and create one release with both application zips and source archives, followed by the existing Homebrew cask update. Windows checksum/source/import failures block public application release. Central tests and source-helper inventory validation passed as recorded above; native CI and end-to-end release wiring remain unproven. Runtime/GPU acceptance is separate and still unverified.
+A `prod` push or deliberate **Release** dispatch prepares one version/revision for both platform builders. A Git bundle transfers the prepared revision; preparation does not push its version commit or tag. Only after both platforms' tests, bundles and GPL source archives succeed does publication push the prepared commit/tag and create one release with both application zips and source archives, followed by the existing Homebrew cask update. Windows checksum/source/import failures block public application release. Native CI, tests, source-helper inventory validation and packaging passed as recorded above. No product or dependency release was published; production release publication and update end-to-end remain untested. Runtime/GPU acceptance is separate and still unverified.

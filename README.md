@@ -26,7 +26,7 @@ You only need to do this once. The app bundles everything it needs, including mp
 
 ### Windows 10/11 (x86_64)
 
-When available in [Releases](https://github.com/mahi160/tbis/releases), download `tbis-*-windows-x86_64.zip`, extract the entire zip into a writable folder, and run `tbis.exe`. Keep `libmpv-2.dll`, `LICENSE`, `licenses/`, `components/` and `bundled-components.txt` beside the executable. Dependencies are built from pinned sources; no pre-created mirror is required. The pinned source graph cross-compiled and its binary/source inventory validated; central tests passed. Native Windows CI, packaging and playback remain unverified. See [Windows builds and releases](docs/windows-build.md).
+Download `windows-release` from **Artifacts** in [successful Windows CI run 42158586879](https://github.com/mahi160/tbis/actions/runs/42158586879) at commit `a35e1a1`. Extract the artifact container, then extract the **entire** inner `tbis-0.4.0-windows-x86_64.zip` into a writable folder and run `tbis.exe`, not a standalone copy of the executable. Keep `libmpv-2.dll`, `LICENSE`, `licenses/`, `components/` and `bundled-components.txt` beside it, and keep the included corresponding Windows sources tar available when distributing. Dependencies are built from pinned sources; native CI passed source/inventory checks, tests, Clippy, packaging, strict import gates and the GPU-free self-test. No product or dependency release was published. Actual Windows UI, login, network playback, GPU interoperability and SMTC/power/cursor behavior remain unverified; production release publication and update end-to-end are not tested. See [Windows builds and releases](docs/windows-build.md).
 
 ## Updates
 
