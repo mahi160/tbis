@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+import tempfile
 import urllib.request
 import zipfile
 
@@ -105,6 +106,23 @@ def download(item, destination):
             partial.unlink(missing_ok=True)
     if digest(destination) != item['sha256']:
         raise ValueError(f'Checksum mismatch: {item["name"]}')
+
+
+def archive_directory(root, output, prefix):
+    root, output = Path(root).resolve(strict=True), Path(output).resolve()
+    if not root.is_dir():
+        raise ValueError('Archive root must be a directory')
+    if output.is_relative_to(root):
+        raise ValueError('Archive output must be outside the source root')
+    temporary = tempfile.NamedTemporaryFile(dir=output.parent, suffix='.partial', delete=False)
+    partial = Path(temporary.name)
+    try:
+        with temporary as stream:
+            with tarfile.open(fileobj=stream, mode='w', format=tarfile.PAX_FORMAT, dereference=False) as archive:
+                archive.add(root, arcname=str(prefix))
+        partial.replace(output)
+    finally:
+        partial.unlink(missing_ok=True)
 
 
 def extract_archive(archive, destination, sha256, strip_root=True):
@@ -449,13 +467,23 @@ def verify_inventory(repo, deps):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=('prepare', 'audit', 'inventory', 'verify', 'no-external-deps'))
+    parser.add_argument('action', choices=('prepare', 'audit', 'inventory', 'verify', 'no-external-deps', 'archive'))
     parser.add_argument('--repo', type=Path)
     parser.add_argument('--deps', type=Path)
+    parser.add_argument('--root', type=Path)
+    parser.add_argument('--output', type=Path)
+    parser.add_argument('--prefix', type=safe_name)
     args, extra = parser.parse_known_args()
     if args.action == 'no-external-deps':
         return 1
-    if extra or args.repo is None or args.deps is None:
+    if args.action == 'archive':
+        if (extra or args.root is None or args.output is None or args.prefix is None
+                or args.repo is not None or args.deps is not None):
+            parser.error('--root, --output and --prefix are required; no extra arguments allowed')
+        archive_directory(args.root, args.output, args.prefix)
+        return 0
+    if (extra or args.repo is None or args.deps is None
+            or args.root is not None or args.output is not None or args.prefix is not None):
         parser.error('--repo and --deps are required; no extra arguments allowed')
     if args.action == 'audit':
         print(audit_graph(args.deps))

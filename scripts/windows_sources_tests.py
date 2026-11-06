@@ -63,6 +63,43 @@ class ManifestTests(unittest.TestCase):
             sources.validate_manifest(self.manifest)
 
 
+class ArchiveCreationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / 'input'
+        self.root.mkdir()
+        self.archive = Path(self.temp.name) / 'sources.tar'
+
+    def test_hidden_files_and_long_paths_roundtrip(self):
+        long_name = '/'.join(('a' * 90, 'b' * 90, 'c' * 90, 'source.c'))
+        self.assertGreater(len(long_name), 260)
+        self.assertTrue(all(len(part) <= 255 for part in long_name.split('/')))
+        files = {'.cargo/config.toml': b'[source.vendored-sources]\ndirectory = "vendor"\n',
+                 long_name: b'long-path source\n'}
+        for name, content in files.items():
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        sources.archive_directory(self.root, self.archive, 'sources')
+        with tarfile.open(self.archive, 'r:') as archive:
+            members = archive.getmembers()
+            self.assertTrue(all(member.name == 'sources' or member.name.startswith('sources/')
+                                for member in members))
+            self.assertEqual({member.name for member in members if member.isfile()},
+                             {'sources/' + name for name in files})
+            for name, content in files.items():
+                with archive.extractfile('sources/' + name) as stream:
+                    self.assertEqual(stream.read(), content)
+
+    def test_output_inside_source_rejected(self):
+        output = self.root / 'sources.tar'
+        with self.assertRaisesRegex(ValueError, 'outside the source root'):
+            sources.archive_directory(self.root, output, 'sources')
+        self.assertFalse(output.exists())
+        self.assertEqual(list(self.root.iterdir()), [])
+
+
 class ArchiveTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

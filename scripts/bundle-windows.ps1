@@ -61,5 +61,5 @@ foreach ($notice in (Get-ChildItem $vendor -Recurse -File | Where-Object {
 'Rust dependencies: exact versions in components/Cargo.lock; sources in windows-sources.tar' | Add-Content "$dist/bundled-components.txt"
 Copy-Item $source "$sources/dependencies" -Recurse
 Invoke-Native git @('-C', $Repo, 'rev-parse', 'HEAD') | Set-Content "$sources/tbis-revision.txt"
-Invoke-Native tar @('-cf', "$Repo/target/tbis-$version-windows-sources.tar", '-C', (Split-Path $sources), 'sources')
+Invoke-Native python @("$PSScriptRoot/windows_sources.py", 'archive', '--root', $sources, '--output', "$Repo/target/tbis-$version-windows-sources.tar", '--prefix', 'sources')
 Compress-Archive -Path "$dist/*" -DestinationPath $zip -Force
