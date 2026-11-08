@@ -147,22 +147,8 @@ impl Mpv {
         };
         let events = {
             let stop = stop.clone();
-            #[cfg(target_os = "windows")]
-            let secrets: Vec<String> = std::iter::once(auth_header)
-                .chain(auth_header.split('"').skip(1).step_by(2))
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned)
-                .collect();
-            std::thread::spawn(move || {
-                event_thread(
-                    handle,
-                    stop,
-                    events,
-                    failure,
-                    #[cfg(target_os = "windows")]
-                    secrets,
-                )
-            })
+            let secrets = crate::platform::log::header_secrets(auth_header);
+            std::thread::spawn(move || event_thread(handle, stop, events, failure, secrets))
         };
 
         let this = Self {
@@ -335,23 +321,15 @@ pub(crate) fn self_test() -> Result<(), String> {
 
 impl Drop for Mpv {
     fn drop(&mut self) {
-        #[cfg(target_os = "windows")]
-        {
-            let decoder = get_string(self.handle, "hwdec-current");
-            let decoder = match decoder.as_deref() {
-                Some("d3d11va") => "d3d11va",
-                Some("d3d11va-copy") => "d3d11va-copy",
-                Some("no") => "software",
-                _ => "unknown",
-            };
-            let dropped = get_string(self.handle, "frame-drop-count")
-                .and_then(|value| value.parse::<u64>().ok());
-            let decoder_dropped = get_string(self.handle, "decoder-frame-drop-count")
-                .and_then(|value| value.parse::<u64>().ok());
-            crate::platform::log::write(&format!(
-                "player session closed: decoder={decoder}, VO frames dropped={dropped:?}, decoder frames dropped={decoder_dropped:?}"
-            ));
-        }
+        let decoder = get_string(self.handle, "hwdec-current");
+        let decoder = decoder.as_deref().unwrap_or("unknown");
+        let dropped =
+            get_string(self.handle, "frame-drop-count").and_then(|value| value.parse::<u64>().ok());
+        let decoder_dropped = get_string(self.handle, "decoder-frame-drop-count")
+            .and_then(|value| value.parse::<u64>().ok());
+        crate::platform::log::write(&format!(
+            "player session closed: decoder={decoder}, VO frames dropped={dropped:?}, decoder frames dropped={decoder_dropped:?}"
+        ));
         self.stop.store(true, Ordering::SeqCst);
         unsafe { mpv_wakeup(self.handle.0) };
         self.waker.notify();
@@ -792,7 +770,7 @@ fn event_thread(
     stop: Arc<AtomicBool>,
     tx: UnboundedSender<MpvEvent>,
     failure: Arc<Mutex<Option<String>>>,
-    #[cfg(target_os = "windows")] secrets: Vec<String>,
+    secrets: Vec<String>,
 ) {
     let send = |event| {
         let _ = tx.unbounded_send(event);
@@ -843,18 +821,10 @@ fn event_thread(
                     )),
                     b"hwdec-current" => {
                         let value = unsafe { CStr::from_ptr(*(prop.data as *const *const c_char)) };
-                        #[cfg(not(target_os = "windows"))]
-                        eprintln!("mpv: hwdec-current={}", value.to_string_lossy());
-                        #[cfg(target_os = "windows")]
-                        {
-                            let decoder = match value.to_bytes() {
-                                b"d3d11va" => "d3d11va",
-                                b"d3d11va-copy" => "d3d11va-copy",
-                                b"no" => "software",
-                                _ => "unknown",
-                            };
-                            crate::platform::log::write(&format!("mpv: decoder={decoder}"));
-                        }
+                        crate::platform::log::write(&format!(
+                            "mpv: hwdec-current={}",
+                            value.to_string_lossy()
+                        ));
                     }
                     _ => {}
                 }
@@ -883,14 +853,9 @@ fn event_thread(
                 let msg = unsafe { &*(event.data as *const mpv_event_log_message) };
                 let prefix = unsafe { CStr::from_ptr(msg.prefix) }.to_string_lossy();
                 let text = unsafe { CStr::from_ptr(msg.text) }.to_string_lossy();
-                #[cfg(not(target_os = "windows"))]
-                log.print(format!("mpv [{prefix}] {}", text.trim_end()));
-                #[cfg(target_os = "windows")]
-                {
-                    let prefix = crate::platform::log::redact(&prefix, &secrets);
-                    let text = crate::platform::log::redact(text.trim_end(), &secrets);
-                    log.print(format!("mpv [{prefix}] {text}"));
-                }
+                let prefix = crate::platform::log::redact(&prefix, &secrets);
+                let text = crate::platform::log::redact(text.trim_end(), &secrets);
+                log.print(format!("mpv [{prefix}] {text}"));
             }
             _ => {}
         }

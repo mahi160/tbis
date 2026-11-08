@@ -1,4 +1,3 @@
-#[cfg(any(test, target_os = "windows"))]
 const SENSITIVE: [&str; 25] = [
     "authorization",
     "authenticate",
@@ -63,7 +62,15 @@ pub fn init() {
     eprintln!("tbis {} Windows runtime", env!("CARGO_PKG_VERSION"));
 }
 
-#[cfg(any(test, target_os = "windows"))]
+/// The header itself plus each quoted value in it (e.g. the token), to scrub from logs.
+pub fn header_secrets(header: &str) -> Vec<String> {
+    std::iter::once(header)
+        .chain(header.split('"').skip(1).step_by(2))
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
 pub fn redact(message: &str, secrets: &[String]) -> String {
     let mut message = message.to_owned();
     for secret in secrets {
@@ -99,7 +106,15 @@ pub fn write(message: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::redact;
+    use super::{header_secrets, redact};
+
+    #[test]
+    fn header_secrets_include_quoted_values() {
+        assert_eq!(
+            header_secrets(r#"MediaBrowser Token="abc", Client="""#),
+            [r#"MediaBrowser Token="abc", Client="""#, "abc"]
+        );
+    }
 
     #[test]
     fn redacts_secrets_and_markers() {

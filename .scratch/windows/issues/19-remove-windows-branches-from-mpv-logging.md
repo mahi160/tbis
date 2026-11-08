@@ -4,11 +4,11 @@
 
 **Blocked by:** 18: Make the Windows log reliable and simple
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified on Windows; Windows CI build not run, only the cross-target clippy)
 
-- [ ] The mpv event thread and `Mpv::new` contain no `target_os` cfg blocks for logging
-- [ ] Decoder mapping is not duplicated
-- [ ] Secrets from the auth header are redacted from mpv logs on every OS
+- [x] The mpv event thread and `Mpv::new` contain no `target_os` cfg blocks for logging
+- [x] Decoder mapping is not duplicated
+- [x] Secrets from the auth header are redacted from mpv logs on every OS
 - [ ] `cargo check` passes on macOS; Windows CI build passes
 
 Work on the `feat/windows` branch. Source: thermo-nuclear code quality review of `feat/windows` against merge-base `60b2ef8`.
