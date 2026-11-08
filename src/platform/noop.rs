@@ -26,8 +26,6 @@ pub mod cursor {
 
 pub mod window {
     pub fn prepare(_: &gpui_kit::Window) {}
-    #[cfg(not(target_os = "windows"))]
     pub fn hide_title_buttons(_: &gpui_kit::Window) {}
-    #[cfg(not(target_os = "windows"))]
     pub fn lock_aspect(_: &gpui_kit::Window, _: f32, _: f32) {}
 }

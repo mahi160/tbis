@@ -31,7 +31,6 @@ use super::{
     TogglePause, TogglePlaybackInfo, VOLUME_STEP, VolumeDown, VolumeUp, hide_cursor,
 };
 
-#[cfg(not(target_os = "windows"))]
 use super::TogglePip;
 
 const INFO_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
@@ -570,7 +569,6 @@ impl PlayerView {
     }
 
     /// Moves the video into the PiP window; again moves it back.
-    #[cfg(not(target_os = "windows"))]
     fn toggle_pip(&mut self, _: &TogglePip, window: &mut Window, cx: &mut Context<Self>) {
         if self.pip.is_some() {
             self.leave_pip(window, cx);
@@ -654,7 +652,6 @@ impl Render for PlayerView {
             )
         });
 
-        #[cfg(not(target_os = "windows"))]
         let pip_notice = self
             .pip
             .is_some()
@@ -763,11 +760,9 @@ impl Render for PlayerView {
                 }
             }))
             .children(error);
-        #[cfg(not(target_os = "windows"))]
-        let player = player
-            .on_action(cx.listener(Self::toggle_pip))
-            .children(pip_notice);
         player
+            .on_action(cx.listener(Self::toggle_pip))
+            .children(pip_notice)
             .children(buffering)
             // stays up until closed (x or i), independent of the controls
             .children(info)

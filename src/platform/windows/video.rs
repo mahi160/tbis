@@ -17,6 +17,9 @@ use crate::mpv::{self, Extent, Handle};
 
 pub const HWDEC: &str = "d3d11va,d3d11va-copy,no";
 
+/// Whether the surface can move to another window (Picture-in-Picture).
+pub const SUPPORTS_PIP: bool = false;
+
 pub struct Surface;
 
 impl Surface {
@@ -33,7 +36,6 @@ impl Surface {
         ))
     }
 
-    #[allow(dead_code)] // Retain the platform surface contract; Windows PiP is unavailable.
     pub fn move_to(&mut self, _: &(impl HasWindowHandle + HasDisplayHandle)) -> Result<(), String> {
         Err("Picture-in-Picture is not implemented on Windows".into())
     }

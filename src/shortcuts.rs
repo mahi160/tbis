@@ -40,7 +40,6 @@ const GROUPS: &[(&str, &[Row])] = &[
             (|| Box::new(VolumeDown), "Volume down"),
             (|| Box::new(ToggleMute), "Mute"),
             (|| Box::new(ToggleFullscreen), "Fullscreen"),
-            #[cfg(not(target_os = "windows"))]
             (|| Box::new(TogglePip), "Picture-in-Picture"),
             (|| Box::new(TogglePlaybackInfo), "Playback info"),
             (|| Box::new(Screenshot), "Screenshot"),

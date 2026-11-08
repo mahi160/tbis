@@ -15,6 +15,7 @@ use crate::components::video::{
 use crate::config::BITRATE_CAPS;
 use crate::design::{self, color, font, gap, overlay, text};
 use crate::mpv::{Track, TrackKind};
+use crate::platform::video::SUPPORTS_PIP;
 
 use super::super::clock::{clock, format_time};
 use super::super::{
@@ -23,7 +24,6 @@ use super::super::{
 };
 use super::SPEEDS;
 
-#[cfg(not(target_os = "windows"))]
 use super::TogglePip;
 
 impl PlayerView {
@@ -190,14 +190,17 @@ impl PlayerView {
                     this.toggle_playback_info(&TogglePlaybackInfo, window, cx)
                 })),
             );
-        #[cfg(not(target_os = "windows"))]
-        let controls = controls.child(
-            round_icon_button("player-pip", "icons/pip.svg", "Picture in Picture")
-                .tooltip_with_action("Picture in Picture", &TogglePip, Some(CONTEXT))
-                .on_click(
-                    cx.listener(|this, _, window, cx| this.toggle_pip(&TogglePip, window, cx)),
-                ),
-        );
+        let controls = if SUPPORTS_PIP {
+            controls.child(
+                round_icon_button("player-pip", "icons/pip.svg", "Picture in Picture")
+                    .tooltip_with_action("Picture in Picture", &TogglePip, Some(CONTEXT))
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.toggle_pip(&TogglePip, window, cx)),
+                    ),
+            )
+        } else {
+            controls
+        };
         let controls = controls.child(
             round_icon_button(
                 "player-fullscreen",

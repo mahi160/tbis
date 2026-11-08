@@ -327,11 +327,8 @@ pub mod window {
     pub const BRAND_LEAD: Pixels = px(if cfg!(target_os = "macos") { 12. } else { 0. });
     /// Picture-in-Picture window: opening width, smallest width, gap to the screen corner.
     /// Heights follow the video's aspect ratio.
-    #[cfg(not(target_os = "windows"))]
     pub const PIP_W: Pixels = px(400.);
-    #[cfg(not(target_os = "windows"))]
     pub const PIP_MIN_W: Pixels = px(240.);
-    #[cfg(not(target_os = "windows"))]
     pub const PIP_MARGIN: Pixels = px(24.);
 }
 

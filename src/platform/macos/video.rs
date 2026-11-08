@@ -33,6 +33,9 @@ use crate::mpv::{Extent, Handle, create_gl_render_context, render_gl};
 /// mpv's `hwdec` option for this platform.
 pub const HWDEC: &str = "auto-safe";
 
+/// Whether the surface can move to another window (Picture-in-Picture).
+pub const SUPPORTS_PIP: bool = true;
+
 /// Main-thread side: the view holding the video layer.
 pub struct Surface {
     view: Retained<NSView>,

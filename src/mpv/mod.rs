@@ -224,7 +224,6 @@ impl Mpv {
 
     /// Shows the video in `window` instead (Picture-in-Picture); playback carries on.
     /// Must run on the main thread.
-    #[cfg(not(target_os = "windows"))]
     pub fn move_to(
         &mut self,
         window: &(impl HasWindowHandle + HasDisplayHandle),
