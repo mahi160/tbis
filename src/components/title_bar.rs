@@ -7,6 +7,16 @@ use gpui_kit::*;
 use super::logo::brand;
 use crate::design::{color, gap, size, sp, tokens, window};
 
+pub fn title_bar(cx: &App) -> TitleBar {
+    TitleBar::new()
+        // grows with tall content (big type scales)
+        // Match the window's traffic-light placement on every screen.
+        .h_auto()
+        .min_h(window::TITLE_BAR_H)
+        .border_b_0()
+        .bg(color::background(cx))
+}
+
 pub fn app_title_bar(
     center: impl IntoElement,
     trailing: impl IntoIterator<Item = AnyElement>,
@@ -14,12 +24,7 @@ pub fn app_title_bar(
 ) -> TitleBar {
     // trailing inset = avatar's vertical inset, so its box sits concentric with window corner
     let inset = ((window::TITLE_BAR_H - sp(tokens().avatar.default)) / 2.).max(sp(2.));
-    TitleBar::new()
-        // grows with tall content (big type scales)
-        .h_auto()
-        .min_h(window::TITLE_BAR_H)
-        .border_b_0()
-        .bg(color::background(cx))
+    title_bar(cx)
         .child(brand(cx).pl(window::BRAND_LEAD))
         // spans whole window width so center sits at true center; offset cancels TitleBar left padding
         .child(

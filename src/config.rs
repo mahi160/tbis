@@ -62,6 +62,13 @@ pub struct TrackPrefs {
     pub global: LanguagePref,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TailscaleOptions {
+    pub enabled: bool,
+    pub address: String,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     /// Survives Log out, so the server sees one device per install.
@@ -71,6 +78,8 @@ pub struct Config {
     #[serde(skip)]
     load_error: Option<String>,
     pub session: Option<Session>,
+    #[serde(default)]
+    pub tailscale: TailscaleOptions,
     #[serde(default)]
     pub movies_sort: Sort,
     #[serde(default)]
@@ -317,6 +326,7 @@ fn defaults() -> Config {
         load_failed: false,
         load_error: None,
         session: None,
+        tailscale: TailscaleOptions::default(),
         movies_sort: Sort::default(),
         series_sort: Sort::default(),
         volume: full_volume(),
@@ -440,6 +450,19 @@ mod tests {
         assert_eq!(loaded.device_id, config.device_id);
         save_to(&loaded, &path).unwrap();
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn tailscale_options_load_old_configs_and_round_trip() {
+        let mut value = serde_json::to_value(defaults()).unwrap();
+        value.as_object_mut().unwrap().remove("tailscale");
+        let mut config: super::Config = serde_json::from_value(value).unwrap();
+        assert_eq!(config.tailscale, super::TailscaleOptions::default());
+        config.tailscale.enabled = true;
+        config.tailscale.address = "jellyfin:8096".into();
+        let loaded: super::Config =
+            serde_json::from_slice(&serde_json::to_vec(&config).unwrap()).unwrap();
+        assert_eq!(loaded.tailscale, config.tailscale);
     }
 
     #[test]

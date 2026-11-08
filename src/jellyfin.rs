@@ -1167,6 +1167,15 @@ pub struct PublicUser {
     pub has_password: bool,
 }
 
+/// Public, unauthenticated reachability check used before selecting a route.
+pub async fn probe(http: Arc<dyn HttpClient>, server: &str) -> Result<()> {
+    let request = Request::builder()
+        .uri(format!("{server}/System/Info/Public"))
+        .body(AsyncBody::empty())?;
+    read_json::<PublicSystemInfo>(send(&http, request).await?).await?;
+    Ok(())
+}
+
 /// Users the server lists on its sign-in screen; empty when it hides them.
 pub async fn public_users(
     http: Arc<dyn HttpClient>,

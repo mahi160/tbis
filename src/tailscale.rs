@@ -1,12 +1,14 @@
 //! In-process tailnet node: a safe wrapper over libtailscale's C API
 //! (`vendor/libtailscale/tailscale.h`), linked by `build.rs` (ADR-0007).
-// nothing calls this until sign-in over the tailnet lands
-#![allow(dead_code)]
 
 use std::ffi::{CStr, CString, c_char, c_int};
+use std::net::Ipv4Addr;
 use std::os::fd::FromRawFd;
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context as _, Result, anyhow};
 use serde::Deserialize;
@@ -26,6 +28,42 @@ unsafe extern "C" {
     ) -> c_int;
     fn tailscale_status_json(sd: c_int, json_out: *mut *mut c_char) -> c_int;
     fn tailscale_errmsg(sd: c_int, buf: *mut c_char, buflen: usize) -> c_int;
+}
+
+pub fn parse_address(input: &str) -> Result<String> {
+    let (host, port) = match input.split_once(':') {
+        Some((host, port)) => {
+            let port: u16 = port.parse().context("invalid tailnet port")?;
+            if port == 0 {
+                return Err(anyhow!("invalid tailnet port"));
+            }
+            (host, port)
+        }
+        None => (input, 8096),
+    };
+    if let Ok(ip) = host.parse::<Ipv4Addr>() {
+        let octets = ip.octets();
+        if octets[0] != 100 || !(64..=127).contains(&octets[1]) {
+            return Err(anyhow!("IP address is not in the tailnet range"));
+        }
+    } else {
+        let valid = !host.is_empty()
+            && host.len() <= 253
+            && host.split('.').all(|label| {
+                !label.is_empty()
+                    && label.len() <= 63
+                    && label.as_bytes()[0].is_ascii_alphanumeric()
+                    && label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
+                    && label
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+            })
+            && host.bytes().any(|c| c.is_ascii_alphabetic());
+        if !valid {
+            return Err(anyhow!("invalid tailnet hostname"));
+        }
+    }
+    Ok(format!("{host}:{port}"))
 }
 
 /// Where the node is in its login lifecycle (ipnstate `BackendState`).
@@ -54,7 +92,9 @@ pub struct Status {
 /// so drop it off the UI thread.
 pub struct Node {
     sd: c_int,
+    #[cfg(test)]
     dir: PathBuf,
+    closed: AtomicBool,
 }
 
 impl Node {
@@ -67,7 +107,9 @@ impl Node {
         // SAFETY: no arguments; returns a handle we own from here on.
         let node = Self {
             sd: unsafe { tailscale_new() },
+            #[cfg(test)]
             dir: dir.to_path_buf(),
+            closed: AtomicBool::new(false),
         };
         // SAFETY: valid handle and NUL-terminated strings that outlive each call.
         unsafe {
@@ -104,11 +146,19 @@ impl Node {
         Ok(unsafe { UnixStream::from_raw_fd(fd) })
     }
 
+    pub(crate) fn close(&self) -> Result<()> {
+        if !self.closed.swap(true, Ordering::SeqCst) {
+            // SAFETY: close removes this handle once; libtailscale synchronizes handle lookup.
+            self.check(unsafe { tailscale_close(self.sd) })?;
+        }
+        Ok(())
+    }
+
     /// Closes the node and deletes its state, so the next start needs a fresh login.
+    #[cfg(test)]
     pub fn log_out(self) -> Result<()> {
-        let dir = self.dir.clone();
-        drop(self);
-        delete_state(&dir)
+        self.close()?;
+        delete_state(&self.dir)
     }
 
     fn check(&self, code: c_int) -> Result<()> {
@@ -129,20 +179,55 @@ impl Node {
 
 /// Deletes a node's state from `dir`, signing that device out; for when no `Node` is running.
 pub fn delete_state(dir: &Path) -> Result<()> {
-    std::fs::remove_dir_all(dir).context("deleting the Tailscale state dir")
+    match std::fs::remove_dir_all(dir) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err).context("deleting the Tailscale state dir"),
+    }
 }
 
 impl Drop for Node {
     fn drop(&mut self) {
-        // SAFETY: we own the handle and never use it after this.
-        unsafe { tailscale_close(self.sd) };
+        if let Err(err) = self.close() {
+            eprintln!("closing Tailscale failed: {err}");
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BackendState, Node};
+    use super::{BackendState, Node, parse_address};
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn tailnet_address_validation() {
+        assert_eq!(parse_address("jellyfin").unwrap(), "jellyfin:8096");
+        assert_eq!(
+            parse_address("host.tail123.ts.net:1234").unwrap(),
+            "host.tail123.ts.net:1234"
+        );
+        assert_eq!(parse_address("100.64.0.1").unwrap(), "100.64.0.1:8096");
+        assert_eq!(
+            parse_address("100.127.255.255:80").unwrap(),
+            "100.127.255.255:80"
+        );
+        for input in [
+            "",
+            "http://host",
+            "host/path",
+            "host:0",
+            "host:65536",
+            "100.63.0.1",
+            "100.128.0.1",
+            "192.168.1.1",
+            "100.64.0.999",
+            "-host",
+            "host..name",
+            "[::1]:80",
+        ] {
+            assert!(parse_address(input).is_err(), "{input}");
+        }
+    }
 
     #[test]
     #[ignore = "needs network: reaches Tailscale's control server"]
