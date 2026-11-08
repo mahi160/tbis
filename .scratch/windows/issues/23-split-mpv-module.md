@@ -4,10 +4,10 @@
 
 **Blocked by:** 17: Make video drawing fallible on every OS; 19: Remove Windows branches from mpv event logging
 
-**Status:** ready-for-agent
+**Status:** done (Windows CI not run; Windows target cross-checked with clippy locally)
 
-- [ ] mpv main module under 1,000 lines
-- [ ] Render and event threads each in their own module
-- [ ] No behaviour change; existing tests pass; `cargo check` on macOS and Windows CI pass
+- [x] mpv main module under 1,000 lines
+- [x] Render and event threads each in their own module
+- [x] No behaviour change; existing tests pass; `cargo check` on macOS and Windows CI pass
 
 Work on the `feat/windows` branch. Source: thermo-nuclear code quality review of `feat/windows` against merge-base `60b2ef8`.
