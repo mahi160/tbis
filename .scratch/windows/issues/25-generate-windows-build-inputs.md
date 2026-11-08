@@ -4,12 +4,20 @@
 
 **Blocked by:** 24: Generate Windows dependency facts from the manifest
 
-**Status:** ready-for-agent
+**Status:** done (Windows CI run pending)
 
-- [ ] No repeated `.Replace(...)` escaping chain or repeated hash snippets in the build PowerShell
-- [ ] Icon generation code removed; committed icon used by the resource build
+- [x] No repeated `.Replace(...)` escaping chain or repeated hash snippets in the build PowerShell
+- [x] Icon generation code removed; committed icon used by the resource build
 - [ ] Windows CI libmpv build and bundle pass
-- [ ] Checksum files (SHA256SUMS and friends) are produced in one place, not hand-rolled in both PowerShell and workflow YAML
-- [ ] Spike recorded: can the custom source-archive command be replaced by `tar` (long paths, hidden files)? If yes, delete it
+- [x] Checksum files (SHA256SUMS and friends) are produced in one place, not hand-rolled in both PowerShell and workflow YAML
+- [x] Spike recorded: can the custom source-archive command be replaced by `tar` (long paths, hidden files)? If yes, delete it
 
 Work on the `feat/windows` branch. Source: thermo-nuclear code quality review of `feat/windows` against merge-base `60b2ef8`.
+
+## Spike: replace the custom source-archive command with `tar`
+
+Decision: keep `archive` (`archive_directory` in `scripts/windows_sources.py`); not clearly safe to delete.
+
+- It guarantees a PAX archive (no 100-char/path-length limit; covered by the >260-char path and hidden-file round-trip test), one explicit root prefix, no symlink dereference, output outside the source root, and an atomic `.partial` rename. It does not guarantee deterministic order or mtimes (`tarfile.add` uses filesystem order and mtimes), so there is nothing deterministic to preserve.
+- `tar` (bsdtar on Windows runners) can produce PAX, include hidden files and add a prefix (`-s`), but the root prefix, outside-root check and atomic write would move into PowerShell. Long-path behaviour (>260) depends on Windows long-path support that could not be checked here (no Windows runner).
+- Revisit when a Windows CI run shows bsdtar passes the same long-path/hidden-file round trip.

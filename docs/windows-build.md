@@ -44,7 +44,7 @@ The following is historical application validation on an Apple Silicon macOS hos
 - `pwsh -NoLogo -NoProfile -File src/platform/windows/update.tests.ps1`: portable updater tests passed using PowerShell 7.6.9 for macOS arm64, not Windows process handling or runtime behavior.
 - PowerShell parsing passed for the five scripts then present in `scripts/*.ps1` and `src/platform/windows/*.ps1`, using `[Management.Automation.Language.Parser]::ParseFile`. Workflow YAML also parsed with Ruby. These results do not cover the newly added recipe or native CI execution.
 
-Windows cross-compilation used cargo-xwin with the actual MSVC CRT/Windows SDK, LLVM 23.1.4 (`clang-cl`, `lld-link`, `llvm-lib` and `llvm-readobj`) and the repository's static-CRT target configuration. `DYLD_FALLBACK_LIBRARY_PATH` included temporary Z3 5.3.3 and LLVM libraries and Homebrew's zstd library directory. `MPV_LIB_DIR` contained `mpv.lib`, generated with `llvm-lib /def:mpv.def /out:mpv.lib /machine:x64` from the previous shinchiro `20261103` nightly DLL, not the new source build. `TBIS_WINDOWS_ICON` named the generated `icon.ico`. These commands succeeded:
+Windows cross-compilation used cargo-xwin with the actual MSVC CRT/Windows SDK, LLVM 23.1.4 (`clang-cl`, `lld-link`, `llvm-lib` and `llvm-readobj`) and the repository's static-CRT target configuration. `DYLD_FALLBACK_LIBRARY_PATH` included temporary Z3 5.3.3 and LLVM libraries and Homebrew's zstd library directory. `MPV_LIB_DIR` contained `mpv.lib`, generated with `llvm-lib /def:mpv.def /out:mpv.lib /machine:x64` from the previous shinchiro `20261103` nightly DLL, not the new source build. These commands succeeded:
 
 ```sh
 cargo-xwin check --target x86_64-pc-windows-msvc --locked
@@ -91,7 +91,7 @@ From the repository root, in the same PowerShell session:
 cargo run --release --locked
 ```
 
-Setup invokes the source recipe, recreating `target/windows-deps`, then generates `target/windows-deps/icon.ico` from `assets/icon.png`. It sets `MPV_LIB_DIR` to `target/windows-deps/mpv`, `MPV_DLL` to that directory's `libmpv-2.dll`, and `TBIS_WINDOWS_ICON` to the icon, and adds the DLL directory to `PATH`. CI exports the same values for later steps. A fresh session must rerun setup or restore those values and paths.
+Setup invokes the source recipe, recreating `target/windows-deps`, then sets `MPV_LIB_DIR` to `target/windows-deps/mpv` and `MPV_DLL` to that directory's `libmpv-2.dll`, and adds the DLL directory to `PATH`. CI exports the same values for later steps. A fresh session must rerun setup or restore those values and paths.
 
 For a dependency-only build, use the owned recipe directly:
 

@@ -118,6 +118,64 @@ def archive_directory(root, output, prefix):
         partial.unlink(missing_ok=True)
 
 
+def write_checksums(root, output):
+    root = Path(root).resolve(strict=True)
+    records = file_records(root) if root.is_dir() else [{'path': root.name, 'sha256': digest(root)}]
+    Path(output).write_text(''.join(f'{record["sha256"]}  {record["path"]}\n' for record in records), encoding='utf-8')
+
+
+def meson_string(value):
+    return "'" + str(value).replace('\\', '/').replace("'", "\\'") + "'"
+
+
+def native_file(tools, python, helper):
+    unresolved = f'[{meson_string(python)}, {meson_string(helper)}, \'no-external-deps\']'
+    return f"""[binaries]
+c = [{meson_string(tools['clang']['path'])}, '--target=x86_64-pc-windows-msvc']
+cpp = [{meson_string(tools['clang++']['path'])}, '--target=x86_64-pc-windows-msvc']
+c_ld = 'lld-link'
+cpp_ld = 'lld-link'
+ar = {meson_string(tools['llvm-lib']['path'])}
+windres = {meson_string(tools['llvm-rc']['path'])}
+nasm = {meson_string(tools['nasm']['path'])}
+python = {meson_string(python)}
+python3 = {meson_string(python)}
+pkg-config = {unresolved}
+cmake = {unresolved}
+"""
+
+
+def tool_record(path, version_flag=None):
+    record = {'path': str(path), 'sha256': digest(path)}
+    if version_flag:
+        result = subprocess.run([str(path), version_flag], check=True, capture_output=True, text=True)
+        record['identity'] = result.stdout.strip()
+    return record
+
+
+def write_toolchain(deps):
+    deps = Path(deps)
+    tools = {}
+    for name, version_flag in (('clang', '--version'), ('clang++', '--version'), ('lld-link', '--version'),
+                               ('llvm-lib', None), ('llvm-rc', None), ('dumpbin', None), ('lib', None)):
+        path = shutil.which(name)
+        if path is None:
+            raise ValueError(f'Missing build tool: {name}')
+        tools[name] = tool_record(path, version_flag)
+    tools['python'] = tool_record(sys.executable, '--version')
+    for name, version_flag in (('ninja', '--version'), ('nasm', '-v')):
+        executables = list((deps / 'tools' / name).rglob(f'{name}.exe'))
+        if len(executables) != 1:
+            raise ValueError(f'Expected one pinned {name} executable')
+        tools[name] = tool_record(executables[0], version_flag)
+    sdk = {name: os.environ.get(name) for name in (
+        'VCToolsInstallDir', 'VCToolsVersion', 'WindowsSdkDir', 'WindowsSDKVersion', 'UniversalCRTSdkDir',
+        'UCRTVersion', 'INCLUDE', 'LIB', 'ImageOS', 'ImageVersion')}
+    manifest = validate_manifest(read_json(MANIFEST))
+    write_json(deps / 'toolchain.json', {'tools': tools, 'sdk': sdk, 'pinnedTools': manifest['tools']})
+    (deps / 'native.ini').write_text(native_file(tools, sys.executable, Path(__file__).resolve()), encoding='utf-8')
+
+
 def extract_archive(archive, destination, sha256, strip_root=True):
     archive, destination = Path(archive), Path(destination)
     if digest(archive) != sha256:
@@ -464,7 +522,7 @@ def verify_inventory(repo, deps):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=('prepare', 'audit', 'inventory', 'verify', 'no-external-deps', 'archive'))
+    parser.add_argument('action', choices=('prepare', 'audit', 'inventory', 'verify', 'no-external-deps', 'archive', 'checksums', 'toolchain'))
     parser.add_argument('--repo', type=Path)
     parser.add_argument('--deps', type=Path)
     parser.add_argument('--root', type=Path)
@@ -478,6 +536,18 @@ def main():
                 or args.repo is not None or args.deps is not None):
             parser.error('--root, --output and --prefix are required; no extra arguments allowed')
         archive_directory(args.root, args.output, args.prefix)
+        return 0
+    if args.action == 'checksums':
+        if (extra or args.root is None or args.output is None or args.prefix is not None
+                or args.repo is not None or args.deps is not None):
+            parser.error('--root and --output are required; no extra arguments allowed')
+        write_checksums(args.root, args.output)
+        return 0
+    if args.action == 'toolchain':
+        if (extra or args.deps is None or args.repo is not None
+                or args.root is not None or args.output is not None or args.prefix is not None):
+            parser.error('--deps is required; no extra arguments allowed')
+        write_toolchain(args.deps)
         return 0
     if (extra or args.repo is None or args.deps is None
             or args.root is not None or args.output is not None or args.prefix is not None):

@@ -41,13 +41,9 @@ jobs:
           $package = "$Repo/target/windows-mpv-dependency"
           New-Item -ItemType Directory $package | Out-Null
           Copy-Item "$Deps/mpv", $source $package -Recurse
-          $sums = Get-ChildItem $package -Recurse -File | Sort-Object FullName | ForEach-Object {
-            $relative = [IO.Path]::GetRelativePath($package, $_.FullName).Replace('\', '/')
-            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $relative"
-          }
-          $sums | Set-Content "$package/SHA256SUMS"
+          Invoke-Native python @("$Repo/scripts/windows_sources.py", 'checksums', '--root', $package, '--output', "$package/SHA256SUMS")
           Invoke-Native python @("$Repo/scripts/windows_sources.py", 'archive', '--root', $package, '--output', "$Repo/target/windows-mpv-dependency.tar", '--prefix', 'windows-mpv-dependency')
-          "$((Get-FileHash "$Repo/target/windows-mpv-dependency.tar" -Algorithm SHA256).Hash.ToLowerInvariant())  windows-mpv-dependency.tar" | Set-Content "$Repo/target/SHA256SUMS"
+          Invoke-Native python @("$Repo/scripts/windows_sources.py", 'checksums', '--root', "$Repo/target/windows-mpv-dependency.tar", '--output', "$Repo/target/SHA256SUMS")
       - uses: actions/upload-artifact@v4
         with:
           name: windows-mpv-dependency

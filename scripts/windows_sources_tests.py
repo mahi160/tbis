@@ -100,6 +100,29 @@ class ArchiveCreationTests(unittest.TestCase):
         self.assertEqual(list(self.root.iterdir()), [])
 
 
+class BuildInputTests(unittest.TestCase):
+    def test_native_file_escapes_paths(self):
+        tools = {name: {'path': f'C:\\it\'s\\{name}.exe'} for name in ('clang', 'clang++', 'llvm-lib', 'llvm-rc', 'nasm')}
+        text = sources.native_file(tools, 'C:\\py\\python.exe', 'C:\\s\\helper.py')
+        self.assertIn("c = ['C:/it\\'s/clang.exe', '--target=x86_64-pc-windows-msvc']", text)
+        self.assertIn("python3 = 'C:/py/python.exe'", text)
+        self.assertIn("cmake = ['C:/py/python.exe', 'C:/s/helper.py', 'no-external-deps']", text)
+        self.assertNotIn('\\\\', text)
+
+    def test_checksums_for_directory_and_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / 'root'
+            (root / 'sub').mkdir(parents=True)
+            (root / 'b.txt').write_bytes(b'b')
+            (root / 'sub' / 'a.txt').write_bytes(b'a')
+            output = Path(temp) / 'SHA256SUMS'
+            sources.write_checksums(root, output)
+            self.assertEqual(output.read_text(encoding='utf-8'),
+                             f'{sources.digest(root / "b.txt")}  b.txt\n{sources.digest(root / "sub/a.txt")}  sub/a.txt\n')
+            sources.write_checksums(root / 'b.txt', output)
+            self.assertEqual(output.read_text(encoding='utf-8'), f'{sources.digest(root / "b.txt")}  b.txt\n')
+
+
 class ArchiveTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

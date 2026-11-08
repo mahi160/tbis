@@ -9,33 +9,6 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 $env:GIT_CEILING_DIRECTORIES = [IO.Path]::GetFullPath($Deps)
 Invoke-Native $python @("$PSScriptRoot/windows_sources.py", 'prepare', '--repo', $Repo, '--deps', $Deps)
 
-$tools = @{}
-foreach ($name in @('clang', 'clang++', 'lld-link', 'llvm-lib', 'llvm-rc', 'dumpbin', 'lib')) {
-    $path = (Get-Command $name -CommandType Application | Select-Object -First 1).Source
-    $tools[$name] = @{
-        path = $path
-        sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
-        version = (Get-Item $path).VersionInfo.FileVersion
-    }
-}
-foreach ($name in @('clang', 'clang++', 'lld-link')) {
-    $tools[$name].identity = (Invoke-Native $tools[$name].path @('--version')) -join "`n"
-}
-$tools['python'] = @{
-    path = $python
-    sha256 = (Get-FileHash $python -Algorithm SHA256).Hash.ToLowerInvariant()
-    identity = (Invoke-Native $python @('--version')) -join "`n"
-}
-foreach ($name in @('ninja', 'nasm')) {
-    $executables = @(Get-ChildItem "$Deps/tools/$name" -Recurse -Filter "$name.exe")
-    if ($executables.Count -ne 1) { throw "Expected one pinned $name executable" }
-    $tools[$name] = @{
-        path = $executables[0].FullName
-        sha256 = (Get-FileHash $executables[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-    }
-}
-$tools.ninja.identity = (Invoke-Native $tools.ninja.path @('--version')) -join "`n"
-$tools.nasm.identity = (Invoke-Native $tools.nasm.path @('-v')) -join "`n"
 $sdkRoots = @($env:VCToolsInstallDir, $env:WindowsSdkDir, $env:UniversalCRTSdkDir) | Where-Object { $_ }
 foreach ($name in @('INCLUDE', 'LIB')) {
     $paths = @([Environment]::GetEnvironmentVariable($name) -split ';' | Where-Object { $_ })
@@ -49,36 +22,12 @@ foreach ($name in @('INCLUDE', 'LIB')) {
 foreach ($name in @('CL', '_CL_', 'CFLAGS', 'CXXFLAGS', 'CPPFLAGS', 'LDFLAGS', 'C_INCLUDE_PATH', 'CPLUS_INCLUDE_PATH', 'LIBRARY_PATH')) {
     [Environment]::SetEnvironmentVariable($name, $null)
 }
-$sdk = @{}
-foreach ($name in @('VCToolsInstallDir', 'VCToolsVersion', 'WindowsSdkDir', 'WindowsSDKVersion', 'UniversalCRTSdkDir', 'UCRTVersion', 'INCLUDE', 'LIB', 'ImageOS', 'ImageVersion')) {
-    $sdk[$name] = [Environment]::GetEnvironmentVariable($name)
-}
-@{ tools = $tools; sdk = $sdk; pinnedTools = $Pins.tools } | ConvertTo-Json -Depth 8 | Set-Content "$Deps/toolchain.json"
+Invoke-Native $python @("$PSScriptRoot/windows_sources.py", 'toolchain', '--deps', $Deps)
+$tools = (Get-Content "$Deps/toolchain.json" -Raw | ConvertFrom-Json).tools
 
 $env:PYTHONPATH = "$Deps/tools/meson"
 $env:PYTHONNOUSERSITE = '1'
 $env:PATH = (Split-Path $tools.ninja.path) + ';' + (Split-Path $tools.nasm.path) + ';' + $env:PATH
-$helper = "$PSScriptRoot/windows_sources.py".Replace('\', '/').Replace("'", "\'")
-$pythonPath = $python.Replace('\', '/').Replace("'", "\'")
-$clang = $tools.clang.path.Replace('\', '/').Replace("'", "\'")
-$clangCpp = $tools['clang++'].path.Replace('\', '/').Replace("'", "\'")
-$archiver = $tools['llvm-lib'].path.Replace('\', '/').Replace("'", "\'")
-$resourceCompiler = $tools['llvm-rc'].path.Replace('\', '/').Replace("'", "\'")
-$nasm = $tools.nasm.path.Replace('\', '/').Replace("'", "\'")
-@"
-[binaries]
-c = ['$clang', '--target=x86_64-pc-windows-msvc']
-cpp = ['$clangCpp', '--target=x86_64-pc-windows-msvc']
-c_ld = 'lld-link'
-cpp_ld = 'lld-link'
-ar = '$archiver'
-windres = '$resourceCompiler'
-nasm = '$nasm'
-python = '$pythonPath'
-python3 = '$pythonPath'
-pkg-config = ['$pythonPath', '$helper', 'no-external-deps']
-cmake = ['$pythonPath', '$helper', 'no-external-deps']
-"@ | Set-Content "$Deps/native.ini"
 $env:PKG_CONFIG_PATH = ''
 $env:PKG_CONFIG_LIBDIR = "$Deps/empty-pkgconfig"
 $env:CMAKE_PREFIX_PATH = ''

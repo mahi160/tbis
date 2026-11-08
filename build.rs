@@ -6,10 +6,9 @@ fn main() {
         let dir =
             std::env::var("MPV_LIB_DIR").expect("MPV_LIB_DIR must name the folder holding mpv.lib");
         println!("cargo:rustc-link-search=native={dir}");
-        println!("cargo:rerun-if-env-changed=TBIS_WINDOWS_ICON");
         println!("cargo:rerun-if-changed=Cargo.toml");
-        let icon = std::env::var("TBIS_WINDOWS_ICON")
-            .expect("Run scripts/setup-windows-deps.ps1 to generate TBIS_WINDOWS_ICON");
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("Cargo manifest directory");
+        let icon = format!("{manifest_dir}/assets/icon.ico");
         println!("cargo:rerun-if-changed={icon}");
         let version = std::env::var("CARGO_PKG_VERSION").expect("Cargo package version");
         let numeric = format!("{},0", version.replace('.', ","));
