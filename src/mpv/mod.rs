@@ -459,7 +459,12 @@ impl Handle {
         }
         for (name, value) in &options {
             let (n, v) = cstrings(name, value)?;
-            unsafe { check(mpv_set_option_string(self.0, n.as_ptr(), v.as_ptr()), name)? };
+            let rc = unsafe { mpv_set_option_string(self.0, n.as_ptr(), v.as_ptr()) };
+            // libmpv built without Lua (Windows bundle) has no OSC, hence no `osc` option
+            if *name == "osc" && rc == mpv_error_MPV_ERROR_OPTION_NOT_FOUND {
+                continue;
+            }
+            check(rc, name)?;
         }
         unsafe {
             mpv_request_log_messages(self.0, c"warn".as_ptr());
