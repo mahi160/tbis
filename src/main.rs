@@ -63,10 +63,7 @@ fn raise_open_file_limit() {
 fn main() {
     #[cfg(target_os = "windows")]
     {
-        if let Err(error) = platform::log::init() {
-            eprintln!("could not initialize tbis.log: {error}");
-            std::process::exit(1);
-        }
+        platform::log::init();
         if std::env::args_os().any(|argument| argument == "--self-test") {
             match mpv::self_test() {
                 Ok(()) => return,

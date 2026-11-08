@@ -1,21 +1,37 @@
-#[cfg(target_os = "windows")]
-use std::fs::File;
-#[cfg(target_os = "windows")]
-use std::io::Write;
-#[cfg(target_os = "windows")]
-use std::sync::{Mutex, OnceLock};
+#[cfg(any(test, target_os = "windows"))]
+const SENSITIVE: [&str; 25] = [
+    "authorization",
+    "authenticate",
+    "bearer",
+    "basic ",
+    "token",
+    "password",
+    "passwd",
+    "pass=",
+    "user=",
+    "secret",
+    "cookie",
+    "credential",
+    "api_key",
+    "api-key",
+    "apikey",
+    "x-emby",
+    "x-mediabrowser",
+    "username",
+    "userinfo",
+    "signature",
+    "sig=",
+    "key=",
+    "://",
+    "file:",
+    "data:",
+];
 
+/// Points the process's stderr at `tbis.log` next to the exe. Rust's stderr looks up
+/// the std handle on every write, so every `eprintln!` lands in the file. If the file
+/// can't be created (read-only install folder) stderr is left alone.
 #[cfg(target_os = "windows")]
-static FILE: OnceLock<Mutex<File>> = OnceLock::new();
-
-#[cfg(target_os = "windows")]
-pub fn init() -> std::io::Result<()> {
-    if FILE.get().is_some() {
-        return Ok(());
-    }
-    let path = std::env::current_exe()?.with_file_name("tbis.log");
-    let file = File::create(path)?;
-    let _ = FILE.set(Mutex::new(file));
+pub fn init() {
     std::panic::set_hook(Box::new(|info| {
         let message = info
             .payload()
@@ -24,40 +40,31 @@ pub fn init() -> std::io::Result<()> {
             .or_else(|| info.payload().downcast_ref::<&str>().copied())
             .unwrap_or("non-string panic");
         let lower = message.to_ascii_lowercase();
-        let private = [
-            "://",
-            "authorization",
-            "bearer",
-            "basic ",
-            "token",
-            "password",
-            "secret",
-            "cookie",
-            "credential",
-            "api_key",
-            "api-key",
-            "x-emby",
-        ]
-        .iter()
-        .any(|marker| lower.contains(marker));
-        let message = if private {
+        let message = if SENSITIVE.iter().any(|marker| lower.contains(marker)) {
             "[private panic text omitted]"
         } else {
             message
         };
         let location = info.location().map(ToString::to_string).unwrap_or_default();
-        write(&format!("panic at {location}: {message}"));
+        eprintln!("panic at {location}: {message}");
     }));
-    write(concat!(
-        "tbis ",
-        env!("CARGO_PKG_VERSION"),
-        " Windows runtime; GPU behavior unverified"
-    ));
-    Ok(())
+    let Ok(path) = std::env::current_exe().map(|exe| exe.with_file_name("tbis.log")) else {
+        return;
+    };
+    let Ok(file) = std::fs::File::create(path) else {
+        return;
+    };
+    use std::os::windows::io::IntoRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::Console::{STD_ERROR_HANDLE, SetStdHandle};
+    let handle = file.into_raw_handle();
+    // The handle stays open for the life of the process.
+    let _ = unsafe { SetStdHandle(STD_ERROR_HANDLE, HANDLE(handle)) };
+    eprintln!("tbis {} Windows runtime", env!("CARGO_PKG_VERSION"));
 }
 
-#[cfg(target_os = "windows")]
-pub fn redact(message: &str, secrets: &[String], redact_paths: bool) -> String {
+#[cfg(any(test, target_os = "windows"))]
+pub fn redact(message: &str, secrets: &[String]) -> String {
     let mut message = message.to_owned();
     for secret in secrets {
         message = message.replace(secret, "[redacted]");
@@ -66,42 +73,11 @@ pub fn redact(message: &str, secrets: &[String], redact_paths: bool) -> String {
         .lines()
         .map(|line| {
             let lower = line.to_ascii_lowercase();
-            let sensitive = [
-                "authorization",
-                "authenticate",
-                "bearer",
-                "basic ",
-                "token",
-                "password",
-                "passwd",
-                "pass=",
-                "user=",
-                "secret",
-                "cookie",
-                "credential",
-                "api_key",
-                "api-key",
-                "apikey",
-                "x-emby",
-                "x-mediabrowser",
-                "header",
-                "username",
-                "userinfo",
-                "session",
-                "signature",
-                "sig=",
-                "key=",
-                "://",
-                "file:",
-                "data:",
-                "?",
-                "@",
-            ]
-            .iter()
-            .filter_map(|marker| lower.find(marker))
-            .min();
-            let path = redact_paths.then(|| line.find(['/', '\\'])).flatten();
-            match sensitive.into_iter().chain(path).min() {
+            match SENSITIVE
+                .iter()
+                .filter_map(|marker| lower.find(marker))
+                .min()
+            {
                 Some(end) => {
                     let start = line[..end]
                         .char_indices()
@@ -118,14 +94,34 @@ pub fn redact(message: &str, secrets: &[String], redact_paths: bool) -> String {
 }
 
 pub fn write(message: &str) {
-    #[cfg(target_os = "windows")]
-    if let Some(file) = FILE.get() {
-        let mut file = file
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let _ = writeln!(file, "{message}");
-        let _ = file.flush();
-        return;
-    }
     eprintln!("{message}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact;
+
+    #[test]
+    fn redacts_secrets_and_markers() {
+        let secrets = vec!["abc123".to_owned()];
+        assert_eq!(
+            redact("opening abc123 now", &secrets),
+            "opening [redacted] now"
+        );
+        assert_eq!(
+            redact("GET https://host/Videos?api_key=x", &[]),
+            "GET [redacted]"
+        );
+        assert_eq!(
+            redact("Authorization: MediaBrowser Token=z", &[]),
+            "[redacted]"
+        );
+    }
+
+    #[test]
+    fn keeps_ordinary_lines() {
+        let line = r"cache: C:\Users\me\clip.mkv (seekable?) a@b header ok session 1";
+        assert_eq!(redact(line, &[]), line);
+        assert_eq!(redact("/tmp/a.mkv: unknown?", &[]), "/tmp/a.mkv: unknown?");
+    }
 }

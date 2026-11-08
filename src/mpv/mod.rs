@@ -887,8 +887,8 @@ fn event_thread(
                 log.print(format!("mpv [{prefix}] {}", text.trim_end()));
                 #[cfg(target_os = "windows")]
                 {
-                    let prefix = crate::platform::log::redact(&prefix, &secrets, false);
-                    let text = crate::platform::log::redact(text.trim_end(), &secrets, true);
+                    let prefix = crate::platform::log::redact(&prefix, &secrets);
+                    let text = crate::platform::log::redact(text.trim_end(), &secrets);
                     log.print(format!("mpv [{prefix}] {text}"));
                 }
             }
