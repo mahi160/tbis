@@ -8,7 +8,7 @@ use gpui_kit::*;
 
 use crate::components::button::{round_ghost_button, round_icon, round_icon_button};
 use crate::components::layout::spacer;
-use crate::components::menu::choice_menu;
+use crate::components::menu::{choice_menu, choice_menu_sections};
 use crate::components::video::{
     bottom_bar, hover_reveal, sprite_thumb, timeline, top_bar, video_meta, video_tag, video_title,
 };
@@ -258,7 +258,7 @@ impl PlayerView {
         }
         let (id, icon, tooltip) = match kind {
             TrackKind::Audio => ("player-audio", "icons/headphones.svg", "Audio"),
-            TrackKind::Subtitle if tracks.iter().any(|t| t.selected) => {
+            TrackKind::Subtitle if tracks.iter().any(|t| t.selected || t.secondary) => {
                 ("player-subtitles", "icons/cc-filled.svg", "Subtitles")
             }
             TrackKind::Subtitle => ("player-subtitles", "icons/cc.svg", "Subtitles"),
@@ -275,15 +275,48 @@ impl PlayerView {
                 .map(|t| (Some(t.id), t.label.clone().into(), t.selected)),
         );
         let options = choices.iter().map(|(_, l, c)| (l.clone(), *c)).collect();
-        Some(choice_menu(
+        if kind == TrackKind::Audio {
+            return Some(choice_menu(
+                round_icon_button(id, icon, tooltip),
+                options,
+                // long track lists overflow the window otherwise
+                true,
+                move |ix, cx| {
+                    let track_id = choices[ix].0;
+                    this.update(cx, |this, _| this.select_track(kind, track_id))
+                        .ok();
+                },
+                self.on_menu_open(cx),
+            ));
+        }
+        // second row: same tracks, mpv's `secondary-sid`
+        let mut secondary_choices: Vec<(Option<_>, SharedString, bool)> =
+            vec![(None, "Off".into(), !tracks.iter().any(|t| t.secondary))];
+        secondary_choices.extend(
+            tracks
+                .iter()
+                .map(|t| (Some(t.id), t.label.clone().into(), t.secondary)),
+        );
+        let secondary_options = secondary_choices
+            .iter()
+            .map(|(_, l, c)| (l.clone(), *c))
+            .collect();
+        Some(choice_menu_sections(
             round_icon_button(id, icon, tooltip),
-            options,
-            // long track lists overflow the window otherwise
+            vec![
+                (Some("Subtitles".into()), options),
+                (Some("Secondary subtitles".into()), secondary_options),
+            ],
             true,
-            move |ix, cx| {
-                let track_id = choices[ix].0;
-                this.update(cx, |this, _| this.select_track(kind, track_id))
-                    .ok();
+            move |section, ix, cx| {
+                this.update(cx, |this, _| {
+                    if section == 0 {
+                        this.select_track(kind, choices[ix].0)
+                    } else {
+                        this.select_secondary_subtitle(secondary_choices[ix].0)
+                    }
+                })
+                .ok();
             },
             self.on_menu_open(cx),
         ))

@@ -370,6 +370,13 @@ impl PlayerView {
         self.remember_track(kind, id);
     }
 
+    /// Not remembered: track memory only covers the primary subtitle.
+    pub(super) fn select_secondary_subtitle(&mut self, id: Option<i64>) {
+        if let Some(mpv) = self.active_mpv() {
+            let _ = mpv.select_secondary_subtitle(id);
+        }
+    }
+
     /// Records a manual track pick: this exact item's choice, plus (audio always;
     /// subtitle only when turning one on) the language -- scoped to the Series for an
     /// Episode so it can't drag a pick into an unrelated show, else the app-wide

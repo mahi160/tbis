@@ -195,6 +195,8 @@ fn read_tracks(mpv: Handle) -> Vec<Track> {
             };
             let id = field("id")?.parse().ok()?;
             let lang = field("lang");
+            // main-selection: 0 primary, 1 secondary (secondary-sid)
+            let secondary = field("main-selection").as_deref() == Some("1");
             let mut parts: Vec<String> = [field("title"), lang.clone()]
                 .into_iter()
                 .flatten()
@@ -222,7 +224,8 @@ fn read_tracks(mpv: Handle) -> Vec<Track> {
                 id,
                 kind,
                 label,
-                selected: field("selected").as_deref() == Some("yes"),
+                selected: field("selected").as_deref() == Some("yes") && !secondary,
+                secondary,
                 lang,
             })
         })

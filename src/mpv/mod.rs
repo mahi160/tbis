@@ -67,7 +67,10 @@ pub struct Track {
     pub id: i64,
     pub kind: TrackKind,
     pub label: String,
+    /// Primary selection (`aid`/`sid`).
     pub selected: bool,
+    /// Selected as the secondary subtitle (`secondary-sid`); never also `selected`.
+    pub secondary: bool,
     /// Raw language code (container tag, or the `sub-add` lang for an external
     /// subtitle); for matching a remembered language pref, separately from `label`.
     pub lang: Option<String>,
@@ -220,6 +223,12 @@ impl Mpv {
     pub fn select_track(&self, kind: TrackKind, id: Option<i64>) -> Result<(), String> {
         let value = id.map_or("no".to_string(), |id| id.to_string());
         self.handle.set_property(kind.property(), &value)
+    }
+
+    /// Second subtitle shown alongside the primary; `None` turns it off.
+    pub fn select_secondary_subtitle(&self, id: Option<i64>) -> Result<(), String> {
+        let value = id.map_or("no".to_string(), |id| id.to_string());
+        self.handle.set_property("secondary-sid", &value)
     }
 
     /// Shows the video in `window` instead (Picture-in-Picture); playback carries on.
