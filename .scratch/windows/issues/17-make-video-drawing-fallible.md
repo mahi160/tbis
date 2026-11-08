@@ -4,12 +4,12 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified on Windows; Linux not compiled)
 
-- [ ] `Renderer::draw` returns a result on macOS, Linux and Windows
-- [ ] The shared render loop contains no `target_os` cfg blocks
-- [ ] A Windows render failure still ends playback with the 'close and reopen the player' error
-- [ ] macOS/Linux playback unchanged
-- [ ] `cargo check` passes on macOS; Windows CI build passes
+- [x] `Renderer::draw` returns a result on macOS, Linux and Windows
+- [x] The shared render loop contains no `target_os` cfg blocks
+- [x] A Windows render failure still ends playback with the 'close and reopen the player' error
+- [x] macOS/Linux playback unchanged
+- [x] `cargo check` passes on macOS; Windows target clippy passes (Windows CI build not run)
 
 Work on the `feat/windows` branch. Source: thermo-nuclear code quality review of `feat/windows` against merge-base `60b2ef8`.

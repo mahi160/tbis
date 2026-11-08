@@ -65,7 +65,7 @@ impl Renderer {
     }
 
     /// Draws current frame; returns true if a frame was presented.
-    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> bool {
+    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> Result<bool, String> {
         match self {
             Self::Wayland(r) => r.draw(ctx, extent),
             Self::X11(r) => r.draw(ctx, extent),

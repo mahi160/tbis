@@ -29,7 +29,6 @@ impl Surface {
             Renderer {
                 hwnd,
                 runtime: None,
-                error: None,
             },
         ))
     }
@@ -49,7 +48,6 @@ impl Drop for Surface {
 pub struct Renderer {
     hwnd: HWND,
     runtime: Option<Runtime>,
-    error: Option<String>,
 }
 
 // Only moved into the render thread before init; all GPU/GL objects are created and
@@ -63,28 +61,18 @@ impl Renderer {
         mpv::create_gl_render_context(mpv, wgl::get_proc, None)
     }
 
-    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> bool {
+    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> Result<bool, String> {
         if unsafe { IsIconic(self.hwnd) }.as_bool() {
             mpv::skip_frame(ctx);
-            return false;
+            return Ok(false);
         }
-        let result = match &mut self.runtime {
+        match &mut self.runtime {
             Some(runtime) => runtime.draw(ctx, extent),
             None => Err("Windows renderer is not initialized".into()),
-        };
-        match result {
-            Ok(drawn) => drawn,
-            Err(error) => {
-                self.error = Some(format!(
-                    "Windows video failed; close and reopen the player to retry: {error}"
-                ));
-                false
-            }
         }
-    }
-
-    pub fn take_error(&mut self) -> Option<String> {
-        self.error.take()
+        .map_err(|error| {
+            format!("Windows video failed; close and reopen the player to retry: {error}")
+        })
     }
 }
 

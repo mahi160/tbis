@@ -292,9 +292,9 @@ impl Renderer {
     }
 
     /// Draws current frame at `extent`. Returns true if a frame was presented.
-    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> bool {
+    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> Result<bool, String> {
         let Some(gl) = &mut self.gl else {
-            return false;
+            return Ok(false);
         };
         if gl.applied != extent {
             gl.window.resize(extent.width, extent.height, 0, 0);
@@ -310,9 +310,9 @@ impl Renderer {
             gl.applied = extent;
         }
         if !render_gl(ctx, 0, extent.width, extent.height, true) {
-            return false;
+            return Ok(false);
         }
-        gl.egl.swap_buffers(gl.display, gl.egl_surface).is_ok()
+        Ok(gl.egl.swap_buffers(gl.display, gl.egl_surface).is_ok())
     }
 }
 

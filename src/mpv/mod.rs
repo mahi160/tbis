@@ -136,22 +136,13 @@ impl Mpv {
         let waker = Arc::new(Waker::default());
         let stop = Arc::new(AtomicBool::new(false));
 
+        let failure = Arc::new(Mutex::new(None));
         let (ready_tx, ready_rx) = mpsc::channel();
         let render = {
-            #[cfg(target_os = "windows")]
-            let errors = events.clone();
-            let (size, waker, stop) = (size.clone(), waker.clone(), stop.clone());
+            let (size, waker, stop, failure) =
+                (size.clone(), waker.clone(), stop.clone(), failure.clone());
             std::thread::spawn(move || {
-                render_thread(
-                    handle,
-                    renderer,
-                    size,
-                    waker,
-                    stop,
-                    ready_tx,
-                    #[cfg(target_os = "windows")]
-                    errors,
-                )
+                render_thread(handle, renderer, size, waker, stop, ready_tx, failure)
             })
         };
         let events = {
@@ -167,6 +158,7 @@ impl Mpv {
                     handle,
                     stop,
                     events,
+                    failure,
                     #[cfg(target_os = "windows")]
                     secrets,
                 )
@@ -799,6 +791,7 @@ fn event_thread(
     mpv: Handle,
     stop: Arc<AtomicBool>,
     tx: UnboundedSender<MpvEvent>,
+    failure: Arc<Mutex<Option<String>>>,
     #[cfg(target_os = "windows")] secrets: Vec<String>,
 ) {
     let send = |event| {
@@ -810,6 +803,13 @@ fn event_thread(
         let event = unsafe { &*mpv_wait_event(mpv.0, time.wait()) };
         match event.event_id {
             mpv_event_id_MPV_EVENT_NONE => {
+                let failed = failure
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take();
+                if let Some(error) = failed {
+                    send(MpvEvent::EndFile(Err(error)));
+                }
                 if let Some(seconds) = time.flush(Instant::now()) {
                     send(MpvEvent::TimePos(seconds));
                 }
@@ -1123,7 +1123,7 @@ fn render_thread(
     waker: Arc<Waker>,
     stop: Arc<AtomicBool>,
     ready: mpsc::Sender<Result<(), String>>,
-    #[cfg(target_os = "windows")] errors: UnboundedSender<MpvEvent>,
+    failure: Arc<Mutex<Option<String>>>,
 ) {
     let ctx = match renderer.init(mpv) {
         Ok(ctx) => ctx,
@@ -1142,8 +1142,6 @@ fn render_thread(
     };
     let _ = ready.send(Ok(()));
 
-    #[cfg(target_os = "windows")]
-    let (mut frames_drawn, mut frames_skipped) = (0_u64, 0_u64);
     let mut drawn_size = Extent::default();
     let mut stats = FrameStats::from_env();
     let pass_logger = stats
@@ -1160,44 +1158,33 @@ fn render_thread(
         if extent.width <= 0 || extent.height <= 0 {
             if new_frame {
                 skip_frame(ctx); // drain, else mpv stalls waiting for render
-                #[cfg(target_os = "windows")]
-                {
-                    frames_skipped += 1;
-                }
             }
             continue;
         }
         let start = Instant::now();
-        if (new_frame || drawn_size != extent) && renderer.draw(ctx, extent) {
-            #[cfg(target_os = "windows")]
-            {
-                frames_drawn += 1;
+        let drawn = if new_frame || drawn_size != extent {
+            match renderer.draw(ctx, extent) {
+                Ok(drawn) => drawn,
+                Err(error) => {
+                    skip_frame(ctx);
+                    crate::platform::log::write(&error);
+                    *failure.lock().unwrap_or_else(PoisonError::into_inner) = Some(error);
+                    unsafe { mpv_wakeup(mpv.0) }; // event thread forwards it
+                    break;
+                }
             }
+        } else {
+            false
+        };
+        if drawn {
             drawn_size = extent;
             unsafe { mpv_render_context_report_swap(ctx) };
             if let Some(stats) = &mut stats {
                 stats.frame(start);
             }
-        } else {
-            #[cfg(target_os = "windows")]
-            if new_frame {
-                frames_skipped += 1;
-            }
-        }
-        #[cfg(target_os = "windows")]
-        if let Some(error) = renderer.take_error() {
-            skip_frame(ctx);
-            crate::platform::log::write(&error);
-            let _ = errors.unbounded_send(MpvEvent::EndFile(Err(error)));
-            stop.store(true, Ordering::SeqCst);
-            break;
         }
     }
 
-    #[cfg(target_os = "windows")]
-    crate::platform::log::write(&format!(
-        "player rendering closed: frames drawn={frames_drawn}, skipped={frames_skipped}"
-    ));
     unsafe {
         mpv_render_context_set_update_callback(ctx, None, std::ptr::null_mut());
         mpv_render_context_free(ctx);
