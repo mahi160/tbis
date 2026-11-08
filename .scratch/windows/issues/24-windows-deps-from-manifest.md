@@ -4,11 +4,11 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (Windows CI run pending)
 
-- [ ] Exactly one system-DLL allowlist exists
-- [ ] No hard-coded component set, directory special cases or expected-subproject set in the Python tooling
-- [ ] Python tooling tests pass
+- [x] Exactly one system-DLL allowlist exists
+- [x] No hard-coded component set, directory special cases or expected-subproject set in the Python tooling
+- [x] Python tooling tests pass
 - [ ] Source archive and libmpv build in CI produce the same results as before
 
 Work on the `feat/windows` branch. Source: thermo-nuclear code quality review of `feat/windows` against merge-base `60b2ef8`.

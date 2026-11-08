@@ -14,11 +14,8 @@ import urllib.request
 import zipfile
 
 
-COMPONENTS = {
-    'mpv', 'ffmpeg', 'libplacebo', 'libass', 'dav1d', 'freetype2',
-    'fribidi', 'harfbuzz', 'zlib', 'wrapdb', 'glad', 'jinja',
-    'markupsafe', 'fast_float', 'vulkan_headers',
-}
+MANIFEST = Path(__file__).with_name('windows-deps.json')
+ROLES = ('root', 'provides', 'vendorDir', 'overlay')
 RECIPES = (
     '.gitattributes',
     'scripts/windows-deps.json', 'scripts/windows-common.ps1',
@@ -28,15 +25,9 @@ RECIPES = (
     '.github/workflows/mirror-windows-deps.yml',
     'scripts/patches/mpv-d3d11-hwdec-helpers.patch',
 )
-SYSTEM_LIBRARIES = {
-    'advapi32', 'avrt', 'bcrypt', 'crypt32', 'd3d11', 'd3d12', 'd3d9',
-    'd3dcompiler', 'dbghelp', 'dwmapi', 'dwrite', 'dxgi', 'dxva2', 'gdi32',
-    'imm32', 'kernel32', 'mfplat', 'mfuuid', 'ncrypt', 'ntdll', 'ole32',
-    'oleaut32', 'opengl32', 'pathcch', 'psapi', 'runtimeobject', 'secur32', 'setupapi',
-    'shcore', 'shell32', 'shlwapi', 'strmiids', 'user32', 'userenv', 'uuid',
-    'uxtheme', 'version', 'winmm', 'winspool', 'comdlg32', 'ws2_32', 'libcmt', 'libcpmt',
-    'libucrt', 'libvcruntime', 'oldnames',
-}
+def system_libraries(manifest):
+    return ({PurePosixPath(name).stem for name in manifest['systemDlls']}
+            | set(manifest['systemLinkLibraries']))
 
 
 def digest(path):
@@ -68,8 +59,10 @@ def safe_name(name):
 def validate_manifest(manifest):
     if manifest['schemaVersion'] != 1:
         raise ValueError('Unsupported source manifest schema')
-    if {item['name'] for item in manifest['sources']} != COMPONENTS:
-        raise ValueError('Source manifest does not describe the closed component set')
+    if any(sum(role in item for role in ROLES) != 1 for item in manifest['sources']):
+        raise ValueError('Every source needs exactly one role')
+    if sum('root' in item for item in manifest['sources']) != 1:
+        raise ValueError('Source manifest needs exactly one root source')
     if {item['name'] for item in manifest['tools']} != {'meson', 'ninja', 'nasm'}:
         raise ValueError('Missing pinned build tools')
     names = set()
@@ -252,7 +245,8 @@ def prepare(repo, deps):
         archive = tools / item['archive']
         download(item, archive)
         extract_archive(archive, tools / item['name'], item['sha256'], strip_root=False)
-    shutil.copytree(unpacked / 'mpv', deps / 'source/mpv')
+    root = next(item['name'] for item in manifest['sources'] if 'root' in item)
+    shutil.copytree(unpacked / root, deps / 'source/mpv')
     subprocess.run(
         ['git', 'apply', str((repo / 'scripts/patches/mpv-d3d11-hwdec-helpers.patch').resolve())],
         cwd=deps / 'source/mpv',
@@ -266,20 +260,20 @@ def prepare(repo, deps):
             continue
         name = item['name']
         shutil.copytree(unpacked / name, subprojects / name)
-        provide = ('dav1d = dav1d_dep' if name == 'dav1d'
-                   else 'dependency_names = ' + ', '.join(item['provides']))
+        provide = item.get('wrapProvide') or 'dependency_names = ' + ', '.join(item['provides'])
         (subprojects / f'{name}.wrap').write_text(
             f'[wrap-file]\ndirectory = {name}\n\n[provide]\n{provide}\n', encoding='utf-8')
-    zlib_overlay = unpacked / 'wrapdb/subprojects/packagefiles/zlib'
-    shutil.copytree(zlib_overlay, subprojects / 'zlib', dirs_exist_ok=True)
-    for name, directory in (
-        ('glad', 'glad'), ('jinja', 'jinja'), ('markupsafe', 'markupsafe'),
-        ('fast_float', 'fast_float'), ('vulkan_headers', 'Vulkan-Headers'),
-    ):
-        destination = subprojects / 'libplacebo/3rdparty' / directory
+    overlays = [(unpacked / item['name'] / item['overlay']['from'], item['overlay']['to'])
+                for item in manifest['sources'] if 'overlay' in item]
+    for overlay, target in overlays:
+        shutil.copytree(overlay, subprojects / target, dirs_exist_ok=True)
+    for item in manifest['sources']:
+        if 'vendorDir' not in item:
+            continue
+        destination = subprojects / item['vendorDir']
         if destination.exists():
             shutil.rmtree(destination)
-        shutil.copytree(unpacked / name, destination)
+        shutil.copytree(unpacked / item['name'], destination)
     for path in subprojects.rglob('*.wrap'):
         if path.parent != subprojects:
             path.unlink()
@@ -295,7 +289,8 @@ def prepare(repo, deps):
     generated.mkdir()
     for path in subprojects.glob('*.wrap'):
         shutil.copy2(path, generated / path.name)
-    shutil.copytree(zlib_overlay, generated / 'zlib')
+    for overlay, target in overlays:
+        shutil.copytree(overlay, generated / target)
 
 
 def validate_prepared_source(deps):
@@ -311,8 +306,10 @@ def validate_prepared_source(deps):
 def audit_graph(deps):
     deps = Path(deps)
     validate_prepared_source(deps)
+    manifest = validate_manifest(read_json(MANIFEST))
+    system = system_libraries(manifest)
     info = deps / 'build/meson-info'
-    expected = {'ffmpeg', 'libplacebo', 'libass', 'dav1d', 'freetype2', 'fribidi', 'harfbuzz', 'zlib'}
+    expected = {item['name'] for item in manifest['sources'] if 'provides' in item}
     projects = {item['name'] for item in read_json(info / 'intro-projectinfo.json')['subprojects']}
     if projects != expected:
         raise ValueError(f'Unexpected source dependency graph: {projects ^ expected}')
@@ -362,12 +359,12 @@ def audit_graph(deps):
                     resolved = (path if path.is_absolute() else deps / 'build' / path).resolve()
                     if resolved in built_libraries:
                         continue
-                    if path.stem.lower() in SYSTEM_LIBRARIES and (
+                    if path.stem.lower() in system and (
                         len(path.parts) == 1 or any(resolved.is_relative_to(root) for root in sdk_roots)
                     ):
                         continue
                     raise ValueError(f'Undisclosed link library: {arg}')
-                if arg.startswith('-l') and not arg.startswith('-link') and arg[2:] not in SYSTEM_LIBRARIES:
+                if arg.startswith('-l') and not arg.startswith('-link') and arg[2:] not in system:
                     raise ValueError(f'Undisclosed link library: {arg}')
     config_root = deps / 'build/subprojects/ffmpeg'
     config = '\n'.join((config_root / name).read_text(encoding='utf-8') for name in ('config.h', 'config_components.h'))

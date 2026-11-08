@@ -38,7 +38,7 @@ class ManifestTests(unittest.TestCase):
             with self.subTest(change=change):
                 manifest = copy.deepcopy(self.manifest)
                 if change == 'missing':
-                    manifest['sources'].pop()
+                    manifest['sources'].pop(0)
                 else:
                     component = copy.deepcopy(manifest['sources'][0])
                     if change == 'extra':
@@ -230,7 +230,8 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(sources.verify_inventory(self.repo, self.deps), self.source)
         inventory = sources.read_json(self.source / 'inventory.json')
         self.assertEqual(inventory['binarySha256'], sources.digest(self.binary))
-        self.assertEqual({component['name'] for component in inventory['components']}, sources.COMPONENTS)
+        self.assertEqual({component['name'] for component in inventory['components']},
+                         {item['name'] for item in sources.read_json(MANIFEST)['sources']})
 
     def test_prepared_source_change_rejected_with_unchanged_binaries(self):
         path = self.deps / 'source/mpv/code.c'
