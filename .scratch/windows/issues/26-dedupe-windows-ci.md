@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (CI run pending)
 
-- [ ] Prepared-revision checkout exists once
-- [ ] Python/MSVC setup exists once
+- [x] Prepared-revision checkout exists once
+- [x] Python/MSVC setup exists once
 - [ ] Windows, mirror and release workflows green
 
 Work on the `feat/windows` branch. Source: thermo-nuclear code quality review of `feat/windows` against merge-base `60b2ef8`.

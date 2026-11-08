@@ -50,14 +50,9 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: ./.github/actions/setup
         with:
-          name: release-revision
-          path: prepared
-      - name: Use prepared release revision
-        run: |
-          git fetch prepared/release.bundle HEAD
-          git checkout --detach FETCH_HEAD
+          prepared: true
       - name: Install mpv
         run: brew install mpv pkgconf
       - uses: dtolnay/rust-toolchain@stable
@@ -93,10 +88,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: ./.github/actions/setup
         with:
-          name: release-revision
-          path: prepared
+          prepared: true
       - uses: actions/download-artifact@v4
         with:
           name: macos-release
@@ -108,8 +102,6 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          git fetch prepared/release.bundle HEAD
-          git checkout --detach FETCH_HEAD
           git tag "v$VERSION"
           git push origin HEAD:prod "v$VERSION"
           gh release create "v$VERSION" \

@@ -25,13 +25,9 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup
         with:
-          python-version: '3.12'
-          architecture: x64
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
+          toolchain: true
       - name: Build the normal pinned-source recipe
         run: ./scripts/build-windows-mpv.ps1
       - name: Archive matched binaries, sources and checksums together

@@ -21,30 +21,15 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        if: inputs.prepared
+      - uses: ./.github/actions/setup
         with:
-          name: release-revision
-          path: prepared
-      - name: Use prepared release revision
-        if: inputs.prepared
-        run: |
-          git fetch prepared/release.bundle HEAD
-          if ($LASTEXITCODE) { throw 'fetch failed' }
-          git checkout --detach FETCH_HEAD
-          if ($LASTEXITCODE) { throw 'checkout failed' }
+          prepared: ${{ inputs.prepared }}
+          toolchain: true
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          architecture: x64
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
       - name: Source provenance tests
         run: python -B scripts/windows_sources_tests.py
       - name: Source-built pinned dependencies
