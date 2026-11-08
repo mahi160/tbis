@@ -4,13 +4,13 @@
 
 **Blocked by:** 21: Make the Windows updater one in-process Rust flow
 
-**Status:** ready-for-agent
+**Status:** implemented; macOS and Windows clippy and macOS tests pass. Linux is unverified (can't compile here), read only.
 
-- [ ] No `asset_suffix() -> Result`; a per-OS constant is used
-- [ ] Linux update module contains no unreachable error paths beyond what compilation requires
-- [ ] Update module docs restored
-- [ ] Update tests pass; macOS and Windows update flows unchanged
-- [ ] The release checksum is validated once, where the release is parsed, not again on install and verify
-- [ ] Linux's do-nothing update pieces live in the shared noop module, per the platform convention
+- [x] No `asset_suffix() -> Result`; a per-OS constant is used
+- [x] Linux update module contains no unreachable error paths beyond what compilation requires (`install`/`relaunch` are `unreachable!`, required to compile; `ASSET_SUFFIX` is `""`)
+- [x] Update module docs restored
+- [x] Update tests pass; macOS and Windows update flows unchanged
+- [x] The release checksum is validated once, where the release is parsed, not again on install and verify (`Update.sha256` is a parsed `[u8; 32]`)
+- [x] Linux's do-nothing update pieces live in the shared noop module, per the platform convention
 
 Work on the `feat/windows` branch. Source: thermo-nuclear code quality review of `feat/windows` against merge-base `60b2ef8`.

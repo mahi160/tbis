@@ -4,16 +4,17 @@ use std::process::Command;
 
 use anyhow::{Context as _, Result, anyhow, bail, ensure};
 
-pub fn asset_suffix() -> Result<&'static str> {
-    Ok("-macos-arm64.zip")
-}
+pub const ASSET_SUFFIX: &str = "-macos-arm64.zip";
 
+/// `…/tbis.app` when running from one; `None` for `cargo run`.
 pub fn bundle_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let bundle = exe.parent()?.parent()?.parent()?;
     (bundle.extension()? == "app").then(|| bundle.to_path_buf())
 }
 
+/// Unzips `zip` beside `bundle`, checks its signature, then swaps it in for the running app.
+/// The old app is only replaced once the new one is fully in place and verified.
 pub fn install(bundle: &Path, zip: &[u8]) -> Result<()> {
     let parent = bundle.parent().context("app has no parent folder")?;
     let staging = parent.join(format!(".tbis-update-{}", uuid::Uuid::new_v4()));
@@ -71,6 +72,7 @@ fn run(program: &str, args: &[&OsStr]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// Reopens the app once this process has exited.
 pub fn relaunch() -> Result<()> {
     let bundle = bundle_path().ok_or_else(|| anyhow!("not running from tbis.app"))?;
     Command::new("/bin/sh")

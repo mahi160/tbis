@@ -1,8 +1,7 @@
 //! Linux: Wayland and X11. Not implemented yet: media keys (MPRIS), cursor hiding, window
 //! setup. They use `noop` until they get a file here.
 
-pub use super::noop::{Runtime, cursor, init, now_playing, window};
+pub use super::noop::{Runtime, cursor, init, now_playing, update, window};
 
 pub mod power;
-pub mod update;
 pub mod video;

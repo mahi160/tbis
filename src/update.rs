@@ -1,3 +1,10 @@
+//! Self-update from GitHub Releases (built by .github/workflows/release.yml):
+//! find a newer release, download the zip for this OS, check it against the SHA-256
+//! GitHub records for the asset, swap it in for the running app, and relaunch.
+//! macOS swaps the `tbis.app` bundle; Windows renames the running files aside in-process
+//! (`bundle`). Linux has no self-update: `bundle_path` is `None`. Only works when running
+//! from an installed bundle.
+
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result, anyhow, ensure};
@@ -12,6 +19,8 @@ use crate::platform::update as native;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub mod bundle;
 
+// `bundle_path`: the installed app folder, `None` when not running from one (or on Linux).
+// `relaunch`: starts the updated app after a successful `install`.
 pub use native::{bundle_path, relaunch};
 
 const REPO: &str = "mahi160/tbis";
@@ -25,20 +34,19 @@ pub struct Update {
     /// The release's GitHub page.
     pub page: String,
     url: String,
-    /// SHA-256 hex of the zip, as recorded by GitHub.
-    sha256: String,
+    /// SHA-256 of the zip, as recorded by GitHub.
+    sha256: [u8; 32],
 }
 
+/// Newest non-prerelease, if it is newer than this build.
 pub async fn check(http: Arc<dyn HttpClient>) -> Result<Option<Update>> {
-    let suffix = native::asset_suffix()?;
     let release = latest_github_release(REPO, true, false, http.clone()).await?;
     let version = release.tag_name.trim_start_matches('v').to_string();
     if !newer(&version, CURRENT) {
         return Ok(None);
     }
-    let asset = select_asset(release.assets, suffix)?;
-    let sha256 = asset.digest.context("release has no SHA-256 checksum")?;
-    validate_checksum(&sha256)?;
+    let asset = select_asset(release.assets, native::ASSET_SUFFIX)?;
+    let sha256 = parse_checksum(&asset.digest.context("release has no SHA-256 checksum")?)?;
     let notes = match notes(&http, &release.tag_name).await {
         Ok(notes) => notes,
         Err(err) => {
@@ -72,24 +80,28 @@ fn select_asset(assets: Vec<GithubReleaseAsset>, suffix: &str) -> Result<GithubR
     Ok(asset)
 }
 
-fn validate_checksum(checksum: &str) -> Result<()> {
+fn parse_checksum(checksum: &str) -> Result<[u8; 32]> {
     ensure!(
         checksum.len() == 64 && checksum.bytes().all(|byte| byte.is_ascii_hexdigit()),
         "release has an invalid SHA-256 checksum"
     );
-    Ok(())
+    let mut digest = [0; 32];
+    for (byte, pair) in digest.iter_mut().zip(checksum.as_bytes().chunks(2)) {
+        // all ASCII hex digits, checked above
+        *byte = u8::from_str_radix(std::str::from_utf8(pair)?, 16)?;
+    }
+    Ok(digest)
 }
 
-fn verify_checksum(bytes: &[u8], expected: &str) -> Result<()> {
-    validate_checksum(expected)?;
-    let actual = format!("{:x}", Sha256::digest(bytes));
+fn verify_checksum(bytes: &[u8], expected: &[u8; 32]) -> Result<()> {
     ensure!(
-        actual.eq_ignore_ascii_case(expected),
+        Sha256::digest(bytes).as_slice() == expected,
         "download is corrupt (checksum mismatch)"
     );
     Ok(())
 }
 
+/// Markdown notes of the release tagged `tag` (gpui's release type has no body).
 async fn notes(http: &Arc<dyn HttpClient>, tag: &str) -> Result<String> {
     #[derive(serde::Deserialize)]
     struct Release {
@@ -108,6 +120,7 @@ async fn notes(http: &Arc<dyn HttpClient>, tag: &str) -> Result<String> {
     Ok(release.body.unwrap_or_default())
 }
 
+/// Whether `a` is a higher `x.y.z` than `b`; unparsable versions never are.
 fn newer(a: &str, b: &str) -> bool {
     let parse = |v: &str| -> Option<(u64, u64, u64)> {
         let mut parts = v.split('.').map(|p| p.parse().ok());
@@ -117,10 +130,11 @@ fn newer(a: &str, b: &str) -> bool {
     matches!((parse(a), parse(b)), (Some(a), Some(b)) if a > b)
 }
 
+/// Downloads, verifies, and swaps in `update` for the running bundle. The old app
+/// is only replaced once the new one is fully in place.
 pub async fn install(http: Arc<dyn HttpClient>, update: &Update) -> Result<()> {
     let bundle =
         bundle_path().context("automatic updates are unavailable for this installation")?;
-    validate_checksum(&update.sha256)?;
     let mut response = http
         .get(&update.url, Default::default(), true)
         .await
@@ -186,9 +200,10 @@ mod tests {
     #[test]
     fn requires_exact_sha256_and_checks_download_bytes() {
         let digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
-        assert!(verify_checksum(b"abc", digest).is_ok());
-        assert!(verify_checksum(b"abc", &digest.to_uppercase()).is_ok());
-        assert!(verify_checksum(b"changed", digest).is_err());
+        let parsed_digest = parse_checksum(digest).unwrap();
+        assert!(verify_checksum(b"abc", &parsed_digest).is_ok());
+        assert!(verify_checksum(b"abc", &parse_checksum(&digest.to_uppercase()).unwrap()).is_ok());
+        assert!(verify_checksum(b"changed", &parsed_digest).is_err());
         for invalid in [
             String::new(),
             "f".repeat(63),
@@ -197,7 +212,7 @@ mod tests {
             format!("sha256:{digest}"),
             format!("{digest}\n"),
         ] {
-            assert!(validate_checksum(&invalid).is_err());
+            assert!(parse_checksum(&invalid).is_err());
         }
         let parsed: GithubReleaseAsset = serde_json::from_value(serde_json::json!({
             "name": "tbis-windows-x86_64.zip",

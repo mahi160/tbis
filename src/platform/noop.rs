@@ -32,6 +32,28 @@ pub mod cursor {
     pub fn show() {}
 }
 
+/// Linux has no self-update: `bundle_path` is `None`, so `install` and `relaunch` never run.
+#[cfg(target_os = "linux")]
+pub mod update {
+    use std::path::{Path, PathBuf};
+
+    use anyhow::Result;
+
+    pub const ASSET_SUFFIX: &str = "";
+
+    pub fn bundle_path() -> Option<PathBuf> {
+        None
+    }
+
+    pub fn install(_: &Path, _: &[u8]) -> Result<()> {
+        unreachable!("bundle_path is None on Linux")
+    }
+
+    pub fn relaunch() -> Result<()> {
+        unreachable!("bundle_path is None on Linux")
+    }
+}
+
 pub mod window {
     pub fn prepare(_: &gpui_kit::Window) {}
     pub fn hide_title_buttons(_: &gpui_kit::Window) {}
