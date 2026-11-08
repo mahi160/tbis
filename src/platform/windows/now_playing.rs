@@ -31,65 +31,10 @@ fn report(result: windows::core::Result<()>) {
 
 impl NowPlaying {
     pub fn new(window: &gpui_kit::Window, tx: UnboundedSender<RemoteCommand>, _: f64) -> Self {
-        let result = (|| -> Result<Session, String> {
-            let hwnd = super::hwnd(window)?;
-            let create = || -> windows::core::Result<Session> {
-                let interop =
-                    factory::<SystemMediaTransportControls, ISystemMediaTransportControlsInterop>(
-                    )?;
-                let controls: SystemMediaTransportControls = unsafe { interop.GetForWindow(hwnd)? };
-                let mut session = Session {
-                    controls,
-                    button: None,
-                    position: None,
-                };
-                session.controls.SetIsPlayEnabled(true)?;
-                session.controls.SetIsPauseEnabled(true)?;
-                session.controls.SetIsFastForwardEnabled(true)?;
-                session.controls.SetIsRewindEnabled(true)?;
-                let buttons = tx.clone();
-                session.button = Some(session.controls.ButtonPressed(&TypedEventHandler::<
-                    SystemMediaTransportControls,
-                    SystemMediaTransportControlsButtonPressedEventArgs,
-                >::new(
-                    move |_, args| {
-                        let command = match args.ok()?.Button()? {
-                            SystemMediaTransportControlsButton::Play => Some(RemoteCommand::Play),
-                            SystemMediaTransportControlsButton::Pause => Some(RemoteCommand::Pause),
-                            SystemMediaTransportControlsButton::Next => Some(RemoteCommand::Next),
-                            SystemMediaTransportControlsButton::Previous => {
-                                Some(RemoteCommand::Previous)
-                            }
-                            SystemMediaTransportControlsButton::FastForward => {
-                                Some(RemoteCommand::SkipForward)
-                            }
-                            SystemMediaTransportControlsButton::Rewind => {
-                                Some(RemoteCommand::SkipBackward)
-                            }
-                            _ => None,
-                        };
-                        if let Some(command) = command {
-                            let _ = buttons.unbounded_send(command);
-                        }
-                        Ok(())
-                    },
-                ))?);
-                session.position = Some(session.controls.PlaybackPositionChangeRequested(
-                    &TypedEventHandler::<
-                        SystemMediaTransportControls,
-                        PlaybackPositionChangeRequestedEventArgs,
-                    >::new(move |_, args| {
-                        let seconds =
-                            args.ok()?.RequestedPlaybackPosition()?.Duration as f64 / 10_000_000.;
-                        let _ = tx.unbounded_send(RemoteCommand::Seek(seconds));
-                        Ok(())
-                    }),
-                )?);
-                session.controls.SetIsEnabled(true)?;
-                Ok(session)
-            };
-            create().map_err(|error| format!("SMTC initialization failed: {:?}", error.code()))
-        })();
+        let result = super::hwnd(window).and_then(|hwnd| {
+            Self::create(hwnd, tx)
+                .map_err(|error| format!("SMTC initialization failed: {:?}", error.code()))
+        });
         match result {
             Ok(session) => Self(Some(session)),
             Err(error) => {
@@ -97,6 +42,58 @@ impl NowPlaying {
                 Self(None)
             }
         }
+    }
+
+    fn create(
+        hwnd: windows::Win32::Foundation::HWND,
+        tx: UnboundedSender<RemoteCommand>,
+    ) -> windows::core::Result<Session> {
+        let interop =
+            factory::<SystemMediaTransportControls, ISystemMediaTransportControlsInterop>()?;
+        let controls: SystemMediaTransportControls = unsafe { interop.GetForWindow(hwnd)? };
+        let mut session = Session {
+            controls,
+            button: None,
+            position: None,
+        };
+        session.controls.SetIsPlayEnabled(true)?;
+        session.controls.SetIsPauseEnabled(true)?;
+        session.controls.SetIsFastForwardEnabled(true)?;
+        session.controls.SetIsRewindEnabled(true)?;
+        let buttons = tx.clone();
+        session.button =
+            Some(session.controls.ButtonPressed(&TypedEventHandler::<
+                SystemMediaTransportControls,
+                SystemMediaTransportControlsButtonPressedEventArgs,
+            >::new(move |_, args| {
+                let command = match args.ok()?.Button()? {
+                    SystemMediaTransportControlsButton::Play => Some(RemoteCommand::Play),
+                    SystemMediaTransportControlsButton::Pause => Some(RemoteCommand::Pause),
+                    SystemMediaTransportControlsButton::Next => Some(RemoteCommand::Next),
+                    SystemMediaTransportControlsButton::Previous => Some(RemoteCommand::Previous),
+                    SystemMediaTransportControlsButton::FastForward => {
+                        Some(RemoteCommand::SkipForward)
+                    }
+                    SystemMediaTransportControlsButton::Rewind => Some(RemoteCommand::SkipBackward),
+                    _ => None,
+                };
+                if let Some(command) = command {
+                    let _ = buttons.unbounded_send(command);
+                }
+                Ok(())
+            }))?);
+        session.position = Some(session.controls.PlaybackPositionChangeRequested(
+            &TypedEventHandler::<
+                SystemMediaTransportControls,
+                PlaybackPositionChangeRequestedEventArgs,
+            >::new(move |_, args| {
+                let seconds = args.ok()?.RequestedPlaybackPosition()?.Duration as f64 / 10_000_000.;
+                let _ = tx.unbounded_send(RemoteCommand::Seek(seconds));
+                Ok(())
+            }),
+        )?);
+        session.controls.SetIsEnabled(true)?;
+        Ok(session)
     }
 
     pub fn update(&self, info: &Info) {

@@ -4,12 +4,12 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** implemented; clippy and tests pass on macOS and clippy passes on the Windows target. Runtime behaviour (media keys, title, artwork, seek) unverified on Windows and macOS; Windows CI build not run.
 
-- [ ] Session creation and teardown live in one function
-- [ ] Render no longer constructs `NowPlaying` inline
+- [x] Session creation and teardown live in one function
+- [x] Render no longer constructs `NowPlaying` inline
 - [ ] Media keys, title, artwork and seek work on Windows and macOS as before
 - [ ] `cargo check` passes on macOS; Windows CI build passes
-- [ ] SMTC session creation reads top to bottom: one fallible create function, errors mapped once at the call site (no closure inside a closure)
+- [x] SMTC session creation reads top to bottom: one fallible create function, errors mapped once at the call site (no closure inside a closure)
 
 Work on the `feat/windows` branch. Source: thermo-nuclear code quality review of `feat/windows` against merge-base `60b2ef8`.

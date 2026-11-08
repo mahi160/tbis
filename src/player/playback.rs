@@ -152,7 +152,7 @@ impl PlayerView {
                     return;
                 }
                 self.sync_seek_bar(window, cx);
-                self.sync_now_playing(cx);
+                self.sync_now_playing(window, cx);
                 // with the controls hidden only the skip button and up-next card show time
                 let overlays = self.time_overlays();
                 if !self.controls_visible && overlays == self.playback.overlays {

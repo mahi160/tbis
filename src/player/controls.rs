@@ -302,11 +302,18 @@ impl PlayerView {
         }
     }
 
-    /// Keeps Now Playing in step with the Player; called every render and time update.
-    pub(super) fn sync_now_playing(&mut self, _: &App) {
+    /// Creates, updates and drops Now Playing to match the Player; called every render and time update.
+    pub(super) fn sync_now_playing(&mut self, window: &Window, cx: &App) {
         let wanted = self.playback.item.is_some() && self.playback.error.is_none();
         if !wanted {
             self.now_playing = None;
+        } else if self.now_playing.is_none() {
+            let step = f64::from(cx.global::<SeekSteps>().short);
+            let now_playing = NowPlaying::new(window, self.remote.clone(), step);
+            if let Some(bytes) = &self.playback.artwork {
+                now_playing.set_artwork(bytes);
+            }
+            self.now_playing = Some(now_playing);
         }
         let Some(now_playing) = &self.now_playing else {
             return;
@@ -622,18 +629,7 @@ impl Render for PlayerView {
         if playing != self.awake.is_some() {
             self.awake = playing.then(super::Awake::new);
         }
-        if self.playback.item.is_some()
-            && self.playback.error.is_none()
-            && self.now_playing.is_none()
-        {
-            let step = f64::from(cx.global::<SeekSteps>().short);
-            let now_playing = NowPlaying::new(window, self.remote.clone(), step);
-            if let Some(bytes) = &self.playback.artwork {
-                now_playing.set_artwork(bytes);
-            }
-            self.now_playing = Some(now_playing);
-        }
-        self.sync_now_playing(cx);
+        self.sync_now_playing(window, cx);
         // in PiP, its window sizes the video
         if let Some(mpv) = &self.mpv
             && self.pip.is_none()
