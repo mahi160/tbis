@@ -1,6 +1,7 @@
 //! Everything that differs per OS. Each OS folder (`macos/`, `linux/`, `windows/`)
 //! exposes the same modules, and the rest of the app only reaches them through here:
 //!
+//! - `init`: process-wide setup at startup; keep the returned `Runtime` alive
 //! - `video`: on-screen surface + GL present for mpv (`Surface`, `Renderer`; ADR-0001)
 //! - `now_playing`: media keys and the system Now Playing widget (`NowPlaying`)
 //! - `power`: keep the display awake while playing (`Awake`)

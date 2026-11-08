@@ -7,10 +7,29 @@ pub mod update;
 pub mod video;
 mod wgl;
 
+/// Process-wide setup: log file, the `--self-test` flag (runs and exits), WinRT.
+/// Keep the result alive for the whole run.
+pub fn init() -> Runtime {
+    super::log::init();
+    if std::env::args_os().any(|argument| argument == "--self-test") {
+        match crate::mpv::self_test() {
+            Ok(()) => std::process::exit(0),
+            Err(error) => {
+                super::log::write(&error);
+                std::process::exit(1);
+            }
+        }
+    }
+    Runtime::new().unwrap_or_else(|error| {
+        super::log::write(&format!("Windows runtime initialization failed: {error}"));
+        std::process::exit(1);
+    })
+}
+
 pub struct Runtime;
 
 impl Runtime {
-    pub fn new() -> Result<Self, String> {
+    fn new() -> Result<Self, String> {
         unsafe {
             windows::Win32::System::WinRT::RoInitialize(
                 windows::Win32::System::WinRT::RO_INIT_SINGLETHREADED,

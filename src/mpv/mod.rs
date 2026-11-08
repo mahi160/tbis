@@ -343,7 +343,7 @@ impl Drop for Mpv {
         if let Some(thread) = self.render.take() {
             let _ = thread.join();
         }
-        drop(self.surface.take());
+        self.surface = None;
         unsafe { mpv_terminate_destroy(self.handle.0) };
     }
 }

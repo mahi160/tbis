@@ -595,7 +595,9 @@ impl PlayerView {
     }
 
     pub(super) fn show_controls(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        crate::platform::cursor::show();
+        if !self.controls_visible {
+            crate::platform::cursor::show();
+        }
         self.controls_visible = true;
         self._hide = cx.spawn_in(window, async move |this, cx| {
             cx.background_executor().timer(HIDE_CONTROLS_AFTER).await;

@@ -41,12 +41,6 @@ impl Surface {
     }
 }
 
-impl Drop for Surface {
-    fn drop(&mut self) {
-        super::cursor::show();
-    }
-}
-
 pub struct Renderer {
     hwnd: HWND,
     runtime: Option<Runtime>,

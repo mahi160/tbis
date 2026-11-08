@@ -1,6 +1,14 @@
 //! Do-nothing platform pieces; see `platform/mod.rs`.
 
 #[cfg(target_os = "linux")]
+pub struct Runtime;
+
+#[cfg(target_os = "linux")]
+pub fn init() -> Runtime {
+    Runtime
+}
+
+#[cfg(target_os = "linux")]
 pub mod now_playing {
     use futures::channel::mpsc::UnboundedSender;
 

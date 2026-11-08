@@ -82,19 +82,13 @@ impl ShaderProfile {
             return Ok(String::new());
         }
         let dir = extract_dir().ok_or("could not write shader files")?;
-        Ok(self.path_list(&dir))
+        self.path_list(&dir)
     }
 
-    fn path_list(self, dir: &Path) -> String {
-        self.chain()
-            .iter()
-            .map(|name| dir.join(name).to_string_lossy().into_owned())
-            .collect::<Vec<_>>()
-            .join(if cfg!(target_os = "windows") {
-                ";"
-            } else {
-                ":"
-            })
+    fn path_list(self, dir: &Path) -> Result<String, String> {
+        std::env::join_paths(self.chain().iter().map(|name| dir.join(name)))
+            .map(|list| list.to_string_lossy().into_owned())
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -122,12 +116,12 @@ mod tests {
         #[cfg(target_os = "windows")]
         assert_eq!(
             ShaderProfile::Anime4kFast.path_list(Path::new(r"C:\Users\Viewer\shaders")),
-            r"C:\Users\Viewer\shaders\Anime4K_Clamp_Highlights.glsl;C:\Users\Viewer\shaders\Anime4K_Restore_CNN_M.glsl;C:\Users\Viewer\shaders\Anime4K_Upscale_CNN_x2_M.glsl;C:\Users\Viewer\shaders\Anime4K_AutoDownscalePre_x2.glsl;C:\Users\Viewer\shaders\Anime4K_AutoDownscalePre_x4.glsl;C:\Users\Viewer\shaders\Anime4K_Upscale_CNN_x2_S.glsl"
+            Ok(r"C:\Users\Viewer\shaders\Anime4K_Clamp_Highlights.glsl;C:\Users\Viewer\shaders\Anime4K_Restore_CNN_M.glsl;C:\Users\Viewer\shaders\Anime4K_Upscale_CNN_x2_M.glsl;C:\Users\Viewer\shaders\Anime4K_AutoDownscalePre_x2.glsl;C:\Users\Viewer\shaders\Anime4K_AutoDownscalePre_x4.glsl;C:\Users\Viewer\shaders\Anime4K_Upscale_CNN_x2_S.glsl".into())
         );
         #[cfg(not(target_os = "windows"))]
         assert_eq!(
             ShaderProfile::Anime4kFast.path_list(Path::new("/home/viewer/shaders")),
-            "/home/viewer/shaders/Anime4K_Clamp_Highlights.glsl:/home/viewer/shaders/Anime4K_Restore_CNN_M.glsl:/home/viewer/shaders/Anime4K_Upscale_CNN_x2_M.glsl:/home/viewer/shaders/Anime4K_AutoDownscalePre_x2.glsl:/home/viewer/shaders/Anime4K_AutoDownscalePre_x4.glsl:/home/viewer/shaders/Anime4K_Upscale_CNN_x2_S.glsl"
+            Ok("/home/viewer/shaders/Anime4K_Clamp_Highlights.glsl:/home/viewer/shaders/Anime4K_Restore_CNN_M.glsl:/home/viewer/shaders/Anime4K_Upscale_CNN_x2_M.glsl:/home/viewer/shaders/Anime4K_AutoDownscalePre_x2.glsl:/home/viewer/shaders/Anime4K_AutoDownscalePre_x4.glsl:/home/viewer/shaders/Anime4K_Upscale_CNN_x2_S.glsl".into())
         );
     }
 

@@ -313,18 +313,20 @@ pub mod size {
 /// Window geometry (OS window, not themed).
 pub mod window {
     use gpui_kit::{Pixels, Size, px, size};
-    #[cfg(target_os = "macos")]
     use gpui_kit::{Point, point};
 
     pub const DEFAULT: Size<Pixels> = size(px(1200.), px(800.));
     pub const MIN: Size<Pixels> = size(px(800.), px(560.));
     /// macOS unified-toolbar height (Finder/Safari): roomy, not themed.
     pub const TITLE_BAR_H: Pixels = px(52.);
-    /// Traffic lights (14px tall) centered in the bar, same inset from top and left.
-    #[cfg(target_os = "macos")]
-    pub const TRAFFIC_LIGHTS: Point<Pixels> = point(px(19.), px(19.));
+    /// Traffic lights (14px tall) centered in the bar, same inset from top and left; macOS only.
+    pub const TRAFFIC_LIGHTS: Option<Point<Pixels>> = if cfg!(target_os = "macos") {
+        Some(point(px(19.), px(19.)))
+    } else {
+        None
+    };
     /// Extra lead before the brand: lights sit 6px right of where TitleBar's padding expects.
-    pub const BRAND_LEAD: Pixels = px(if cfg!(target_os = "macos") { 12. } else { 0. });
+    pub const BRAND_LEAD: Pixels = px(if TRAFFIC_LIGHTS.is_some() { 12. } else { 0. });
     /// Picture-in-Picture window: opening width, smallest width, gap to the screen corner.
     /// Heights follow the video's aspect ratio.
     pub const PIP_W: Pixels = px(400.);
