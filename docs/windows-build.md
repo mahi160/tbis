@@ -69,12 +69,13 @@ sources/<pinned-source-archives>
 licenses/<component>/<upstream-notices>
 recipes/scripts/<owned-recipes-and-manifest>
 recipes/.github/workflows/<Windows-workflows>
+recipes/.github/actions/setup/action.yml
 recipes/prepared-source-sha256.json
 recipes/generated/<wraps-and-zlib-overlay>
 recipes/build/<configuration-logs-and-toolchain-records>
 ```
 
-`RECIPES` in `scripts/windows_sources.py` defines the preserved inputs: `.gitattributes`, the manifest, the PowerShell scripts, the Python helper and its tests, both Windows workflows and the build patch. Build records include Meson introspection and logs, generated configuration headers, Ninja files, compile commands where present, `native.ini`, `toolchain.json`, `build-command.json` and `build.log`. The prepared-source record hashes the assembled source tree before configuration; the graph audit checks it before and after compilation and rejects any source mutation.
+`RECIPES` in `scripts/windows_sources.py` defines the preserved inputs: `.gitattributes`, the manifest, the PowerShell scripts, the Python helper and its tests, both Windows workflows, the shared `.github/actions/setup` composite action and the build patch. Build records include Meson introspection and logs, generated configuration headers, Ninja files, compile commands where present, `native.ini`, `toolchain.json`, `build-command.json` and `build.log`. The prepared-source record hashes the assembled source tree before configuration; the graph audit checks it before and after compilation and rejects any source mutation.
 
 The schema-version-1 inventory binds `binarySha256` to the actual `libmpv-2.dll`, `binaries` to all files in the generated `mpv` directory, `manifestSha256` to the current manifest and `recipeInputs` to current `RECIPES` hashes. `files` records every preserved source/recipe/license file. Each component must match the manifest's name, version, URL and source archive hash and have nonempty, exact source/recipe/license record lists.
 

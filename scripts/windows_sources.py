@@ -22,7 +22,7 @@ RECIPES = (
     'scripts/setup-windows-deps.ps1', 'scripts/build-windows-mpv.ps1',
     'scripts/bundle-windows.ps1', 'scripts/windows_sources.py',
     'scripts/windows_sources_tests.py', '.github/workflows/windows.yml',
-    '.github/workflows/mirror-windows-deps.yml',
+    '.github/workflows/mirror-windows-deps.yml', '.github/actions/setup/action.yml',
     'scripts/patches/mpv-d3d11-hwdec-helpers.patch',
 )
 def system_libraries(manifest):
@@ -54,6 +54,10 @@ def safe_name(name):
                 or re.fullmatch(r'(?:COM|LPT)[1-9¹²³]', device)):
             raise ValueError(f'Windows-invalid archive path: {name}')
     return PurePosixPath(*parts)
+
+
+def root_name(manifest):
+    return next(item['name'] for item in manifest['sources'] if 'root' in item)
 
 
 def validate_manifest(manifest):
@@ -303,15 +307,15 @@ def prepare(repo, deps):
         archive = tools / item['archive']
         download(item, archive)
         extract_archive(archive, tools / item['name'], item['sha256'], strip_root=False)
-    root = next(item['name'] for item in manifest['sources'] if 'root' in item)
-    shutil.copytree(unpacked / root, deps / 'source/mpv')
+    root = root_name(manifest)
+    shutil.copytree(unpacked / root, deps / 'source' / root)
     subprocess.run(
         ['git', 'apply', str((repo / 'scripts/patches/mpv-d3d11-hwdec-helpers.patch').resolve())],
-        cwd=deps / 'source/mpv',
+        cwd=deps / 'source' / root,
         env={**os.environ, 'GIT_CEILING_DIRECTORIES': str((deps / 'source').resolve())},
         check=True,
     )
-    subprojects = deps / 'source/mpv/subprojects'
+    subprojects = deps / 'source' / root / 'subprojects'
     subprojects.mkdir(exist_ok=True)
     for item in manifest['sources']:
         if 'provides' not in item:
@@ -353,10 +357,11 @@ def prepare(repo, deps):
 
 def validate_prepared_source(deps):
     deps = Path(deps)
+    root = root_name(validate_manifest(read_json(MANIFEST)))
     records = read_json(deps / 'corresponding-source/recipes/prepared-source-sha256.json')
     # Meson creates this coordination file during configuration; it is not source.
     current = [record for record in file_records(deps / 'source')
-               if record['path'] != 'mpv/subprojects/.wraplock']
+               if record['path'] != f'{root}/subprojects/.wraplock']
     if current != records:
         raise ValueError('Prepared source tree changed')
 
@@ -373,7 +378,7 @@ def audit_graph(deps):
         raise ValueError(f'Unexpected source dependency graph: {projects ^ expected}')
     targets = read_json(info / 'intro-targets.json')
     shared = [target for target in targets if target['type'] in ('shared library', 'shared module')]
-    if len(shared) != 1 or shared[0]['subproject'] or shared[0]['name'] != 'mpv':
+    if len(shared) != 1 or shared[0]['subproject'] or shared[0]['name'] != root_name(manifest):
         raise ValueError('Only the top-level libmpv may be shared')
     for dep in read_json(info / 'intro-dependencies.json'):
         if dep['type'] == 'internal':
@@ -461,6 +466,7 @@ def bind_inventory(repo, deps):
     repo, deps = Path(repo), Path(deps)
     source = deps / 'corresponding-source'
     manifest = validate_manifest(read_json(repo / 'scripts/windows-deps.json'))
+    root = root_name(manifest)
     records = file_records(source)
     recipes = [record for record in records if record['path'].startswith('recipes/')]
     components = []
@@ -473,8 +479,8 @@ def bind_inventory(repo, deps):
         })
     write_json(source / 'inventory.json', {
         'schemaVersion': 1,
-        'binarySha256': digest(deps / 'mpv/libmpv-2.dll'),
-        'binaries': file_records(deps / 'mpv'),
+        'binarySha256': digest(deps / root / 'libmpv-2.dll'),
+        'binaries': file_records(deps / root),
         'manifestSha256': digest(repo / 'scripts/windows-deps.json'),
         'recipeInputs': [{'path': name, 'sha256': digest(repo / name)} for name in RECIPES],
         'components': components, 'files': records,
@@ -487,10 +493,11 @@ def verify_inventory(repo, deps):
     source = deps / 'corresponding-source'
     manifest = validate_manifest(read_json(repo / 'scripts/windows-deps.json'))
     value = read_json(source / 'inventory.json')
+    root = root_name(manifest)
     current_inputs = [{'path': name, 'sha256': digest(repo / name)} for name in RECIPES]
     if (value['schemaVersion'] != 1
-            or value['binarySha256'] != digest(deps / 'mpv/libmpv-2.dll')
-            or value['binaries'] != file_records(deps / 'mpv')
+            or value['binarySha256'] != digest(deps / root / 'libmpv-2.dll')
+            or value['binaries'] != file_records(deps / root)
             or value['manifestSha256'] != digest(repo / 'scripts/windows-deps.json')
             or value['recipeInputs'] != current_inputs):
         raise ValueError('Binary, manifest or current recipe does not match Corresponding Source')

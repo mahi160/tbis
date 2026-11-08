@@ -7,12 +7,21 @@ pub mod update;
 pub mod video;
 mod wgl;
 
-/// Process-wide setup: log file, leftovers of a previous update, the `--self-test` flag (runs and exits), WinRT.
+/// Process-wide setup: log file, leftovers of a previous update (removed in the background), the `--self-test` flag (runs and exits), WinRT.
 /// Keep the result alive for the whole run.
 pub fn init() -> Runtime {
     super::log::init();
     if let Some(bundle) = update::bundle_path() {
-        crate::update::bundle::clean_up(&bundle);
+        // right after an update the old process may still hold its files, so retry
+        std::thread::spawn(move || {
+            for _ in 0..10 {
+                if crate::update::bundle::clean_up(&bundle) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            super::log::write("update cleanup: leftover files could not be removed");
+        });
     }
     if std::env::args_os().any(|argument| argument == "--self-test") {
         match crate::mpv::self_test() {

@@ -210,10 +210,12 @@ pub fn install(bundle: &Path, zip: &[u8]) -> Result<()> {
 }
 
 /// Deletes what a previous update left behind: renamed-aside files and staging folders.
-pub fn clean_up(bundle: &Path) {
+/// Returns whether everything was removed.
+pub fn clean_up(bundle: &Path) -> bool {
     let Ok(entries) = fs::read_dir(bundle) else {
-        return;
+        return true;
     };
+    let mut clean = true;
     for entry in entries.flatten() {
         let file_name = entry.file_name();
         let Some(name) = file_name.to_str() else {
@@ -221,10 +223,11 @@ pub fn clean_up(bundle: &Path) {
         };
         let leftover = name.starts_with(STAGE_PREFIX)
             || name.strip_suffix(ASIDE_SUFFIX).is_some_and(managed_name);
-        if leftover && let Err(err) = remove_any(&entry.path()) {
-            eprintln!("update cleanup {name}: {err}");
+        if leftover && remove_any(&entry.path()).is_err() {
+            clean = false;
         }
     }
+    clean
 }
 
 #[cfg(test)]

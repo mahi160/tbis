@@ -16,7 +16,7 @@ use sha2::{Digest as _, Sha256};
 use crate::platform::update as native;
 
 // Only the Windows updater installs through it; its tests run on every OS.
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+#[cfg(any(target_os = "windows", test))]
 pub mod bundle;
 
 // `bundle_path`: the installed app folder, `None` when not running from one (or on Linux).

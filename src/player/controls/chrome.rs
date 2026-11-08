@@ -26,6 +26,24 @@ use super::SPEEDS;
 
 use super::TogglePip;
 
+/// Menu rows for `tracks`: (mpv track id, label, checked); `with_off` leads with "Off" (id None).
+fn track_choices(
+    tracks: &[Track],
+    with_off: bool,
+    checked: impl Fn(&Track) -> bool,
+) -> Vec<(Option<i64>, SharedString, bool)> {
+    let mut choices = Vec::new();
+    if with_off {
+        choices.push((None, "Off".into(), !tracks.iter().any(&checked)));
+    }
+    choices.extend(
+        tracks
+            .iter()
+            .map(|t| (Some(t.id), t.label.clone().into(), checked(t))),
+    );
+    choices
+}
+
 impl PlayerView {
     /// Top bar: back, title, media tags, wall clock.
     pub(super) fn top_chrome(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -265,15 +283,7 @@ impl PlayerView {
         };
         let this = cx.entity().downgrade();
         // subtitles lead with "Off" (id None)
-        let mut choices: Vec<(Option<_>, SharedString, bool)> = Vec::new();
-        if kind == TrackKind::Subtitle {
-            choices.push((None, "Off".into(), !tracks.iter().any(|t| t.selected)));
-        }
-        choices.extend(
-            tracks
-                .iter()
-                .map(|t| (Some(t.id), t.label.clone().into(), t.selected)),
-        );
+        let choices = track_choices(&tracks, kind == TrackKind::Subtitle, |t| t.selected);
         let options = choices.iter().map(|(_, l, c)| (l.clone(), *c)).collect();
         if kind == TrackKind::Audio {
             return Some(choice_menu(
@@ -290,13 +300,7 @@ impl PlayerView {
             ));
         }
         // second row: same tracks, mpv's `secondary-sid`
-        let mut secondary_choices: Vec<(Option<_>, SharedString, bool)> =
-            vec![(None, "Off".into(), !tracks.iter().any(|t| t.secondary))];
-        secondary_choices.extend(
-            tracks
-                .iter()
-                .map(|t| (Some(t.id), t.label.clone().into(), t.secondary)),
-        );
+        let secondary_choices = track_choices(&tracks, true, |t| t.secondary);
         let secondary_options = secondary_choices
             .iter()
             .map(|(_, l, c)| (l.clone(), *c))
