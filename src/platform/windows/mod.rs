@@ -7,10 +7,13 @@ pub mod update;
 pub mod video;
 mod wgl;
 
-/// Process-wide setup: log file, the `--self-test` flag (runs and exits), WinRT.
+/// Process-wide setup: log file, leftovers of a previous update, the `--self-test` flag (runs and exits), WinRT.
 /// Keep the result alive for the whole run.
 pub fn init() -> Runtime {
     super::log::init();
+    if let Some(bundle) = update::bundle_path() {
+        crate::update::bundle::clean_up(&bundle);
+    }
     if std::env::args_os().any(|argument| argument == "--self-test") {
         match crate::mpv::self_test() {
             Ok(()) => std::process::exit(0),

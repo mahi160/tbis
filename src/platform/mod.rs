@@ -13,10 +13,6 @@
 
 pub mod log;
 
-#[cfg(all(test, not(target_os = "windows")))]
-#[path = "windows/update.rs"]
-mod windows_update_tests;
-
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]

@@ -57,8 +57,6 @@ jobs:
         run: |
           cargo clippy --all-targets --locked -- -D warnings
           if ($LASTEXITCODE) { throw 'clippy failed' }
-      - name: Updater PowerShell tests
-        run: ./src/platform/windows/update.tests.ps1
       - name: Bundle, import gate and self-test
         run: ./scripts/bundle-windows.ps1
       - uses: actions/upload-artifact@v4

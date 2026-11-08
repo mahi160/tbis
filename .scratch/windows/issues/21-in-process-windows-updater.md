@@ -6,14 +6,18 @@ The PowerShell updater and its tests, the Inspect/Extract/Apply modes, the JSON 
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** needs-human (code landed; end-to-end Windows update run pending)
 
-- [ ] Spike outcome recorded in this ticket (rename-aside works or not)
-- [ ] `zip` added as a dependency; no PowerShell updater remains (or only a minimal Apply helper if the spike failed, with the reason recorded)
-- [ ] Unsafe paths, links/special files, unexpected names and case-colliding entries are rejected before anything is written (tests cover the existing rejection cases)
-- [ ] A failed swap leaves the old install working (test covers it)
-- [ ] Old files are cleaned up on the next launch
-- [ ] No `#[path]` test include in the platform module
+- [x] Spike outcome recorded in this ticket (rename-aside works or not)
+- [x] `zip` added as a dependency; no PowerShell updater remains (or only a minimal Apply helper if the spike failed, with the reason recorded)
+- [x] Unsafe paths, links/special files, unexpected names and case-colliding entries are rejected before anything is written (tests cover the existing rejection cases)
+- [x] A failed swap leaves the old install working (test covers it)
+- [x] Old files are cleaned up on the next launch
+- [x] No `#[path]` test include in the platform module
 - [ ] An end-to-end Windows update (stage, swap, relaunch) works in CI or a manual run
+
+## Spike
+
+Renaming a running exe and loaded DLLs aside is supported by Windows: images are mapped with `FILE_SHARE_DELETE`, so a `MoveFileEx` rename within the same volume succeeds while overwrite/delete fails. rustup self-update and the `self-replace` crate rely on this. The staging folder sits beside the install, so every move is on one volume. Outcome: rename-aside, no Apply helper. **Unverified at runtime on this bundle** (no Windows host available); the unticked end-to-end run above covers it.
 
 Work on the `feat/windows` branch. Source: thermo-nuclear code quality review of `feat/windows` against merge-base `60b2ef8`.

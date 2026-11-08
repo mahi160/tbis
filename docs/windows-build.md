@@ -105,12 +105,11 @@ The approved provenance unittest command, also used by Windows CI, is:
 python -B scripts/windows_sources_tests.py
 ```
 
-It covers manifest pins, safe extraction, notices and inventory integrity; it is not a native compiler or GPU test. The existing application and updater checks are:
+It covers manifest pins, safe extraction, notices and inventory integrity; it is not a native compiler or GPU test. The existing application checks (including the updater's unit tests) are:
 
 ```powershell
 cargo test --release --locked
 cargo clippy --all-targets --locked -- -D warnings
-./src/platform/windows/update.tests.ps1
 ```
 
 The native CI results for these checks are recorded above; these commands are local instructions.

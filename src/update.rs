@@ -8,6 +8,10 @@ use sha2::{Digest as _, Sha256};
 
 use crate::platform::update as native;
 
+// Only the Windows updater installs through it; its tests run on every OS.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub mod bundle;
+
 pub use native::{bundle_path, relaunch};
 
 const REPO: &str = "mahi160/tbis";
