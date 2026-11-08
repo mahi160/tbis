@@ -6,9 +6,9 @@ Supersedes `.scratch/p3-gaps/issues/01-hdr-tonemap-spike.md`, whose investigatio
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] ADR records the chosen render-target format and colorspace/metadata handling
-- [ ] ADR records how per-display EDR headroom is read and kept current across display changes
-- [ ] ADR records the mpv-side options needed (`target-trc`/`target-peak` or equivalent) and how they interact with tone-mapping settings from ticket 01
-- [ ] ADR states the ceiling/scope explicitly (e.g. HDR10/HLG only, Dolby Vision profile handling out of scope per audit §8)
+- [x] ADR records the chosen render-target format and colorspace/metadata handling
+- [x] ADR records how per-display EDR headroom is read and kept current across display changes
+- [x] ADR records the mpv-side options needed (`target-trc`/`target-peak` or equivalent) and how they interact with tone-mapping settings from ticket 01
+- [x] ADR states the ceiling/scope explicitly (e.g. HDR10/HLG only, Dolby Vision profile handling out of scope per audit §8)
