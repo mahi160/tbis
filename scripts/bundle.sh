@@ -42,10 +42,13 @@ bundle_deps() (
             "$brew_prefix"/*) src=$dep ;;
             @loader_path/*) src="$origin/${dep#@loader_path/}" ;;
             @rpath/*)
-                # only our own relinked references may use @rpath
                 [ -e "$frameworks/${dep#@rpath/}" ] && continue
-                echo "unresolved $dep in $file" >&2
-                exit 1
+                # ponytail: sibling @rpath dylibs; resolve LC_RPATH if a formula needs other directories.
+                src="$origin/${dep#@rpath/}"
+                if [ ! -e "$src" ]; then
+                    echo "unresolved $dep in $file" >&2
+                    exit 1
+                fi
                 ;;
             *) continue ;; # system libraries
         esac
