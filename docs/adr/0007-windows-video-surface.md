@@ -4,7 +4,7 @@ status: proposed
 
 # Render Windows video beneath gpui with D3D11 and DirectComposition
 
-This supersedes the Windows paragraph of [ADR-0001](0001-mpv-native-layer-under-gpui.md). Status is **PROPOSED**, not accepted: the implementation exists, but ticket 05 GPU evidence is unavailable and ticket 01 Windows smoke testing remains unrun. Source inspection is not proof that the composition or driver interop works on hardware.
+This supersedes the Windows paragraph of [ADR-0001](0001-mpv-native-layer-under-gpui.md). Status is **PROPOSED**, not accepted: the implementation exists, but ticket 05 GPU evidence is unavailable and ticket 01 Windows smoke testing remains unrun. Reading the source is not proof that the composition or driver interop works on hardware.
 
 ## Proposed architecture and current implementation
 
@@ -36,22 +36,7 @@ If hardware validation shows this bottom-target/interop design is a no-go, the f
 
 ## libmpv dependency and distribution
 
-The pin lives in [`scripts/windows-deps.json`](../../scripts/windows-deps.json), not in the workflow. Normal Windows CI and local setup build it directly through `scripts/build-windows-mpv.ps1`:
-
-- mpv 0.42.0 at `b0841e8c4d156b8403dc1876c4cbd9011eb583f3`.
-- FFmpeg 9.0 Meson port at `7cb50518315d038e0f8c585f9ea11195cbea7553`.
-- libplacebo 7.387.0, libass 0.17.5 and all remaining dependency/build inputs pinned by source URL and SHA256 in the manifest.
-- Meson 1.12.1, Ninja 1.13.2 and NASM 2.16.03 checksum-pinned.
-
-The native Windows recipe uses GNU-frontend Clang targeting MSVC and the Windows SDK. All dependency libraries and the CRT are static; only libmpv is shared. Vulkan is disabled in mpv, FFmpeg and libplacebo. libplacebo's public `vulkan.h` still unconditionally requires Vulkan-Headers, so the manifest pins this header-only source at `74d8a6cb930c68ef617b202c3ff3c59d919e086b` and preparation installs it under `libplacebo/3rdparty/Vulkan-Headers`, preserving its original archive, licenses and inventory records. This build-only header dependency does not enable the Vulkan backend or require a Vulkan loader binary (`vulkan-1.dll`). The recipe generates MSVC `mpv.lib` from the built DLL's actual exports and verifies client/render exports and imports.
-
-Python 3.12 standard-library tooling verifies source downloads/extraction and generates source/license/provenance records tied to the actual DLL hash, current scripts and manifest pins. No pre-created mirror, manual source URL/SHA variables or supplied reviewer attestation is required. Compiler/SDK/runner identities are recorded, not fully pinned for bit-for-bit reproducibility.
-
-Ship `libmpv-2.dll` beside `tbis.exe` with the licenses and component records in the flat updater-compatible zip; the updater is unchanged. Distribution must satisfy [ADR-0004](0004-bundle-libmpv-and-license-as-gpl.md). Checksum, matching-source and PE import gates remain fail-closed. The optional **Build Windows dependencies** dispatch defaults to `publish=false`; later explicit publication can create a dedicated immutable matched binary/source/provenance archive, never the latest application release. Normal CI builds from source without it.
-
-Earlier macOS validation configured, audited and cross-compiled the entire pinned Windows source graph on macOS with the actual MSVC SDK and GNU-frontend LLVM 23.1.4, linking `mpv-2.dll` in 2,979 steps. The actual helper generated and verified its paired source inventory under `target/windows-source-final-validated`; mechanical inventory validation does not establish legal completeness. The DLL imports only Windows system libraries, with no Vulkan or Visual C++ runtime DLL imports, and exposes all 54 mpv client/render exports. That earlier local validation passed 20 Python tests, 30 Rust release tests, six PowerShell script parses, portable updater rollback tests and three workflow YAML parses.
-
-Cross-validation used native Mac Ninja 1.13.2 and NASM 3.02 rather than the native recipe's pinned NASM 2.16.03. Native Windows CI run [42158586879](https://github.com/mahi160/tbis/actions/runs/42158586879) at commit `a35e1a1` subsequently completed **SUCCESS**: the source-built DLL with static dependencies, source inventory checks, full Rust release tests, `-D warnings` Clippy, updater rollback tests, dist application/FXC/icon build, strict import gates, explicitly waited GUI `--self-test`/log, Python PAX source archive and zip upload all passed. All 22 provenance/archive tests passed locally and in CI. The nonexpired `windows-release` artifact contains `tbis-0.4.0-windows-x86_64.zip` and its corresponding Windows sources tar. No product or dependency release was published; production release publication/update end-to-end remain untested. Earlier application cross-build/Clippy evidence used the old nightly, not this DLL, and remains historical. Actual Windows UI/app-window, login, network playback, GPU interoperability and SMTC/power/cursor behavior on a human PC remain unverified; ADR-0007 remains **PROPOSED**. See [Windows builds and releases](../windows-build.md#source-pipeline-validation) for evidence and limits.
+libmpv is built from pinned sources (`scripts/windows-deps.json`, `scripts/build-windows-mpv.ps1`) with Vulkan disabled; the Windows backend described above is the only presentation path, so no `vulkan-1.dll` is shipped. `libmpv-2.dll` sits beside `tbis.exe` in the flat zip the updater expects, and distribution must satisfy [ADR-0004](0004-bundle-libmpv-and-license-as-gpl.md). The build recipe, pins, import gates and CI evidence live in [Windows builds and releases](../windows-build.md).
 
 ## Acceptance evidence still required
 
