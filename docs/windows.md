@@ -6,11 +6,11 @@ Build steps, toolchain and CI status are in [Windows builds and releases](window
 
 ## Portability audit
 
-- Shader `glsl-shaders` lists use `;` on Windows and `:` elsewhere. The output-seam test uses literal complete path-list expectations, including Windows drive-letter paths. The test passed in the macOS release suite; shader application on Windows is unverified.
+- Shader `glsl-shaders` lists are joined with `std::env::join_paths`, so they use `;` on Windows and `:` elsewhere. The output-seam test uses literal complete path-list expectations, including Windows drive-letter paths. The test passed in the macOS release suite; shader application on Windows is unverified.
 - `support_dir::app_support_dir()` uses `dirs::data_dir().join("tbis")`; shader, font and mpv support paths are joined as filesystem paths, not split on drive-letter colons. No support-directory change was needed.
 - Screenshots use `dirs::picture_dir().join("tbis")` when Pictures is available and pass the resulting filename as one `screenshot-to-file` command argument. This is not an mpv path list. The existing Pictures location is unchanged; actual Windows file creation is unverified.
-- Windows PiP has no button, binding, help row or action handler. The PiP module is excluded on Windows, preventing that path from invoking unsupported surface movement. macOS/Linux retain their existing PiP implementation; regression acceptance remains unverified.
-- Only macOS receives the traffic-light position and extra brand lead. gpui-kit's installed TitleBar supplies Windows caption controls through `WindowControlArea` and a drag region; these are retained rather than replaced. Its Kbd formats Control as `Ctrl` outside macOS, and the app binds platform shortcuts with `secondary`. The repository search found no hardcoded Command glyph in UI text, only a comment. Actual rendered hints remain unverified.
+- PiP code compiles on every OS; the per-OS `SUPPORTS_PIP` constant beside each video surface is `false` on Windows, so there is no PiP button, `P` binding or help row there. macOS/Linux retain their existing PiP implementation; regression acceptance remains unverified.
+- Only macOS receives the traffic-light position and extra brand lead (`design::window::TRAFFIC_LIGHTS` is `None` elsewhere). gpui-kit's installed TitleBar supplies Windows caption controls through `WindowControlArea` and a drag region; these are retained rather than replaced. Its Kbd formats Control as `Ctrl` outside macOS, and the app binds platform shortcuts with `secondary`. The repository search found no hardcoded Command glyph in UI text, only a comment. Actual rendered hints remain unverified.
 
 ## Manual acceptance matrix
 
