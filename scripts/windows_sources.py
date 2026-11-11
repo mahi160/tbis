@@ -165,7 +165,10 @@ def write_toolchain(deps):
         path = shutil.which(name)
         if path is None:
             raise ValueError(f'Missing build tool: {name}')
-        tools[name] = tool_record(path, version_flag)
+        # which() takes the extension's case from PATHEXT ('.EXE'); Meson only
+        # recognises llvm-lib as an MSVC-style archiver by its exact lowercase name
+        path = Path(path)
+        tools[name] = tool_record(path.with_suffix(path.suffix.lower()), version_flag)
     tools['python'] = tool_record(sys.executable, '--version')
     for name, version_flag in (('ninja', '--version'), ('nasm', '-v')):
         executables = list((deps / 'tools' / name).rglob(f'{name}.exe'))
