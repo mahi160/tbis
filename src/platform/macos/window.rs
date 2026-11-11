@@ -1,8 +1,8 @@
 use gpui_kit::Window;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSView, NSWindow, NSWindowButton};
-use objc2_foundation::NSSize;
 use objc2_core_graphics::{CGColorSpace, kCGColorSpaceSRGB};
+use objc2_foundation::NSSize;
 use objc2_quartz_core::CAMetalLayer;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 

@@ -4,9 +4,9 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
-- [ ] Track picker offers a second subtitle row (including "Off") alongside the primary subtitle row
-- [ ] Both subtitle tracks render simultaneously when both are set, at their existing styling
-- [ ] Setting the secondary track to "Off" leaves the primary track unaffected
-- [ ] PiP reflects the same secondary-track selection
+- [x] Track picker offers a second subtitle row (including "Off") alongside the primary subtitle row
+- [x] Both subtitle tracks render simultaneously when both are set, at their existing styling
+- [x] Setting the secondary track to "Off" leaves the primary track unaffected
+- [x] PiP reflects the same secondary-track selection

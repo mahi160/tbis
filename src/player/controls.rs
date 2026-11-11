@@ -28,8 +28,10 @@ use super::{
     CycleShaders, CycleSubtitle, DELAY_STEP, Escape, HIDE_CONTROLS_AFTER, NextEpisode, PlayNext,
     PlayerView, PreviousEpisode, Screenshot, SeekBack, SeekBackLong, SeekForward, SeekForwardLong,
     SkipSegment, SpeedDown, SpeedUp, SubDelayEarlier, SubDelayLater, ToggleFullscreen, ToggleMute,
-    TogglePause, TogglePip, TogglePlaybackInfo, VOLUME_STEP, VolumeDown, VolumeUp, hide_cursor,
+    TogglePause, TogglePlaybackInfo, VOLUME_STEP, VolumeDown, VolumeUp, hide_cursor,
 };
+
+use super::TogglePip;
 
 const INFO_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 
@@ -300,18 +302,18 @@ impl PlayerView {
         }
     }
 
-    /// Keeps Now Playing in step with the Player; called every render and time update.
-    pub(super) fn sync_now_playing(&mut self, cx: &App) {
+    /// Creates, updates and drops Now Playing to match the Player; called every render and time update.
+    pub(super) fn sync_now_playing(&mut self, window: &Window, cx: &App) {
         let wanted = self.playback.item.is_some() && self.playback.error.is_none();
-        if wanted != self.now_playing.is_some() {
-            self.now_playing = wanted.then(|| {
-                let step = f64::from(cx.global::<SeekSteps>().short);
-                let now_playing = NowPlaying::new(self.remote.clone(), step);
-                if let Some(bytes) = &self.playback.artwork {
-                    now_playing.set_artwork(bytes);
-                }
-                now_playing
-            });
+        if !wanted {
+            self.now_playing = None;
+        } else if self.now_playing.is_none() {
+            let step = f64::from(cx.global::<SeekSteps>().short);
+            let now_playing = NowPlaying::new(window, self.remote.clone(), step);
+            if let Some(bytes) = &self.playback.artwork {
+                now_playing.set_artwork(bytes);
+            }
+            self.now_playing = Some(now_playing);
         }
         let Some(now_playing) = &self.now_playing else {
             return;
@@ -600,6 +602,9 @@ impl PlayerView {
     }
 
     pub(super) fn show_controls(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.controls_visible {
+            crate::platform::cursor::show();
+        }
         self.controls_visible = true;
         self._hide = cx.spawn_in(window, async move |this, cx| {
             cx.background_executor().timer(HIDE_CONTROLS_AFTER).await;
@@ -624,7 +629,7 @@ impl Render for PlayerView {
         if playing != self.awake.is_some() {
             self.awake = playing.then(super::Awake::new);
         }
-        self.sync_now_playing(cx);
+        self.sync_now_playing(window, cx);
         // in PiP, its window sizes the video
         if let Some(mpv) = &self.mpv
             && self.pip.is_none()
@@ -649,11 +654,9 @@ impl Render for PlayerView {
             .pip
             .is_some()
             .then(|| overlay_banner("Playing in Picture-in-Picture \u{b7} press P to return"));
-        let buffering = (self.core_idle
-            && !self.paused
-            && self.pip.is_none()
-            && self.playback.error.is_none())
-        .then(overlay_spinner);
+        let buffering =
+            (self.core_idle && !self.paused && self.pip.is_none() && self.playback.error.is_none())
+                .then(overlay_spinner);
         // up-next card's Play now already covers skipping credits
         let skip = self
             .active_segment()
@@ -712,7 +715,7 @@ impl Render for PlayerView {
             )
         });
 
-        v_flex()
+        let player = v_flex()
             .id("player")
             .key_context(CONTEXT)
             .track_focus(&self.focus)
@@ -725,7 +728,6 @@ impl Render for PlayerView {
             .on_action(cx.listener(Self::toggle_fullscreen))
             .on_action(cx.listener(Self::escape))
             .on_action(cx.listener(Self::play_next_now))
-            .on_action(cx.listener(Self::toggle_pip))
             .on_action(cx.listener(Self::volume_up))
             .on_action(cx.listener(Self::volume_down))
             .on_action(cx.listener(Self::cycle_audio))
@@ -755,7 +757,9 @@ impl Render for PlayerView {
                     this.show_controls(window, cx);
                 }
             }))
-            .children(error)
+            .children(error);
+        player
+            .on_action(cx.listener(Self::toggle_pip))
             .children(pip_notice)
             .children(buffering)
             // stays up until closed (x or i), independent of the controls

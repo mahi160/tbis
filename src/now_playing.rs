@@ -7,6 +7,8 @@
 pub enum RemoteCommand {
     Play,
     Pause,
+    // SMTC sends explicit play/pause; retain the shared command for macOS.
+    #[cfg_attr(target_os = "windows", allow(dead_code))]
     Toggle,
     SkipForward,
     SkipBackward,

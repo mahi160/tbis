@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** wontfix — not wanted (owner decision).
 
 - [ ] Jellyseerr/Overseerr server URL and API key can be configured in Settings
 - [ ] Detail pages for items not in the library show a "Request" action

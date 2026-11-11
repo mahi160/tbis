@@ -2,3 +2,7 @@
 pub fn hide() {
     objc2_app_kit::NSCursor::setHiddenUntilMouseMoves(true);
 }
+
+pub fn show() {
+    objc2_app_kit::NSCursor::setHiddenUntilMouseMoves(false);
+}

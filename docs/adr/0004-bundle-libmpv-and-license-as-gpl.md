@@ -21,3 +21,13 @@ Homebrew's mpv and FFmpeg are built with `--enable-gpl --enable-version3`, so an
 - Libraries and files that the bundled code loads at runtime rather than links, such as a Vulkan driver, are not bundled. PiP's standalone mpv is expected to fall back to its OpenGL output on a Mac without MoltenVK; this has not been verified.
 - Distribution to other people still needs a Developer ID signature and notarization so Gatekeeper opens the app. The bundle is only ad-hoc signed for now. Auto-update is not built yet.
 - The app stays out of the Mac App Store, because the GPL is incompatible with its terms.
+
+## Windows addition
+
+The same decision applies on Windows: the zip bundles libmpv (`libmpv-2.dll`) and its licenses beside `tbis.exe`, and the build is GPL-3.0-or-later. Instead of Homebrew, libmpv comes from one owned recipe, `scripts/build-windows-mpv.ps1`, which builds mpv, FFmpeg and their dependencies from checksum-pinned sources listed in `scripts/windows-deps.json`. Local builds, normal CI and releases all use it; no pre-created mirror, expiring nightly or supplied source bundle is involved. Dependency libraries and the CRT are static; only libmpv is shared.
+
+The source obligation is met mechanically. The build generates an inventory that binds the built DLL's hash to the pinned sources, notices, recipes and build records, and packaging fails closed if any of it is missing or mismatched. The application zip carries the licenses and inventory, including notices from vendored Rust crates, and a separate Windows source archive carries tbis at the built revision, its vendored Rust dependencies and the generated dependency sources and provenance. Packaging also rejects any bundled executable that imports an unbundled, non-system DLL or a Visual C++ runtime DLL. These checks do not replace maintainer review of Corresponding Source and license completeness, and the toolchain is recorded rather than pinned, so builds are not claimed to be bit-reproducible.
+
+Both platform builds use one prepared version and revision, and the release is published only after both succeed. An optional dispatch workflow can publish a matched binary/source/provenance archive as a separate immutable release; normal builds never depend on it.
+
+The build steps, toolchain, provenance contract and CI evidence are in [Windows builds and releases](../windows-build.md).

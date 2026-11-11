@@ -24,6 +24,7 @@ use crate::mpv::{Mpv, VideoSize};
 use crate::now_playing::{NowPlaying, RemoteCommand};
 use crate::platform::cursor::hide as hide_cursor;
 use crate::platform::power::Awake;
+use crate::platform::video::SUPPORTS_PIP;
 use crate::shaders::ShaderProfile;
 use playback::Playback;
 
@@ -39,7 +40,6 @@ actions!(
         Escape,
         ToggleMute,
         PlayNext,
-        TogglePip,
         VolumeUp,
         VolumeDown,
         CycleAudio,
@@ -61,6 +61,8 @@ actions!(
     ]
 );
 
+actions!(player, [TogglePip]);
+
 const CONTEXT: &str = "Player";
 const VOLUME_STEP: f64 = 5.;
 const DELAY_STEP: f64 = 0.1;
@@ -77,7 +79,6 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", Escape, Some(CONTEXT)),
         KeyBinding::new("m", ToggleMute, Some(CONTEXT)),
         KeyBinding::new("enter", PlayNext, Some(CONTEXT)),
-        KeyBinding::new("p", TogglePip, Some(CONTEXT)),
         KeyBinding::new("up", VolumeUp, Some(CONTEXT)),
         KeyBinding::new("down", VolumeDown, Some(CONTEXT)),
         KeyBinding::new("a", CycleAudio, Some(CONTEXT)),
@@ -97,6 +98,9 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("shift-s", Screenshot, Some(CONTEXT)),
         KeyBinding::new("u", CycleShaders, Some(CONTEXT)),
     ]);
+    if SUPPORTS_PIP {
+        cx.bind_keys([KeyBinding::new("p", TogglePip, Some(CONTEXT))]);
+    }
 }
 
 /// Player left; carries volume and track memory so the app can remember them.

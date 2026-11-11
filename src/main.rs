@@ -1,3 +1,8 @@
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
+
 mod app;
 mod assets;
 mod backdrops;
@@ -56,6 +61,8 @@ fn raise_open_file_limit() {
 }
 
 fn main() {
+    let _platform = platform::init();
+
     #[cfg(unix)]
     raise_open_file_limit();
 
@@ -110,7 +117,7 @@ fn main() {
                     window_min_size: Some(min),
                     // recentre traffic lights in 52px title bar (app.rs)
                     titlebar: Some(TitlebarOptions {
-                        traffic_light_position: Some(design::window::TRAFFIC_LIGHTS),
+                        traffic_light_position: design::window::TRAFFIC_LIGHTS,
                         ..TitleBar::title_bar_options()
                     }),
                     ..TitleBar::window_options()

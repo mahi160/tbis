@@ -33,6 +33,9 @@ use crate::mpv::{Extent, Handle, create_gl_render_context, render_gl};
 /// mpv's `hwdec` option for this platform.
 pub const HWDEC: &str = "auto-safe";
 
+/// Whether the surface can move to another window (Picture-in-Picture).
+pub const SUPPORTS_PIP: bool = true;
+
 /// Main-thread side: the view holding the video layer.
 pub struct Surface {
     view: Retained<NSView>,
@@ -236,14 +239,14 @@ impl Renderer {
     }
 
     /// Draws current frame at `w`×`h` device pixels. Returns true if a frame was presented.
-    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> bool {
+    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> Result<bool, String> {
         let Extent {
             width: w,
             height: h,
             ..
         } = extent;
         let Some(gpu) = &mut self.gpu else {
-            return false;
+            return Ok(false);
         };
         gpu.gl.makeCurrentContext();
         if !matches!(&gpu.target, Some(t) if t.w == w && t.h == h) {
@@ -255,11 +258,13 @@ impl Renderer {
                 }
                 Err(err) => {
                     eprintln!("mpv render target: {err}");
-                    return false;
+                    return Ok(false);
                 }
             }
         }
-        let Some(t) = &gpu.target else { return false };
+        let Some(t) = &gpu.target else {
+            return Ok(false);
+        };
 
         let start = Instant::now();
         unsafe {
@@ -267,20 +272,20 @@ impl Renderer {
             glViewport(0, 0, w, h);
         }
         if !render_gl(ctx, t.fbo as c_int, w, h, false) {
-            return false;
+            return Ok(false);
         }
         unsafe { glFlush() }; // GL writes land before Metal reads same IOSurface
         let rendered = Instant::now();
 
         let Some(drawable) = self.layer.nextDrawable() else {
-            return false;
+            return Ok(false);
         };
         let got_drawable = Instant::now();
         let Some(cmd) = gpu.queue.commandBuffer() else {
-            return false;
+            return Ok(false);
         };
         let Some(blit) = cmd.blitCommandEncoder() else {
-            return false;
+            return Ok(false);
         };
         unsafe { blit.copyFromTexture_toTexture(&t.metal_texture, &drawable.texture()) };
         blit.endEncoding();
@@ -288,13 +293,9 @@ impl Renderer {
         cmd.commit();
         if let Some(phases) = &mut self.phases {
             let ms = |d: Duration| d.as_secs_f64() * 1000.;
-            phases.frame(
-                ms(rendered - start),
-                ms(got_drawable - rendered),
-                cmd,
-            );
+            phases.frame(ms(rendered - start), ms(got_drawable - rendered), cmd);
         }
-        true
+        Ok(true)
     }
 }
 
