@@ -21,6 +21,9 @@ mod tests {
 
     #[test]
     fn cargo_runs_use_separate_data() {
-        assert_eq!(app_support_dir(), dirs::data_dir().unwrap().join("tbis-dev"));
+        assert_eq!(
+            app_support_dir(),
+            dirs::data_dir().unwrap().join("tbis-dev")
+        );
     }
 }

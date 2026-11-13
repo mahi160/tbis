@@ -1,8 +1,8 @@
 //! Shared layout for Movie and Series detail pages (`movie.rs`, `series.rs`): both are
 //! a Back button, poster, and a header body, over a scrollable page with the same padding.
 
-use std::collections::HashMap;
 use gpui_kit::*;
+use std::collections::HashMap;
 
 use crate::components::toggle_button::Toggle;
 use crate::jellyfin::{Api, UserData};
@@ -145,7 +145,6 @@ impl UserDataMutations {
             .get(&(id.to_string(), matches!(toggle, Toggle::Favorite)))
             == Some(&version)
     }
-
 }
 
 pub trait UserDataView: Sized + 'static {
@@ -241,7 +240,11 @@ pub fn toggle<V: UserDataView>(
                         Toggle::Played => "watched state",
                         Toggle::Favorite => "favorite",
                     };
-                    view.set_error(&id, toggle, format!("Could not update {what}: {err}").into());
+                    view.set_error(
+                        &id,
+                        toggle,
+                        format!("Could not update {what}: {err}").into(),
+                    );
                     view.failed(&id, toggle, cx);
                 }
             }
@@ -328,7 +331,10 @@ mod tests {
         mutations.optimistic("episode", Toggle::Played, &played);
         let mut pending_refresh = UserData::default();
         mutations.preserve_refresh("episode", &snapshot, None, &mut pending_refresh);
-        assert!(pending_refresh.played, "pending intent survives a season switch");
+        assert!(
+            pending_refresh.played,
+            "pending intent survives a season switch"
+        );
         mutations.confirm("episode", Toggle::Played, &played);
         mutations.settle("episode", Toggle::Played);
 

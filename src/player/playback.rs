@@ -255,13 +255,9 @@ impl PlayerView {
                     && self.playback.subtitle_readiness.begin(subtitles.len())
                 {
                     for sub in subtitles {
-                        if let Err(err) = mpv.add_subtitle(
-                            &sub.url,
-                            &sub.title,
-                            &sub.lang,
-                            sub.is_default,
-                            load,
-                        ) {
+                        if let Err(err) =
+                            mpv.add_subtitle(&sub.url, &sub.title, &sub.lang, sub.is_default, load)
+                        {
                             crate::log::write(&format!("external subtitle addition failed: {err}"));
                             self.playback.subtitle_readiness.settle();
                         }

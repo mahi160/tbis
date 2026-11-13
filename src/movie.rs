@@ -40,17 +40,17 @@ impl UserDataView for MovieView {
     }
 
     fn set_error(&mut self, id: &str, toggle: Toggle, error: SharedString) {
-        self.mutation_error = Some((
-            id.to_string(),
-            matches!(toggle, Toggle::Favorite),
-            error,
-        ));
+        self.mutation_error = Some((id.to_string(), matches!(toggle, Toggle::Favorite), error));
     }
 
     fn saved(&mut self, id: &str, toggle: Toggle, _: &mut Context<Self>) {
-        if self.mutation_error.as_ref().is_some_and(|(failed_id, favorite, _)| {
-            failed_id == id && *favorite == matches!(toggle, Toggle::Favorite)
-        }) {
+        if self
+            .mutation_error
+            .as_ref()
+            .is_some_and(|(failed_id, favorite, _)| {
+                failed_id == id && *favorite == matches!(toggle, Toggle::Favorite)
+            })
+        {
             self.mutation_error = None;
         }
     }

@@ -293,7 +293,10 @@ impl PlayerView {
             return;
         }
         let property = if subtitle { "sub-delay" } else { "audio-delay" };
-        let Some(delay) = mpv.property(property).and_then(|value| value.parse::<f64>().ok()) else {
+        let Some(delay) = mpv
+            .property(property)
+            .and_then(|value| value.parse::<f64>().ok())
+        else {
             crate::log::write(&format!("failed to read {property}"));
             return;
         };
