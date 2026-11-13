@@ -29,7 +29,7 @@ impl Awake {
             Ok(())
         })();
         if let Err(error) = result {
-            crate::platform::log::write(&format!("power request failed: {:?}", error.code()));
+            crate::log::write(&format!("power request failed: {:?}", error.code()));
         }
         this
     }

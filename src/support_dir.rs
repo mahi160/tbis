@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 pub fn app_support_dir() -> PathBuf {
-    let name = if crate::update::bundle_path().is_some() {
+    let name = if crate::update::installed().is_some() {
         "tbis"
     } else {
         "tbis-dev"

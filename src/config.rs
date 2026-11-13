@@ -364,6 +364,19 @@ pub fn save(config: &Config) -> io::Result<()> {
     save_to(config, &path())
 }
 
+/// Drops the session in memory and on disk. `Err` is the user-facing reason logout is
+/// not durably complete: the saved session may remain on disk.
+pub fn forget_session(config: &mut Config) -> Result<(), String> {
+    forget_session_at(config, &path())
+}
+
+fn forget_session_at(config: &mut Config, path: &Path) -> Result<(), String> {
+    config.session = None;
+    save_to(config, path).map_err(|err| {
+        format!("Logout is not durably complete: the saved session may remain on disk ({err}).")
+    })
+}
+
 fn save_to(config: &Config, path: &Path) -> io::Result<()> {
     if config.load_failed {
         return Err(io::Error::other(
@@ -389,7 +402,8 @@ fn save_to(config: &Config, path: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{WindowState, defaults, load_from, save_to};
+    use super::{WindowState, defaults, forget_session_at, load_from, save_to};
+    use crate::jellyfin::Session;
     use std::fs;
     use std::path::PathBuf;
 
@@ -397,6 +411,66 @@ mod tests {
 
     fn temp_path() -> PathBuf {
         std::env::temp_dir().join(format!("tbis-config-test-{}", uuid::Uuid::new_v4()))
+    }
+
+    const TOKEN: &str = "secret-access-token";
+
+    fn signed_in() -> super::Config {
+        let mut config = defaults();
+        config.session = Some(Session {
+            server: "http://jellyfin:8096".into(),
+            user_id: "user".into(),
+            user_name: "Me".into(),
+            token: TOKEN.into(),
+        });
+        config
+    }
+
+    #[test]
+    fn logout_removes_the_saved_session_across_a_restart() {
+        let path = temp_path();
+        let mut config = signed_in();
+        save_to(&config, &path).unwrap();
+        assert!(load_from(&path).session.is_some());
+        forget_session_at(&mut config, &path).unwrap();
+        let restarted = load_from(&path);
+        assert!(!restarted.load_failed);
+        assert!(restarted.session.is_none());
+        assert!(!fs::read_to_string(&path).unwrap().contains(TOKEN));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn failed_logout_save_is_reported_without_the_token() {
+        // a folder where the file goes: the final rename fails, the old file is untouched
+        let path = temp_path();
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("keep"), TOKEN).unwrap();
+        let mut config = signed_in();
+        let err = forget_session_at(&mut config, &path).unwrap_err();
+        assert!(err.contains("not durably complete"));
+        assert!(err.contains("may remain on disk"));
+        assert!(!err.contains(TOKEN));
+        // the app still signs out: nothing authenticated is left to reactivate
+        assert!(config.session.is_none());
+        let _ = fs::remove_file(path.with_extension("json.tmp"));
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn expiry_with_an_unsaveable_config_still_signs_out_and_says_so() {
+        // session expiry logs out the same way; a config that failed to load is never
+        // overwritten, so the saved session stays and the user is told
+        let path = temp_path();
+        fs::write(&path, b"{").unwrap();
+        let mut config = load_from(&path);
+        config.session = signed_in().session;
+        let err = forget_session_at(&mut config, &path).unwrap_err();
+        assert!(err.contains("may remain on disk"));
+        assert!(!err.contains(TOKEN));
+        assert!(config.session.is_none());
+        assert_eq!(fs::read(&path).unwrap(), b"{");
+        fs::remove_file(path).unwrap();
     }
 
     #[test]

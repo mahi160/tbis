@@ -189,7 +189,7 @@ pub fn delete_state(dir: &Path) -> Result<()> {
 impl Drop for Node {
     fn drop(&mut self) {
         if let Err(err) = self.close() {
-            eprintln!("closing Tailscale failed: {err}");
+            crate::log::write(&format!("closing Tailscale failed: {err}"));
         }
     }
 }

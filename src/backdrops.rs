@@ -85,7 +85,7 @@ impl Backdrops {
                         .collect(),
                 ),
                 Err(err) => {
-                    eprintln!("backdrops failed to load: {err}");
+                    crate::log::write(&format!("backdrops failed to load: {err}"));
                     None
                 }
             };

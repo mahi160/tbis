@@ -7,7 +7,7 @@ use futures::channel::mpsc::{self, UnboundedSender};
 use gpui_kit::*;
 
 use crate::jellyfin::{Api, Item, Kind, PlaybackItem, Report, Segment, SegmentKind};
-use crate::mpv::{MpvEvent, MpvEventKind, Track, TrackKind};
+use crate::mpv::{FileEvent, MpvEvent, PlayerEvent, Track, TrackKind};
 
 use super::PlayerView;
 use super::controls::StaticInfo;
@@ -19,23 +19,36 @@ const REDRAW_STEP: f64 = 0.1;
 /// Seconds before a segment's end at which its skip button hides.
 const SEGMENT_END_MARGIN: f64 = 0.5;
 
+/// When remembered tracks may be applied for one load: once, after every external
+/// subtitle it adds has settled (added or failed).
 #[derive(Default)]
 struct SubtitleReadiness {
+    /// External `sub-add`s sent; a repeat `FileLoaded` must not add them again.
+    queued: bool,
     pending: usize,
     applied: bool,
 }
 
 impl SubtitleReadiness {
-    fn begin(&mut self, count: usize) {
+    /// Starts `count` additions; `false` when this load already queued its subtitles.
+    fn begin(&mut self, count: usize) -> bool {
+        if self.queued {
+            return false;
+        }
+        self.queued = true;
         self.pending = count;
+        true
     }
 
     fn settle(&mut self) {
         self.pending = self.pending.saturating_sub(1);
     }
 
-    fn take_ready(&mut self, has_tracks: bool) -> bool {
-        if self.pending == 0 && has_tracks && !self.applied {
+    /// `expects_external`: the item has external subtitles. The embedded track list can
+    /// arrive before they are even queued; applying then would pick from a list missing them.
+    fn take_ready(&mut self, has_tracks: bool, expects_external: bool) -> bool {
+        let waiting = self.pending > 0 || (!self.queued && expects_external);
+        if !waiting && has_tracks && !self.applied {
             self.applied = true;
             true
         } else {
@@ -83,8 +96,6 @@ pub(super) struct Playback {
     pub(super) previous: Option<Item>,
     pub(super) next_cancelled: bool,
     pub(super) started: bool,
-    /// Guards external `sub-add` against a repeat `FileLoaded` for the same item.
-    pub(super) subs_added: bool,
     subtitle_readiness: SubtitleReadiness,
     pub(super) finished: bool,
     pub(super) time: f64,
@@ -126,7 +137,6 @@ impl Playback {
             previous: None,
             next_cancelled: false,
             started: false,
-            subs_added: false,
             subtitle_readiness: SubtitleReadiness::default(),
             finished: false,
             time: 0.,
@@ -174,8 +184,15 @@ impl PlayerView {
         if !event.is_current(self.playback.load) {
             return;
         }
-        match event.kind {
-            MpvEventKind::TimePos(time) => {
+        let event = match event {
+            MpvEvent::Player(event) => {
+                self.on_player_event(event, window, cx);
+                return;
+            }
+            MpvEvent::File { event, .. } => event,
+        };
+        match event {
+            FileEvent::TimePos(time) => {
                 if !self.update_time(time) {
                     return;
                 }
@@ -189,44 +206,24 @@ impl PlayerView {
                 self.playback.overlays = overlays;
             }
             // resume jump arrives before duration is known
-            MpvEventKind::Duration(duration) => {
+            FileEvent::Duration(duration) => {
                 self.playback.duration = duration;
                 self.sync_seek_bar(window, cx);
             }
-            MpvEventKind::Pause(paused) => {
+            FileEvent::Pause(paused) => {
                 self.paused = paused;
                 if self.playback.started {
                     self.report(Report::Progress);
                 }
                 self.show_controls(window, cx);
             }
-            MpvEventKind::CoreIdle(idle) => self.core_idle = idle,
-            MpvEventKind::Volume(volume) => {
-                self.volume = volume;
-                let shown = self.volume_slider.read(cx).value().end() as f64;
-                if (shown - volume).abs() >= 0.5 {
-                    self.volume_slider
-                        .update(cx, |s, cx| s.set_value(volume as f32, window, cx));
-                }
-            }
-            MpvEventKind::Mute(muted) => self.muted = muted,
-            MpvEventKind::Tracks(tracks) => {
+            FileEvent::CoreIdle(idle) => self.core_idle = idle,
+            FileEvent::Tracks(tracks) => {
                 self.playback.tracks = tracks;
                 self.playback.info_static = None;
-                // The embedded track list can turn up before `FileLoaded`'s sub-add for
-                // this item's external subtitles lands; applying now would pick a
-                // language/remembered subtitle from a list that's still missing them.
-                let subs_pending = !self.playback.subs_added
-                    && self
-                        .playback
-                        .item
-                        .as_ref()
-                        .is_some_and(|item| !self.api.external_subtitles(item).is_empty());
-                if !subs_pending {
-                    self.apply_tracks_if_ready();
-                }
+                self.apply_tracks_if_ready();
             }
-            MpvEventKind::FileLoaded => {
+            FileEvent::FileLoaded => {
                 if !self.playback.started {
                     if let Some(mpv) = &self.mpv {
                         let delay = self
@@ -241,7 +238,7 @@ impl PlayerView {
                             ("audio-delay", self.audio_delay),
                         ] {
                             if let Err(err) = mpv.set_property(name, &value.to_string()) {
-                                eprintln!("failed to restore {name}: {err}");
+                                crate::log::write(&format!("failed to restore {name}: {err}"));
                             }
                         }
                     }
@@ -250,15 +247,13 @@ impl PlayerView {
                 }
                 // sub-add before FILE_LOADED races the core opening the file (mpv has no
                 // current file to attach the track to yet); deferred to here instead.
-                // Guarded: a repeat FILE_LOADED for this item would otherwise re-add every
-                // external subtitle and double up the track menu.
-                if !self.playback.subs_added
-                    && let (Some(mpv), Some(item), Some(load)) =
-                        (&self.mpv, &self.playback.item, self.playback.load)
+                // Guarded by `begin`: a repeat FILE_LOADED for this item would otherwise
+                // re-add every external subtitle and double up the track menu.
+                if let (Some(mpv), Some(item), Some(load)) =
+                    (&self.mpv, &self.playback.item, self.playback.load)
+                    && let subtitles = self.api.external_subtitles(item)
+                    && self.playback.subtitle_readiness.begin(subtitles.len())
                 {
-                    self.playback.subs_added = true;
-                    let subtitles = self.api.external_subtitles(item);
-                    self.playback.subtitle_readiness.begin(subtitles.len());
                     for sub in subtitles {
                         if let Err(err) = mpv.add_subtitle(
                             &sub.url,
@@ -267,21 +262,21 @@ impl PlayerView {
                             sub.is_default,
                             load,
                         ) {
-                            eprintln!("external subtitle addition failed: {err}");
+                            crate::log::write(&format!("external subtitle addition failed: {err}"));
                             self.playback.subtitle_readiness.settle();
                         }
                     }
                     self.apply_tracks_if_ready();
                 }
             }
-            MpvEventKind::SubtitleAdded(result) => {
+            FileEvent::SubtitleAdded(result) => {
                 if let Err(err) = result {
-                    eprintln!("external subtitle addition failed: {err}");
+                    crate::log::write(&format!("external subtitle addition failed: {err}"));
                 }
                 self.playback.subtitle_readiness.settle();
                 self.apply_tracks_if_ready();
             }
-            MpvEventKind::EndFile(Ok(true)) => {
+            FileEvent::EndFile(Ok(true)) => {
                 self.playback.finished = true;
                 self.playback.time = self.playback.duration;
                 match self
@@ -295,19 +290,42 @@ impl PlayerView {
                 }
                 return;
             }
-            MpvEventKind::EndFile(Ok(false)) => {}
-            MpvEventKind::EndFile(Err(err)) => {
+            FileEvent::EndFile(Ok(false)) => {}
+            FileEvent::EndFile(Err(err)) => {
                 self.playback.error = Some(format!("Playback failed: {err}").into())
             }
         }
         cx.notify();
     }
 
+    fn on_player_event(&mut self, event: PlayerEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match event {
+            PlayerEvent::Volume(volume) => {
+                self.volume = volume;
+                let shown = self.volume_slider.read(cx).value().end() as f64;
+                if (shown - volume).abs() >= 0.5 {
+                    self.volume_slider
+                        .update(cx, |s, cx| s.set_value(volume as f32, window, cx));
+                }
+            }
+            PlayerEvent::Mute(muted) => self.muted = muted,
+            PlayerEvent::RenderFailed(err) => {
+                self.playback.error = Some(format!("Playback failed: {err}").into());
+                // video is gone for good; mpv would otherwise play on, unseen
+                self.mpv = None;
+                self.drop_pip(cx);
+            }
+        }
+        cx.notify();
+    }
+
     fn apply_tracks_if_ready(&mut self) {
+        let expects_external = (self.playback.item.as_ref())
+            .is_some_and(|item| !self.api.external_subtitles(item).is_empty());
         if self
             .playback
             .subtitle_readiness
-            .take_ready(!self.playback.tracks.is_empty())
+            .take_ready(!self.playback.tracks.is_empty(), expects_external)
         {
             self.apply_remembered_tracks();
         }
@@ -376,6 +394,10 @@ impl PlayerView {
     /// Loads the next Episode. Caller sets `finished` beforehand: the EOF path and
     /// Play now/Enter count the current Episode watched, the skip button does not.
     pub(super) fn play_next(&mut self, next: Item, window: &mut Window, cx: &mut Context<Self>) {
+        // no mpv: keep its error rather than a blank Player that never loads
+        if self.mpv.is_none() {
+            return;
+        }
         self.end_current();
         if let Some(mpv) = &self.mpv {
             // stop old file during fetch; pause would carry over
@@ -760,7 +782,7 @@ fn spawn_reporter(
                 Queued::Played(item) => api.set_played(&item.id, true).await,
             };
             if let Err(err) = result {
-                eprintln!("playback report failed: {err}");
+                crate::log::write(&format!("playback report failed: {err}"));
             }
         }
     })
@@ -771,28 +793,85 @@ fn spawn_reporter(
 #[cfg(test)]
 mod tests {
     use super::SubtitleReadiness;
+    use crate::mpv::{FileEvent, MpvEvent};
 
     #[test]
     fn selection_waits_until_all_subtitle_additions_settle() {
         let mut readiness = SubtitleReadiness::default();
-        readiness.begin(2);
-        assert!(!readiness.take_ready(true));
+        assert!(readiness.begin(2));
+        assert!(!readiness.take_ready(true, true));
         readiness.settle();
-        assert!(!readiness.take_ready(true));
+        assert!(!readiness.take_ready(true, true));
         readiness.settle();
-        assert!(readiness.take_ready(true));
-        assert!(!readiness.take_ready(true));
+        assert!(readiness.take_ready(true, true));
+        assert!(!readiness.take_ready(true, true));
     }
 
     #[test]
     fn failed_additions_settle_and_no_additions_do_not_wait() {
         let mut readiness = SubtitleReadiness::default();
-        readiness.begin(1);
+        assert!(readiness.begin(1));
         readiness.settle();
-        assert!(readiness.take_ready(true));
+        assert!(readiness.take_ready(true, true));
 
         readiness = SubtitleReadiness::default();
-        readiness.begin(0);
-        assert!(readiness.take_ready(true));
+        assert!(readiness.begin(0));
+        assert!(readiness.take_ready(true, false));
+    }
+
+    #[test]
+    fn track_lists_before_external_subtitles_are_queued_do_not_apply() {
+        let mut readiness = SubtitleReadiness::default();
+        // embedded tracks land before FileLoaded queues the external ones
+        assert!(!readiness.take_ready(true, true));
+        assert!(readiness.begin(1));
+        // tracks change while the download is still in flight
+        assert!(!readiness.take_ready(true, true));
+        readiness.settle();
+        assert!(readiness.take_ready(true, true));
+    }
+
+    #[test]
+    fn without_external_subtitles_the_first_track_list_applies() {
+        let mut readiness = SubtitleReadiness::default();
+        assert!(!readiness.take_ready(false, false));
+        assert!(readiness.take_ready(true, false));
+    }
+
+    #[test]
+    fn a_repeat_file_loaded_queues_nothing_and_keeps_the_count() {
+        let mut readiness = SubtitleReadiness::default();
+        assert!(readiness.begin(2));
+        readiness.settle();
+        assert!(!readiness.begin(2));
+        assert!(!readiness.take_ready(true, true));
+        readiness.settle();
+        assert!(readiness.take_ready(true, true));
+    }
+
+    #[test]
+    fn completions_beyond_the_count_do_not_reapply() {
+        let mut readiness = SubtitleReadiness::default();
+        assert!(readiness.begin(1));
+        readiness.settle();
+        assert!(readiness.take_ready(true, true));
+        readiness.settle();
+        assert!(!readiness.take_ready(true, true));
+    }
+
+    #[test]
+    fn a_superseded_load_cannot_settle_the_current_one() {
+        // Episode switch and bitrate reload start a fresh `Playback` with a new load id;
+        // the old load's replies are dropped before they reach its readiness
+        let late = MpvEvent::File {
+            load: 1,
+            event: FileEvent::SubtitleAdded(Ok(())),
+        };
+        assert!(!late.is_current(Some(2)));
+        let failed = MpvEvent::File {
+            load: 1,
+            event: FileEvent::SubtitleAdded(Err("404".into())),
+        };
+        assert!(!failed.is_current(Some(2)));
     }
 }

@@ -5,16 +5,17 @@
 //! `render_gl` here.
 
 mod events;
+mod node;
 mod render;
 
 use crate::platform::video;
 use events::event_thread;
+pub use render::Phases;
 use render::{Waker, frame_stats_enabled, render_thread};
 
-use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_void};
 use std::os::raw::{c_char, c_int};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
 use std::thread::JoinHandle;
 
@@ -31,21 +32,34 @@ pub struct Extent {
     pub scale: f32,
 }
 
-pub struct MpvEvent {
-    pub load: Option<i64>,
-    pub kind: MpvEventKind,
+/// What mpv reports: player-wide, or tied to the playback load (`Mpv::load`'s id) it
+/// came from, so a late event from a replaced file can be told apart.
+pub enum MpvEvent {
+    Player(PlayerEvent),
+    File { load: i64, event: FileEvent },
 }
 
 impl MpvEvent {
+    /// Whether the Player, whose current load is `load`, should act on it.
     pub fn is_current(&self, load: Option<i64>) -> bool {
-        match self.kind {
-            MpvEventKind::Volume(_) | MpvEventKind::Mute(_) => true,
-            _ => self.load.is_some() && self.load == load,
+        match self {
+            Self::Player(_) => true,
+            Self::File { load: from, .. } => load == Some(*from),
         }
     }
 }
 
-pub enum MpvEventKind {
+/// Not tied to any file.
+pub enum PlayerEvent {
+    /// 0–100.
+    Volume(f64),
+    Mute(bool),
+    /// Video can no longer be drawn; the render thread has stopped.
+    RenderFailed(String),
+}
+
+/// Belongs to one playback load.
+pub enum FileEvent {
     TimePos(f64),
     Duration(f64),
     Pause(bool),
@@ -54,9 +68,6 @@ pub enum MpvEventKind {
     FileLoaded,
     /// `Ok(true)` reached end of file, `Ok(false)` stopped otherwise.
     EndFile(Result<bool, String>),
-    /// 0–100.
-    Volume(f64),
-    Mute(bool),
     /// Audio and subtitle tracks of the current file.
     Tracks(Vec<Track>),
     SubtitleAdded(Result<(), String>),
@@ -126,7 +137,6 @@ pub struct Mpv {
     stop: Arc<AtomicBool>,
     events: Option<JoinHandle<()>>,
     render: Option<JoinHandle<()>>,
-    subtitle_commands: Arc<Mutex<HashMap<u64, i64>>>,
 }
 
 impl Mpv {
@@ -150,7 +160,7 @@ impl Mpv {
         let (surface, renderer) = match video::Surface::attach(window) {
             Ok(parts) => parts,
             Err(err) => {
-                crate::platform::log::write(&format!("video surface attachment failed: {err}"));
+                crate::log::write(&format!("video surface attachment failed: {err}"));
                 unsafe { mpv_terminate_destroy(handle.0) };
                 return Err(err);
             }
@@ -160,22 +170,18 @@ impl Mpv {
         let waker = Arc::new(Waker::default());
         let stop = Arc::new(AtomicBool::new(false));
 
-        let subtitle_commands = Arc::new(Mutex::new(HashMap::new()));
-        let failure = Arc::new(Mutex::new(None));
         let (ready_tx, ready_rx) = mpsc::channel();
         let render = {
-            let (size, waker, stop, failure) =
-                (size.clone(), waker.clone(), stop.clone(), failure.clone());
+            let (size, waker, stop, events) =
+                (size.clone(), waker.clone(), stop.clone(), events.clone());
             std::thread::spawn(move || {
-                render_thread(handle, renderer, size, waker, stop, ready_tx, failure)
+                render_thread(handle, renderer, size, waker, stop, ready_tx, events)
             })
         };
         let events = {
-            let (stop, commands) = (stop.clone(), subtitle_commands.clone());
-            let secrets = crate::platform::log::header_secrets(auth_header);
-            std::thread::spawn(move || {
-                event_thread(handle, stop, events, commands, failure, secrets)
-            })
+            let stop = stop.clone();
+            let secrets = crate::log::header_secrets(auth_header);
+            std::thread::spawn(move || event_thread(handle, stop, events, secrets))
         };
 
         let this = Self {
@@ -186,7 +192,6 @@ impl Mpv {
             stop,
             events: Some(events),
             render: Some(render),
-            subtitle_commands,
         };
         // on Err, drop tears everything down in order
         ready_rx
@@ -295,24 +300,10 @@ impl Mpv {
         load: i64,
     ) -> Result<(), String> {
         let flag = if select { "select" } else { "auto" };
-        // async: sub-add downloads url; sync call froze UI on slow server
-        static NEXT_COMMAND: AtomicU64 = AtomicU64::new(1);
-        let command = NEXT_COMMAND.fetch_add(1, Ordering::Relaxed);
-        self.subtitle_commands
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(command, load);
-        if let Err(err) = self
-            .handle
-            .command_async(command, &["sub-add", url, flag, title, lang])
-        {
-            self.subtitle_commands
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .remove(&command);
-            return Err(err);
-        }
-        Ok(())
+        // async: sub-add downloads url; sync call froze UI on slow server. The reply's
+        // userdata is the load, so the event thread can tie it to its file unaided.
+        self.handle
+            .command_async(load as u64, &["sub-add", url, flag, title, lang])
     }
 
     /// Nudges subtitle/audio timing by `delta` seconds (mpv's own `add <prop>` idiom).
@@ -369,7 +360,7 @@ pub(crate) fn self_test() -> Result<(), String> {
             check(mpv_initialize(handle.0), "self-test mpv_initialize")?;
         }
         let version = get_string(handle, "mpv-version").ok_or("self-test: missing mpv version")?;
-        crate::platform::log::write(&format!(
+        crate::log::write(&format!(
             "self-test: {version}; client API={:#x}; no GPU test performed",
             unsafe { mpv_client_api_version() }
         ));
@@ -387,7 +378,7 @@ impl Drop for Mpv {
             get_string(self.handle, "frame-drop-count").and_then(|value| value.parse::<u64>().ok());
         let decoder_dropped = get_string(self.handle, "decoder-frame-drop-count")
             .and_then(|value| value.parse::<u64>().ok());
-        crate::platform::log::write(&format!(
+        crate::log::write(&format!(
             "player session closed: decoder={decoder}, VO frames dropped={dropped:?}, decoder frames dropped={decoder_dropped:?}"
         ));
         self.stop.store(true, Ordering::SeqCst);
@@ -418,20 +409,24 @@ const CACHE_OPTIONS: [(&str, &str); 4] = [
 
 /// Options the in-window video path depends on (ADR-0001: libmpv render API, our
 /// own controls and keys); a user mpv.conf may not change them.
-const EMBEDDING: [(&str, &str); 5] = [
+const EMBEDDING: [(&str, &str); 4] = [
     ("vo", "libmpv"),
     ("terminal", "no"),
     ("input-default-bindings", "no"),
     ("input-vo-keyboard", "no"),
-    ("osc", "no"),
 ];
+
+/// Part of `EMBEDDING` where it exists: libmpv built without Lua (Windows bundle) has no
+/// OSC, hence no `osc` option.
+const NO_OSC: (&str, &str) = ("osc", "no");
 
 /// `<app support dir>/mpv` (`support_dir.rs`) when it holds an `mpv.conf`: the user's
 /// own mpv config for the Player (scripts/shaders it names resolve there too).
 /// Absent: mpv runs exactly as without it.
 fn user_config_dir() -> Option<std::path::PathBuf> {
-    let dir = crate::support_dir::app_support_dir().join("mpv");
-    dir.join("mpv.conf").is_file().then_some(dir)
+    let path = user_config_path();
+    let dir = path.parent()?.to_path_buf();
+    path.is_file().then_some(dir)
 }
 
 fn user_config_path() -> std::path::PathBuf {
@@ -488,13 +483,12 @@ impl Handle {
             options.push(("sub-fonts-dir", dir.to_string_lossy().into_owned()));
         }
         for (name, value) in &options {
-            let (n, v) = cstrings(name, value)?;
-            let rc = unsafe { mpv_set_option_string(self.0, n.as_ptr(), v.as_ptr()) };
-            // libmpv built without Lua (Windows bundle) has no OSC, hence no `osc` option
-            if *name == "osc" && rc == mpv_error_MPV_ERROR_OPTION_NOT_FOUND {
-                continue;
-            }
-            check(rc, name)?;
+            check(self.set_option(name, value)?, name)?;
+        }
+        let rc = self.set_option(NO_OSC.0, NO_OSC.1)?;
+        let has_osc = rc != mpv_error_MPV_ERROR_OPTION_NOT_FOUND;
+        if has_osc {
+            check(rc, NO_OSC.0)?;
         }
         unsafe {
             mpv_request_log_messages(self.0, c"warn".as_ptr());
@@ -502,16 +496,18 @@ impl Handle {
         }
         // mpv.conf loads during initialize, over the options above; take these back
         if user_config.is_some() {
-            for (name, value) in EMBEDDING {
+            for (name, value) in EMBEDDING.into_iter().chain(has_osc.then_some(NO_OSC)) {
                 if let Err(err) = self.set_property(name, value) {
-                    eprintln!("mpv: re-applying {name} over user mpv.conf failed: {err}");
+                    crate::log::write(&format!(
+                        "mpv: re-applying {name} over user mpv.conf failed: {err}"
+                    ));
                 }
             }
         }
         // change-list: one verbatim item; plain option would split header on its commas
         let header = format!("Authorization: {auth_header}");
         self.command(&["change-list", "http-header-fields", "append", &header])?;
-        // no payload for track-list: tracks are re-read from sub-properties on change.
+        // no payload for track-list: tracks are re-read as one node on change.
         // hwdec-current is known only once the decoder is up; first thing any stutter
         // report needs.
         for (name, format) in [
@@ -536,7 +532,8 @@ impl Handle {
         unsafe { check(mpv_command(self.0, ptrs.as_mut_ptr()), "mpv_command") }
     }
 
-    /// Returns once queued; failure arrives as `MPV_EVENT_COMMAND_REPLY` on the event thread.
+    /// Returns once queued; the result arrives as `MPV_EVENT_COMMAND_REPLY` with `userdata`
+    /// on the event thread.
     fn command_async(self, userdata: u64, args: &[&str]) -> Result<(), String> {
         let args = c_args(args)?;
         let mut ptrs = c_ptrs(&args);
@@ -546,6 +543,12 @@ impl Handle {
                 "mpv_command_async",
             )
         }
+    }
+
+    /// mpv's status code, for the caller to `check`; before `mpv_initialize` only.
+    fn set_option(self, name: &str, value: &str) -> Result<c_int, String> {
+        let (n, v) = cstrings(name, value)?;
+        Ok(unsafe { mpv_set_option_string(self.0, n.as_ptr(), v.as_ptr()) })
     }
 
     fn set_property(self, name: &str, value: &str) -> Result<(), String> {

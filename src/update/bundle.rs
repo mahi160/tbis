@@ -204,7 +204,7 @@ pub fn install(bundle: &Path, zip: &[u8]) -> Result<()> {
     fs::create_dir(&stage).context("can't stage an update beside the executable")?;
     let result = extract(&mut archive, &stage).and_then(|()| swap(bundle, &stage, &names));
     if let Err(err) = fs::remove_dir_all(&stage) {
-        eprintln!("update cleanup {}: {err}", stage.display());
+        crate::log::write(&format!("update cleanup {}: {err}", stage.display()));
     }
     result
 }

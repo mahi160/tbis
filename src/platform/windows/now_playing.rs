@@ -15,7 +15,7 @@ use windows::core::{HSTRING, factory};
 
 use crate::now_playing::{Info, RemoteCommand};
 
-pub struct NowPlaying(Option<Session>);
+pub struct System(Option<Session>);
 
 struct Session {
     controls: SystemMediaTransportControls,
@@ -25,11 +25,11 @@ struct Session {
 
 fn report(result: windows::core::Result<()>) {
     if let Err(error) = result {
-        crate::platform::log::write(&format!("SMTC failed: {:?}", error.code()));
+        crate::log::write(&format!("SMTC failed: {:?}", error.code()));
     }
 }
 
-impl NowPlaying {
+impl System {
     pub fn new(window: &gpui_kit::Window, tx: UnboundedSender<RemoteCommand>, _: f64) -> Self {
         let result = super::hwnd(window).and_then(|hwnd| {
             Self::create(hwnd, tx)
@@ -38,7 +38,7 @@ impl NowPlaying {
         match result {
             Ok(session) => Self(Some(session)),
             Err(error) => {
-                crate::platform::log::write(&error);
+                crate::log::write(&error);
                 Self(None)
             }
         }

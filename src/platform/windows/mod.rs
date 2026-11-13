@@ -1,6 +1,7 @@
 pub use super::noop::window;
 
 pub mod cursor;
+mod log;
 pub mod now_playing;
 pub mod power;
 pub mod update;
@@ -10,7 +11,7 @@ mod wgl;
 /// Process-wide setup: log file, leftovers of a previous update (removed in the background), the `--self-test` flag (runs and exits), WinRT.
 /// Keep the result alive for the whole run.
 pub fn init() -> Runtime {
-    super::log::init();
+    log::init();
     if let Some(bundle) = update::bundle_path() {
         // right after an update the old process may still hold its files, so retry
         std::thread::spawn(move || {
@@ -20,20 +21,20 @@ pub fn init() -> Runtime {
                 }
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
-            super::log::write("update cleanup: leftover files could not be removed");
+            crate::log::write("update cleanup: leftover files could not be removed");
         });
     }
     if std::env::args_os().any(|argument| argument == "--self-test") {
         match crate::mpv::self_test() {
             Ok(()) => std::process::exit(0),
             Err(error) => {
-                super::log::write(&error);
+                crate::log::write(&error);
                 std::process::exit(1);
             }
         }
     }
     Runtime::new().unwrap_or_else(|error| {
-        super::log::write(&format!("Windows runtime initialization failed: {error}"));
+        crate::log::write(&format!("Windows runtime initialization failed: {error}"));
         std::process::exit(1);
     })
 }

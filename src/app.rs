@@ -231,7 +231,7 @@ impl AppView {
 
     /// Looks for a newer release; `manual` (menu) also reports "up to date" and errors.
     pub fn check_for_updates(&mut self, manual: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if update::bundle_path().is_none() {
+        if update::installed().is_none() {
             if manual {
                 let note =
                     Notification::info("Automatic updates are unavailable for this installation.");
@@ -254,7 +254,7 @@ impl AppView {
                     window.push_notification(note, cx);
                 }
                 // automatic check: offline or rate-limited is no reason to interrupt
-                Err(err) => eprintln!("update check failed: {err}"),
+                Err(err) => crate::log::write(&format!("update check failed: {err}")),
             })
             .ok();
         });
@@ -522,20 +522,13 @@ impl AppView {
                 self.navigation_lookup = cx.spawn_in(window, async move |this, cx| {
                     let next = api.next_up(&series.id).await;
                     this.update_in(cx, |this, window, cx| {
-                        if this.navigation_generation != generation {
-                            return;
-                        }
-                        // slow lookup or double-click: a player is already up
-                        if matches!(&this.screen, Screen::Main(m) if m.player.is_some()) {
-                            return;
-                        }
-                        match next {
-                            Ok(Some(episode)) => this.open_player(&episode, window, cx),
-                            Ok(None) => this.open_series(&series, window, cx),
-                            Err(err) => {
-                                eprintln!("next up lookup failed: {err}");
-                                this.open_series(&series, window, cx)
-                            }
+                        let player_open =
+                            matches!(&this.screen, Screen::Main(m) if m.player.is_some());
+                        let current = this.navigation_generation;
+                        match series_play(generation, current, player_open, next) {
+                            SeriesPlay::Ignore => {}
+                            SeriesPlay::Play(episode) => this.open_player(&episode, window, cx),
+                            SeriesPlay::OpenSeries => this.open_series(&series, window, cx),
                         }
                     })
                     .ok();
@@ -777,16 +770,10 @@ impl AppView {
 
     fn log_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.invalidate_navigation();
-        self.config.session = None;
-        let persistence = config::save(&self.config);
+        let persistence = config::forget_session(&mut self.config);
         self.screen = Self::login_screen(&self.config, self.tailnet.clone(), window, cx);
-        if let Err(err) = persistence {
-            window.push_notification(
-                Notification::error(format!(
-                    "Logout is not durably complete: the saved session may remain on disk ({err})."
-                )),
-                cx,
-            );
+        if let Err(message) = persistence {
+            window.push_notification(Notification::error(message), cx);
         }
         cx.notify();
     }
@@ -872,14 +859,44 @@ impl AppView {
     }
 }
 
-/// Player needs the window see-through so mpv's layer below gpui shows (ADR-0001).
-/// Saves `config`, logging (not surfacing) a failure; `what` names the field for the log line.
-fn save_config(config: &Config, what: &str) {
-    if let Err(err) = config::save(config) {
-        eprintln!("failed to save {what}: {err}");
+/// What a finished series Play lookup opens; `E` is the Next Up Episode.
+enum SeriesPlay<E> {
+    /// Its navigation context is gone, or a Player is already up.
+    Ignore,
+    Play(E),
+    OpenSeries,
+}
+
+/// `lookup`: the navigation generation the lookup started in; any navigation, login or
+/// logout since then moved `current` on. `player_open`: a slow lookup or a double click
+/// lost to a Player that is already up.
+fn series_play<E>(
+    lookup: u64,
+    current: u64,
+    player_open: bool,
+    next: anyhow::Result<Option<E>>,
+) -> SeriesPlay<E> {
+    if lookup != current || player_open {
+        return SeriesPlay::Ignore;
+    }
+    match next {
+        Ok(Some(episode)) => SeriesPlay::Play(episode),
+        Ok(None) => SeriesPlay::OpenSeries,
+        Err(err) => {
+            crate::log::write(&format!("next up lookup failed: {err}"));
+            SeriesPlay::OpenSeries
+        }
     }
 }
 
+/// Saves `config`, logging (not surfacing) a failure; `what` names the field for the log line.
+fn save_config(config: &Config, what: &str) {
+    if let Err(err) = config::save(config) {
+        crate::log::write(&format!("failed to save {what}: {err}"));
+    }
+}
+
+/// Player needs the window see-through so mpv's layer below gpui shows (ADR-0001).
 fn set_video_background(video: bool, window: &mut Window, cx: &mut App) {
     window.set_background_appearance(if video {
         WindowBackgroundAppearance::Transparent
@@ -964,5 +981,47 @@ impl Render for AppView {
             .child(self.render_title_bar(cx))
             .child(grow().relative().children(backdrop).child(content))
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SeriesPlay, series_play};
+
+    fn episode() -> &'static str {
+        "episode"
+    }
+
+    fn ignored(play: SeriesPlay<&str>) -> bool {
+        matches!(play, SeriesPlay::Ignore)
+    }
+
+    #[test]
+    fn a_current_lookup_plays_next_up_or_falls_back_to_the_series() {
+        let play = series_play(3, 3, false, Ok(Some(episode())));
+        assert!(matches!(play, SeriesPlay::Play("episode")));
+        let none = series_play::<&str>(3, 3, false, Ok(None));
+        assert!(matches!(none, SeriesPlay::OpenSeries));
+        let failed = series_play::<&str>(3, 3, false, Err(anyhow::anyhow!("offline")));
+        assert!(matches!(failed, SeriesPlay::OpenSeries));
+    }
+
+    #[test]
+    fn a_lookup_resolving_after_navigation_or_a_new_session_does_nothing() {
+        // navigating away, logging out and logging in each move the generation on
+        for current in [4, 5, 6] {
+            assert!(ignored(series_play(3, current, false, Ok(Some(episode())))));
+            assert!(ignored(series_play(3, current, false, Ok(None))));
+            let failed = series_play(3, current, false, Err(anyhow::anyhow!("401")));
+            assert!(ignored(failed));
+        }
+    }
+
+    #[test]
+    fn a_competing_play_wins_over_an_older_lookup() {
+        // a second Play moved the generation on, or already opened its Player
+        assert!(ignored(series_play(3, 4, false, Ok(Some(episode())))));
+        assert!(ignored(series_play(3, 3, true, Ok(Some(episode())))));
+        assert!(ignored(series_play(3, 3, true, Ok(None))));
     }
 }

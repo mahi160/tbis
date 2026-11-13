@@ -3,17 +3,14 @@
 //!
 //! - `init`: process-wide setup at startup, returning a `Runtime` to keep alive
 //! - `video`: on-screen surface + GL present for mpv (`Surface`, `Renderer`; ADR-0001)
-//! - `now_playing`: media keys and the system Now Playing widget (`NowPlaying`)
+//! - `now_playing`: media keys and the system Now Playing widget (`System`)
 //! - `power`: keep the display awake while playing (`Awake`)
 //! - `cursor`: `hide()` the pointer during playback
 //! - `window`: one-time native window setup (`prepare`, `hide_title_buttons`, `lock_aspect`)
-//! - `update`: self-update glue (`ASSET_SUFFIX`, `bundle_path`, `install`, `relaunch`)
+//! - `update`: self-update (`installed`, `None` where there is none, as on Linux)
 //!
-//! `noop` holds do-nothing versions for OSes that haven't implemented them yet: `window` is
-//! shared (Linux and Windows), while `Runtime`, `init`, `now_playing`, `cursor` and `update`
-//! are Linux-only. An OS replaces one by adding its own file.
-
-pub mod log;
+//! `noop` holds do-nothing versions more than one OS shares: `window` (Linux and Windows).
+//! An OS's own stubs live in its folder until it gets a real implementation.
 
 #[cfg(target_os = "linux")]
 mod linux;

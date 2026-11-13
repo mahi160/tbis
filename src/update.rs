@@ -2,7 +2,7 @@
 //! find a newer release, download the zip for this OS, check it against the SHA-256
 //! GitHub records for the asset, swap it in for the running app, and relaunch.
 //! macOS swaps the `tbis.app` bundle; Windows renames the running files aside in-process
-//! (`bundle`). Linux has no self-update: `bundle_path` is `None`. Only works when running
+//! (`bundle`). Linux has no self-update: `installed` is `None`. Only works when running
 //! from an installed bundle.
 
 use std::sync::Arc;
@@ -19,9 +19,30 @@ use crate::platform::update as native;
 #[cfg(any(target_os = "windows", test))]
 pub mod bundle;
 
-// `bundle_path`: the installed app folder, `None` when not running from one (or on Linux).
-// `relaunch`: starts the updated app after a successful `install`.
-pub use native::{bundle_path, relaunch};
+/// A running installed copy of the app, which can replace itself.
+pub trait Installed: Send {
+    /// Ending of this platform's download among a release's assets.
+    fn asset_suffix(&self) -> &'static str;
+    /// Swaps a downloaded, checksum-verified release `zip` in for the running app.
+    fn install(&self, zip: &[u8]) -> Result<()>;
+    /// Starts the updated app after a successful `install`.
+    fn relaunch(&self) -> Result<()>;
+}
+
+/// The installed app, `None` when not running from one (`cargo run`) or the platform has
+/// no self-update (Linux).
+pub fn installed() -> Option<Box<dyn Installed>> {
+    native::installed()
+}
+
+fn unavailable() -> anyhow::Error {
+    anyhow!("automatic updates are unavailable for this installation")
+}
+
+/// Starts the updated app after a successful `install`.
+pub fn relaunch() -> Result<()> {
+    installed().ok_or_else(unavailable)?.relaunch()
+}
 
 const REPO: &str = "mahi160/tbis";
 pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
@@ -45,12 +66,13 @@ pub async fn check(http: Arc<dyn HttpClient>) -> Result<Option<Update>> {
     if !newer(&version, CURRENT) {
         return Ok(None);
     }
-    let asset = select_asset(release.assets, native::ASSET_SUFFIX)?;
+    let suffix = installed().ok_or_else(unavailable)?.asset_suffix();
+    let asset = select_asset(release.assets, suffix)?;
     let sha256 = parse_checksum(&asset.digest.context("release has no SHA-256 checksum")?)?;
     let notes = match notes(&http, &release.tag_name).await {
         Ok(notes) => notes,
         Err(err) => {
-            eprintln!("release notes: {err}");
+            crate::log::write(&format!("release notes: {err}"));
             String::new()
         }
     };
@@ -133,8 +155,7 @@ fn newer(a: &str, b: &str) -> bool {
 /// Downloads, verifies, and swaps in `update` for the running bundle. The old app
 /// is only replaced once the new one is fully in place.
 pub async fn install(http: Arc<dyn HttpClient>, update: &Update) -> Result<()> {
-    let bundle =
-        bundle_path().context("automatic updates are unavailable for this installation")?;
+    let installed = installed().ok_or_else(unavailable)?;
     let mut response = http
         .get(&update.url, Default::default(), true)
         .await
@@ -147,7 +168,7 @@ pub async fn install(http: Arc<dyn HttpClient>, update: &Update) -> Result<()> {
     let mut zip = Vec::new();
     response.body_mut().read_to_end(&mut zip).await?;
     verify_checksum(&zip, &update.sha256)?;
-    native::install(&bundle, &zip)
+    installed.install(&zip)
 }
 
 #[cfg(test)]

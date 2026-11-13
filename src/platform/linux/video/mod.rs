@@ -8,7 +8,7 @@ mod x11;
 use libmpv_sys::mpv_render_context;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
 
-use crate::mpv::{Extent, Handle};
+use crate::mpv::{Extent, Handle, Phases};
 
 /// mpv's `hwdec` option for this platform: an explicit list, because `auto`/`auto-safe`
 /// probe vulkan and cuda on every load and log decode errors on a plain Mesa box (Photon
@@ -68,7 +68,13 @@ impl Renderer {
     }
 
     /// Draws current frame; returns true if a frame was presented.
-    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> Result<bool, String> {
+    /// No per-phase timings here: `Phases` stays empty.
+    pub fn draw(
+        &mut self,
+        ctx: *mut mpv_render_context,
+        extent: Extent,
+        _: Option<&mut Phases>,
+    ) -> Result<bool, String> {
         match self {
             Self::Wayland(r) => r.draw(ctx, extent),
             Self::X11(r) => r.draw(ctx, extent),

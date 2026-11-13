@@ -16,6 +16,7 @@ mod fonts;
 mod home;
 mod jellyfin;
 mod library;
+mod log;
 mod login;
 mod movie;
 mod mpv;
@@ -57,10 +58,10 @@ fn raise_open_file_limit() {
         if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) == 0 && limit.rlim_cur < WANTED {
             limit.rlim_cur = WANTED.min(limit.rlim_max);
             if libc::setrlimit(libc::RLIMIT_NOFILE, &limit) != 0 {
-                eprintln!(
+                crate::log::write(&format!(
                     "could not raise open file limit: {}",
                     std::io::Error::last_os_error()
-                );
+                ));
             }
         }
     }

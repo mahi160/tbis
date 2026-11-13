@@ -29,11 +29,10 @@ use super::{
     NextEpisode, PlayNext, PlayerView, PreviousEpisode, SUB_DELAY_STEP, Screenshot, SeekBack,
     SeekBackLong, SeekBackNudge, SeekForward, SeekForwardLong, SeekForwardNudge, SkipSegment,
     SpeedDown, SpeedReset, SpeedUp, SubDelayEarlier, SubDelayLater, ToggleFullscreen, ToggleMute,
-    TogglePause, TogglePlaybackInfo, ToggleSubtitle, VOLUME_STEP, VolumeDown, VolumeUp,
+    TogglePause, TogglePip, TogglePlaybackInfo, ToggleSubtitle, VOLUME_STEP, VolumeDown, VolumeUp,
     hide_cursor,
 };
-
-use super::TogglePip;
+use crate::platform::video::SUPPORTS_PIP;
 
 const INFO_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 
@@ -195,7 +194,7 @@ impl PlayerView {
         self.refocus(window, cx);
     }
 
-    /// Actual `self.volume` update comes back through `MpvEvent::Volume`, same as the
+    /// Actual `self.volume` update comes back through `PlayerEvent::Volume`, same as the
     /// volume slider's own drag handler.
     fn volume_up(&mut self, _: &VolumeUp, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(mpv) = self.active_mpv() {
@@ -290,12 +289,12 @@ impl PlayerView {
             mpv.adjust_audio_delay(delta)
         };
         if let Err(err) = result {
-            eprintln!("failed to adjust sync: {err}");
+            crate::log::write(&format!("failed to adjust sync: {err}"));
             return;
         }
         let property = if subtitle { "sub-delay" } else { "audio-delay" };
         let Some(delay) = mpv.property(property).and_then(|value| value.parse::<f64>().ok()) else {
-            eprintln!("failed to read {property}");
+            crate::log::write(&format!("failed to read {property}"));
             return;
         };
         if subtitle {
@@ -401,7 +400,7 @@ impl PlayerView {
             }
             self.now_playing = Some(now_playing);
         }
-        let Some(now_playing) = &self.now_playing else {
+        let Some(now_playing) = &mut self.now_playing else {
             return;
         };
         now_playing.set_episode_nav(
@@ -801,7 +800,7 @@ impl Render for PlayerView {
             )
         });
 
-        let player = v_flex()
+        v_flex()
             .id("player")
             .key_context(CONTEXT)
             .track_focus(&self.focus)
@@ -838,6 +837,9 @@ impl Render for PlayerView {
             .on_action(cx.listener(Self::toggle_playback_info))
             .on_action(cx.listener(Self::screenshot))
             .on_action(cx.listener(Self::cycle_shaders))
+            .when(SUPPORTS_PIP, |this| {
+                this.on_action(cx.listener(Self::toggle_pip))
+            })
             .size_full()
             .relative()
             .justify_between()
@@ -849,9 +851,7 @@ impl Render for PlayerView {
                     this.show_controls(window, cx);
                 }
             }))
-            .children(error);
-        player
-            .on_action(cx.listener(Self::toggle_pip))
+            .children(error)
             .children(pip_notice)
             .children(buffering)
             .children(self.sync_hud.clone().map(overlay_banner))

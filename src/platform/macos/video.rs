@@ -28,7 +28,7 @@ use objc2_metal::{
 use objc2_quartz_core::{CAMetalDrawable, CAMetalLayer};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
 
-use crate::mpv::{Extent, Handle, create_gl_render_context, render_gl};
+use crate::mpv::{Extent, Handle, Phases, create_gl_render_context, render_gl};
 
 /// mpv's `hwdec` option for this platform.
 pub const HWDEC: &str = "auto-safe";
@@ -63,7 +63,7 @@ impl Surface {
             Renderer {
                 layer,
                 gpu: None,
-                phases: Phases::from_env(),
+                timed_copy: None,
             },
         ))
     }
@@ -102,84 +102,8 @@ impl Drop for Surface {
 pub struct Renderer {
     layer: Retained<CAMetalLayer>,
     gpu: Option<Gpu>,
-    /// Per-phase frame timings, logged with `TBIS_FRAME_STATS=1`.
-    phases: Option<Phases>,
-}
-
-/// Where a frame's time goes: mpv's GL render, waiting for a drawable, and the GPU time
-/// of the IOSurface -> drawable copy (read from the previous frame's command buffer).
-struct Phases {
-    since: Instant,
-    frames: u32,
-    render: Timing,
-    drawable: Timing,
-    copy: Timing,
-    pending: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
-}
-
-#[derive(Default)]
-struct Timing {
-    total: f64,
-    max: f64,
-    count: u32,
-}
-
-impl Timing {
-    fn add(&mut self, ms: f64) {
-        self.total += ms;
-        self.max = self.max.max(ms);
-        self.count += 1;
-    }
-}
-
-impl std::fmt::Display for Timing {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let avg = self.total / f64::from(self.count.max(1));
-        write!(f, "avg {avg:.2}ms max {:.2}ms", self.max)
-    }
-}
-
-impl Phases {
-    fn from_env() -> Option<Self> {
-        std::env::var_os("TBIS_FRAME_STATS").map(|_| Self {
-            since: Instant::now(),
-            frames: 0,
-            render: Timing::default(),
-            drawable: Timing::default(),
-            copy: Timing::default(),
-            pending: None,
-        })
-    }
-
-    /// Reads the previous copy's GPU time once it completed, then logs every 5 seconds.
-    fn frame(
-        &mut self,
-        render: f64,
-        drawable: f64,
-        cmd: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
-    ) {
-        if let Some(done) = self.pending.take()
-            && done.status() == MTLCommandBufferStatus::Completed
-        {
-            self.copy
-                .add((done.GPUEndTime() - done.GPUStartTime()) * 1000.);
-        }
-        self.pending = Some(cmd);
-        self.frames += 1;
-        self.render.add(render);
-        self.drawable.add(drawable);
-        if self.since.elapsed() >= Duration::from_secs(5) {
-            eprintln!(
-                "frame stats (macOS): {} frames | mpv GL render {} | wait for drawable {} | copy GPU {}",
-                self.frames, self.render, self.drawable, self.copy
-            );
-            self.since = Instant::now();
-            self.frames = 0;
-            self.render = Timing::default();
-            self.drawable = Timing::default();
-            self.copy = Timing::default();
-        }
-    }
+    /// The last timed frame's copy, whose GPU time is read once it completes.
+    timed_copy: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
 }
 
 // only touched on render thread; CAMetalLayer drawable/size calls are thread-safe
@@ -239,34 +163,36 @@ impl Renderer {
     }
 
     /// Draws current frame at `w`×`h` device pixels. Returns true if a frame was presented.
-    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> Result<bool, String> {
+    /// `phases` gets mpv's GL render, waiting for a drawable, and the GPU time of the
+    /// IOSurface -> drawable copy (of an earlier frame: its command buffer completes later).
+    pub fn draw(
+        &mut self,
+        ctx: *mut mpv_render_context,
+        extent: Extent,
+        phases: Option<&mut Phases>,
+    ) -> Result<bool, String> {
         let Extent {
             width: w,
             height: h,
             ..
         } = extent;
         let Some(gpu) = &mut self.gpu else {
-            return Ok(false);
+            return Err("macOS renderer is not initialized".into());
         };
         gpu.gl.makeCurrentContext();
-        if !matches!(&gpu.target, Some(t) if t.w == w && t.h == h) {
-            gpu.target = None; // free old GL objects first
-            match make_target(&gpu.device, w, h) {
-                Ok(t) => {
-                    self.layer.setDrawableSize(NSSize::new(w as f64, h as f64));
-                    gpu.target = Some(t);
-                }
-                Err(err) => {
-                    eprintln!("mpv render target: {err}");
-                    return Ok(false);
-                }
+        let t = match &mut gpu.target {
+            Some(t) if t.w == w && t.h == h => t,
+            target => {
+                *target = None; // free old GL objects first
+                let made = make_target(&gpu.device, w, h)
+                    .map_err(|err| format!("mpv render target: {err}"))?;
+                self.layer.setDrawableSize(NSSize::new(w as f64, h as f64));
+                target.insert(made)
             }
-        }
-        let Some(t) = &gpu.target else {
-            return Ok(false);
         };
 
-        let start = Instant::now();
+        let clock = || phases.is_some().then(Instant::now);
+        let start = clock();
         unsafe {
             glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
             glViewport(0, 0, w, h);
@@ -275,12 +201,12 @@ impl Renderer {
             return Ok(false);
         }
         unsafe { glFlush() }; // GL writes land before Metal reads same IOSurface
-        let rendered = Instant::now();
+        let rendered = clock();
 
         let Some(drawable) = self.layer.nextDrawable() else {
             return Ok(false);
         };
-        let got_drawable = Instant::now();
+        let got_drawable = clock();
         let Some(cmd) = gpu.queue.commandBuffer() else {
             return Ok(false);
         };
@@ -291,9 +217,18 @@ impl Renderer {
         blit.endEncoding();
         cmd.presentDrawable(drawable.as_ref());
         cmd.commit();
-        if let Some(phases) = &mut self.phases {
+        if let (Some(phases), Some(start), Some(rendered), Some(got_drawable)) =
+            (phases, start, rendered, got_drawable)
+        {
             let ms = |d: Duration| d.as_secs_f64() * 1000.;
-            phases.frame(ms(rendered - start), ms(got_drawable - rendered), cmd);
+            phases.push(("mpv GL render", ms(rendered - start)));
+            phases.push(("wait for drawable", ms(got_drawable - rendered)));
+            if let Some(done) = self.timed_copy.replace(cmd)
+                && done.status() == MTLCommandBufferStatus::Completed
+            {
+                let gpu_ms = (done.GPUEndTime() - done.GPUStartTime()) * 1000.;
+                phases.push(("copy GPU", gpu_ms));
+            }
         }
         Ok(true)
     }

@@ -4,6 +4,10 @@ The Windows video architecture is [proposed in ADR-0007](adr/0007-windows-video-
 
 Build steps, toolchain and CI status are in [Windows builds and releases](windows-build.md). Application release cross-building from macOS remains blocked by gpui's Windows-host-only HLSL generation (`shaders_bytes.rs` is not produced there).
 
+## Logs
+
+tbis has no console on Windows; it writes its log to `%APPDATA%\tbis\tbis.log` (`%APPDATA%\tbis-dev\` for an unbundled `cargo run`), so a read-only install folder still gets one. Each launch moves the previous run's log to `tbis.previous.log` beside it, so the log of a crashed or failed run survives one relaunch. Attach both to a bug report.
+
 ## Portability audit
 
 - Shader `glsl-shaders` lists are joined with `std::env::join_paths`, so they use `;` on Windows and `:` elsewhere. The output-seam test uses literal complete path-list expectations, including Windows drive-letter paths. The test passed in the macOS release suite; shader application on Windows is unverified.

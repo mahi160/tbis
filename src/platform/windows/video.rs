@@ -57,7 +57,13 @@ impl Renderer {
         mpv::create_gl_render_context(mpv, wgl::get_proc, None)
     }
 
-    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> Result<bool, String> {
+    /// No per-phase timings here: `Phases` stays empty.
+    pub fn draw(
+        &mut self,
+        ctx: *mut mpv_render_context,
+        extent: Extent,
+        _: Option<&mut mpv::Phases>,
+    ) -> Result<bool, String> {
         if unsafe { IsIconic(self.hwnd) }.as_bool() {
             mpv::skip_frame(ctx);
             return Ok(false);
@@ -124,7 +130,7 @@ struct Interop {
 impl Drop for Interop {
     fn drop(&mut self) {
         if !unsafe { (self.functions.close)(self.handle) }.as_bool() {
-            crate::platform::log::write("wglDXCloseDeviceNV failed during teardown");
+            crate::log::write("wglDXCloseDeviceNV failed during teardown");
         }
     }
 }
@@ -378,7 +384,7 @@ impl Drop for Texture {
             if !self.object.0.is_null()
                 && !(functions.unregister)(self.interop.handle, self.object).as_bool()
             {
-                crate::platform::log::write("wglDXUnregisterObjectNV failed during teardown");
+                crate::log::write("wglDXUnregisterObjectNV failed during teardown");
             }
             if self.name != 0 {
                 glDeleteTextures(1, &self.name);

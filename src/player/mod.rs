@@ -63,11 +63,10 @@ actions!(
         NextEpisode,
         TogglePlaybackInfo,
         Screenshot,
-        CycleShaders
+        CycleShaders,
+        TogglePip
     ]
 );
-
-actions!(player, [TogglePip]);
 
 const CONTEXT: &str = "Player";
 const VOLUME_STEP: f64 = 5.;
@@ -352,7 +351,7 @@ impl PlayerView {
                             return;
                         };
                     }
-                    Err(err) => eprintln!("artwork fetch failed: {err}"),
+                    Err(err) => crate::log::write(&format!("artwork fetch failed: {err}")),
                 }
             }
             match api.segments(&item_id).await {
@@ -365,7 +364,7 @@ impl PlayerView {
                     };
                 }
                 // pre-10.10 servers 404 here: just no skip button
-                Err(err) => eprintln!("media segments lookup failed: {err}"),
+                Err(err) => crate::log::write(&format!("media segments lookup failed: {err}")),
             }
             let Some(series_id) = series_id else {
                 return;
@@ -380,7 +379,7 @@ impl PlayerView {
                     .ok();
                 }
                 // no Autoplay; playback unaffected
-                Err(err) => eprintln!("next episode lookup failed: {err}"),
+                Err(err) => crate::log::write(&format!("next episode lookup failed: {err}")),
             }
         });
     }

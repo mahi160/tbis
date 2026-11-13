@@ -281,7 +281,7 @@ impl PlayerView {
         if let Some(mpv) = &mut self.mpv {
             scale_subs(mpv, 1. / PIP_SUB_SCALE);
             if let Err(err) = mpv.move_to(window) {
-                eprintln!("PiP: moving video back failed: {err}");
+                crate::log::write(&format!("PiP: moving video back failed: {err}"));
             }
         }
         let _ = handle.update(cx, |_, pip_window, _| pip_window.remove_window());

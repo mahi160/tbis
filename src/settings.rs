@@ -142,7 +142,7 @@ impl SettingsView {
             if let InputEvent::Change = event
                 && let Err(err) = mpv::save_user_config(&state.read(cx).value())
             {
-                eprintln!("saving mpv.conf failed: {err}");
+                crate::log::write(&format!("saving mpv.conf failed: {err}"));
             }
         });
         let _observe = [

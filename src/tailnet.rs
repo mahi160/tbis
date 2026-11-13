@@ -126,7 +126,7 @@ impl Drop for Inner {
         // tsnet shutdown can flush logs; never wait for it on the UI thread.
         thread::spawn(move || {
             if let Err(err) = runtime.stop() {
-                eprintln!("closing Tailscale failed: {err}");
+                crate::log::write(&format!("closing Tailscale failed: {err}"));
             }
         });
     }

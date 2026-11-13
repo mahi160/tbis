@@ -4,7 +4,6 @@
 
 use std::cell::RefCell;
 use std::ptr::NonNull;
-use std::time::Instant;
 
 use block2::RcBlock;
 use objc2::rc::Retained;
@@ -26,20 +25,17 @@ use futures::channel::mpsc::UnboundedSender;
 
 use crate::now_playing::{Info, RemoteCommand};
 
-/// Seconds Now Playing's extrapolated position may drift before republishing.
-const DRIFT: f64 = 1.;
-
 /// Owns the remote-command registrations; dropping it clears Now Playing.
-pub struct NowPlaying {
+pub struct System {
     targets: Vec<(Retained<MPRemoteCommand>, Retained<AnyObject>)>,
     next: Retained<MPRemoteCommand>,
     previous: Retained<MPRemoteCommand>,
-    /// Last published info and when, to extrapolate its position.
-    info: RefCell<Option<(Info, Instant)>>,
+    /// Info and artwork share one dictionary; each publishes with the other's last value.
+    info: RefCell<Option<Info>>,
     artwork: RefCell<Option<Retained<MPMediaItemArtwork>>>,
 }
 
-impl NowPlaying {
+impl System {
     /// `skip` is the seconds a skip-forward/back command moves.
     pub fn new(_: &gpui_kit::Window, tx: UnboundedSender<RemoteCommand>, skip: f64) -> Self {
         // SAFETY: MediaPlayer calls on the main thread; handlers only forward to `tx`
@@ -93,27 +89,12 @@ impl NowPlaying {
         }
     }
 
-    /// Republishes only on a real change: macOS extrapolates position from
-    /// elapsed + rate, so steady playback needs no updates, only seeks/drift.
     pub fn update(&self, info: &Info) {
-        let stale = match &*self.info.borrow() {
-            Some((shown, at)) => {
-                let predicted = shown.elapsed + at.elapsed().as_secs_f64() * shown.rate;
-                shown.title != info.title
-                    || shown.subtitle != info.subtitle
-                    || shown.duration != info.duration
-                    || shown.rate != info.rate
-                    || (predicted - info.elapsed).abs() > DRIFT
-            }
-            None => true,
-        };
-        if stale {
-            *self.info.borrow_mut() = Some((info.clone(), Instant::now()));
-            self.publish();
-        }
+        *self.info.borrow_mut() = Some(info.clone());
+        self.publish();
     }
 
-    /// Poster/thumb bytes as downloaded; undecodable data is ignored.
+    /// Undecodable data is ignored.
     pub fn set_artwork(&self, bytes: &[u8]) {
         let data = NSData::with_bytes(bytes);
         let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) else {
@@ -133,7 +114,6 @@ impl NowPlaying {
         self.publish();
     }
 
-    /// Enables previous/next track for the Episodes that exist.
     pub fn set_episode_nav(&self, previous: bool, next: bool) {
         // SAFETY: plain property setters on the main thread
         unsafe {
@@ -143,7 +123,7 @@ impl NowPlaying {
     }
 
     fn publish(&self) {
-        let Some((info, _)) = self.info.borrow().clone() else {
+        let Some(info) = self.info.borrow().clone() else {
             return;
         };
         let dict: Retained<NSMutableDictionary<NSString, AnyObject>> = NSMutableDictionary::new();
@@ -186,7 +166,7 @@ impl NowPlaying {
     }
 }
 
-impl Drop for NowPlaying {
+impl Drop for System {
     fn drop(&mut self) {
         debug_assert!(MainThreadMarker::new().is_some());
         // SAFETY: removing the targets this value registered, on the main thread

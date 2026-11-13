@@ -8,7 +8,7 @@ use gpui_kit::*;
 
 use crate::components::button::{round_ghost_button, round_icon, round_icon_button};
 use crate::components::layout::spacer;
-use crate::components::menu::{choice_menu, choice_menu_sections};
+use crate::components::menu::{choice_menu, choice_menu_with_submenu};
 use crate::components::video::{
     bottom_bar, hover_reveal, sprite_thumb, timeline, top_bar, video_meta, video_tag, video_title,
 };
@@ -20,11 +20,9 @@ use crate::platform::video::SUPPORTS_PIP;
 use super::super::clock::{clock, format_time};
 use super::super::{
     CONTEXT, NextEpisode, PlayerView, PreviousEpisode, ToggleFullscreen, ToggleMute, TogglePause,
-    TogglePlaybackInfo,
+    TogglePip, TogglePlaybackInfo,
 };
 use super::SPEEDS;
-
-use super::TogglePip;
 
 /// Menu rows for `tracks`: (mpv track id, label, checked); `with_off` leads with "Off" (id None).
 fn track_choices(
@@ -299,22 +297,20 @@ impl PlayerView {
                 self.on_menu_open(cx),
             ));
         }
-        // second row: same tracks, mpv's `secondary-sid`
+        // submenu: same tracks, mpv's `secondary-sid`
         let secondary_choices = track_choices(&tracks, true, |t| t.secondary);
         let secondary_options = secondary_choices
             .iter()
             .map(|(_, l, c)| (l.clone(), *c))
             .collect();
-        Some(choice_menu_sections(
+        Some(choice_menu_with_submenu(
             round_icon_button(id, icon, tooltip),
-            vec![
-                (Some("Subtitles".into()), options),
-                (Some("Secondary subtitles".into()), secondary_options),
-            ],
+            options,
+            ("Secondary subtitles".into(), secondary_options),
             true,
-            move |section, ix, cx| {
+            move |list, ix, cx| {
                 this.update(cx, |this, _| {
-                    if section == 0 {
+                    if list == 0 {
                         this.select_track(kind, choices[ix].0)
                     } else {
                         this.select_secondary_subtitle(secondary_choices[ix].0)
@@ -426,5 +422,47 @@ impl PlayerView {
                 this.refocus(window, cx);
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::track_choices;
+    use crate::mpv::{Track, TrackKind};
+
+    fn sub(id: i64, selected: bool, secondary: bool) -> Track {
+        Track {
+            id,
+            kind: TrackKind::Subtitle,
+            label: format!("Sub {id}"),
+            selected,
+            secondary,
+            lang: None,
+        }
+    }
+
+    fn rows(tracks: &[Track], checked: impl Fn(&Track) -> bool) -> Vec<(Option<i64>, bool)> {
+        let choices = track_choices(tracks, true, checked);
+        choices.into_iter().map(|(id, _, c)| (id, c)).collect()
+    }
+
+    #[test]
+    fn primary_and_secondary_lists_each_check_their_own_track() {
+        let tracks = [sub(1, true, false), sub(2, false, true)];
+        // Off, then each track once
+        let primary = [(None, false), (Some(1), true), (Some(2), false)];
+        let secondary = [(None, false), (Some(1), false), (Some(2), true)];
+        assert_eq!(rows(&tracks, |t| t.selected), primary);
+        assert_eq!(rows(&tracks, |t| t.secondary), secondary);
+    }
+
+    #[test]
+    fn off_is_checked_when_nothing_is_on() {
+        // only a secondary subtitle: primary Off is checked, secondary's track is
+        let tracks = [sub(1, false, true)];
+        let primary = [(None, true), (Some(1), false)];
+        let secondary = [(None, false), (Some(1), true)];
+        assert_eq!(rows(&tracks, |t| t.selected), primary);
+        assert_eq!(rows(&tracks, |t| t.secondary), secondary);
     }
 }

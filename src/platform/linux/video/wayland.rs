@@ -294,7 +294,7 @@ impl Renderer {
     /// Draws current frame at `extent`. Returns true if a frame was presented.
     pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> Result<bool, String> {
         let Some(gl) = &mut self.gl else {
-            return Ok(false);
+            return Err("Wayland renderer is not initialized".into());
         };
         if gl.applied != extent {
             gl.window.resize(extent.width, extent.height, 0, 0);
@@ -312,7 +312,10 @@ impl Renderer {
         if !render_gl(ctx, 0, extent.width, extent.height, true) {
             return Ok(false);
         }
-        Ok(gl.egl.swap_buffers(gl.display, gl.egl_surface).is_ok())
+        gl.egl
+            .swap_buffers(gl.display, gl.egl_surface)
+            .map_err(|e| format!("eglSwapBuffers: {e}"))?;
+        Ok(true)
     }
 }
 

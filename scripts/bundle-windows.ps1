@@ -24,6 +24,9 @@ $info.FileName = "$dist/tbis.exe"
 $info.WorkingDirectory = $dist
 $info.UseShellExecute = $false
 $info.Arguments = '--self-test'
+# an installed tbis.exe logs to its app data folder (dirs::data_dir), not the install folder
+$log = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'tbis/tbis.log'
+$started = Get-Date
 $process = [Diagnostics.Process]::Start($info)
 try {
     if (-not $process.WaitForExit(60000)) {
@@ -36,8 +39,8 @@ try {
     }
     if ($process.ExitCode -ne 0) { throw "tbis self-test failed (code $($process.ExitCode))" }
 } finally { $process.Dispose() }
-if (-not (Test-Path "$dist/tbis.log")) { throw 'tbis self-test did not create tbis.log' }
-Remove-Item "$dist/tbis.log"
+if (-not (Test-Path $log) -or (Get-Item $log).LastWriteTime -lt $started) { throw "tbis self-test did not write $log" }
+if (Test-Path "$dist/tbis.log") { throw 'tbis self-test wrote tbis.log into the install folder' }
 
 $version = (Select-String '^version = "([^"]+)"' "$Repo/Cargo.toml" | Select-Object -First 1).Matches[0].Groups[1].Value
 $zip = "$Repo/target/tbis-$version-windows-x86_64.zip"
