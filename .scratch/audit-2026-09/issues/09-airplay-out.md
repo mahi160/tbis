@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** wontfix — mpv draws its own video, so macOS could only route audio to AirPlay; video AirPlay would mean replacing mpv with AVPlayer.
 
 - [ ] An AirPlay output picker is reachable from the Player
 - [ ] Selecting a receiver routes audio/video to it and playback controls keep working

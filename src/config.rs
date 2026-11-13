@@ -1,6 +1,7 @@
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions, Permissions};
+use std::fs::{self, OpenOptions};
 use std::io::{self, Write as _};
+#[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 
@@ -357,7 +358,8 @@ pub fn load_error(config: &Config) -> Option<&str> {
     config.load_error.as_deref()
 }
 
-/// Holds the access token in plaintext, so only the user may read it.
+/// Holds the access token in plaintext, so only the user may read it. On Windows the
+/// per-user %APPDATA% ACL already restricts it.
 pub fn save(config: &Config) -> io::Result<()> {
     save_to(config, &path())
 }
@@ -373,14 +375,15 @@ fn save_to(config: &Config, path: &Path) -> io::Result<()> {
     }
     let tmp = path.with_extension("json.tmp");
     let _ = fs::remove_file(&tmp);
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&tmp)?;
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(&tmp)?;
     file.write_all(&serde_json::to_vec_pretty(config)?)?;
     file.sync_all()?;
-    fs::set_permissions(&tmp, Permissions::from_mode(0o600))?;
+    #[cfg(unix)]
+    fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))?;
     fs::rename(&tmp, path)
 }
 

@@ -233,7 +233,8 @@ impl AppView {
     pub fn check_for_updates(&mut self, manual: bool, window: &mut Window, cx: &mut Context<Self>) {
         if update::bundle_path().is_none() {
             if manual {
-                let note = Notification::info("Updates only work in the installed tbis.app.");
+                let note =
+                    Notification::info("Automatic updates are unavailable for this installation.");
                 window.push_notification(note, cx);
             }
             return;

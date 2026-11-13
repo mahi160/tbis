@@ -180,7 +180,7 @@ impl PlayerView {
                     return;
                 }
                 self.sync_seek_bar(window, cx);
-                self.sync_now_playing(cx);
+                self.sync_now_playing(window, cx);
                 // with the controls hidden only the skip button and up-next card show time
                 let overlays = self.time_overlays();
                 if !self.controls_visible && overlays == self.playback.overlays {
@@ -470,6 +470,13 @@ impl PlayerView {
             let _ = mpv.select_track(kind, id);
         }
         self.remember_track(kind, id);
+    }
+
+    /// Not remembered: track memory only covers the primary subtitle.
+    pub(super) fn select_secondary_subtitle(&mut self, id: Option<i64>) {
+        if let Some(mpv) = self.active_mpv() {
+            let _ = mpv.select_secondary_subtitle(id);
+        }
     }
 
     /// Records a manual track pick: this exact item's choice, plus (audio always;

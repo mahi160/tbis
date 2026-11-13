@@ -7,11 +7,14 @@ pub(super) fn clock(secs_ahead: f64) -> String {
     } else {
         0.
     };
-    // SAFETY: time/localtime_r only write to the locals passed in
+    // SAFETY: time/localtime_r/localtime_s only write to the locals passed in
     let tm = unsafe {
         let t = libc::time(std::ptr::null_mut()) + secs_ahead as libc::time_t;
         let mut tm = std::mem::zeroed::<libc::tm>();
+        #[cfg(unix)]
         libc::localtime_r(&t, &mut tm);
+        #[cfg(windows)]
+        libc::localtime_s(&mut tm, &t);
         tm
     };
     format_clock(tm.tm_hour, tm.tm_min)

@@ -122,17 +122,18 @@ impl Surface {
     ) -> Result<(), String> {
         let parent = parent_surface(&self.conn, window)?;
         self.subsurface.destroy();
-        self.subsurface =
-            place_under(&self.subcompositor, &self.surface, &parent, &self._queue.handle());
+        self.subsurface = place_under(
+            &self.subcompositor,
+            &self.surface,
+            &parent,
+            &self._queue.handle(),
+        );
         self.conn.flush().map_err(|e| e.to_string())
     }
 }
 
 /// gpui's own `wl_surface` for `window`.
-fn parent_surface(
-    conn: &Connection,
-    window: &impl HasWindowHandle,
-) -> Result<WlSurface, String> {
+fn parent_surface(conn: &Connection, window: &impl HasWindowHandle) -> Result<WlSurface, String> {
     let RawWindowHandle::Wayland(parent) =
         window.window_handle().map_err(|e| e.to_string())?.as_raw()
     else {
@@ -291,9 +292,9 @@ impl Renderer {
     }
 
     /// Draws current frame at `extent`. Returns true if a frame was presented.
-    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> bool {
+    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> Result<bool, String> {
         let Some(gl) = &mut self.gl else {
-            return false;
+            return Ok(false);
         };
         if gl.applied != extent {
             gl.window.resize(extent.width, extent.height, 0, 0);
@@ -309,9 +310,9 @@ impl Renderer {
             gl.applied = extent;
         }
         if !render_gl(ctx, 0, extent.width, extent.height, true) {
-            return false;
+            return Ok(false);
         }
-        gl.egl.swap_buffers(gl.display, gl.egl_surface).is_ok()
+        Ok(gl.egl.swap_buffers(gl.display, gl.egl_surface).is_ok())
     }
 }
 

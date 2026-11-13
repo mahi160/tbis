@@ -1,0 +1,53 @@
+name: Windows
+
+on:
+  push:
+    branches: [feat/windows]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      prepared:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          prepared: ${{ inputs.prepared }}
+          toolchain: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Source provenance tests
+        run: python -B scripts/windows_sources_tests.py
+      - name: Source-built pinned dependencies
+        run: ./scripts/setup-windows-deps.ps1
+      - name: Test
+        run: |
+          cargo test --release --locked
+          if ($LASTEXITCODE) { throw 'cargo test failed' }
+      - name: Clippy
+        run: |
+          cargo clippy --all-targets --locked -- -D warnings
+          if ($LASTEXITCODE) { throw 'clippy failed' }
+      - name: Bundle, import gate and self-test
+        run: ./scripts/bundle-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            target/tbis-*-windows-x86_64.zip
+            target/tbis-*-windows-sources.tar
+          if-no-files-found: error

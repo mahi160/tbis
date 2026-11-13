@@ -26,7 +26,7 @@ impl Renderer {
         unreachable!("attach never returns a Renderer")
     }
 
-    pub fn draw(&mut self, _: *mut mpv_render_context, _: Extent) -> bool {
+    pub fn draw(&mut self, _: *mut mpv_render_context, _: Extent) -> Result<bool, String> {
         unreachable!("attach never returns a Renderer")
     }
 }

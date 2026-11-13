@@ -8,20 +8,41 @@ use gpui_kit::*;
 
 use crate::components::button::{round_ghost_button, round_icon, round_icon_button};
 use crate::components::layout::spacer;
-use crate::components::menu::choice_menu;
+use crate::components::menu::{choice_menu, choice_menu_sections};
 use crate::components::video::{
     bottom_bar, hover_reveal, sprite_thumb, timeline, top_bar, video_meta, video_tag, video_title,
 };
 use crate::config::BITRATE_CAPS;
 use crate::design::{self, color, font, gap, overlay, text};
 use crate::mpv::{Track, TrackKind};
+use crate::platform::video::SUPPORTS_PIP;
 
 use super::super::clock::{clock, format_time};
 use super::super::{
     CONTEXT, NextEpisode, PlayerView, PreviousEpisode, ToggleFullscreen, ToggleMute, TogglePause,
-    TogglePip, TogglePlaybackInfo,
+    TogglePlaybackInfo,
 };
 use super::SPEEDS;
+
+use super::TogglePip;
+
+/// Menu rows for `tracks`: (mpv track id, label, checked); `with_off` leads with "Off" (id None).
+fn track_choices(
+    tracks: &[Track],
+    with_off: bool,
+    checked: impl Fn(&Track) -> bool,
+) -> Vec<(Option<i64>, SharedString, bool)> {
+    let mut choices = Vec::new();
+    if with_off {
+        choices.push((None, "Off".into(), !tracks.iter().any(&checked)));
+    }
+    choices.extend(
+        tracks
+            .iter()
+            .map(|t| (Some(t.id), t.label.clone().into(), checked(t))),
+    );
+    choices
+}
 
 impl PlayerView {
     /// Top bar: back, title, media tags, wall clock.
@@ -186,29 +207,33 @@ impl PlayerView {
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.toggle_playback_info(&TogglePlaybackInfo, window, cx)
                 })),
-            )
-            .child(
+            );
+        let controls = if SUPPORTS_PIP {
+            controls.child(
                 round_icon_button("player-pip", "icons/pip.svg", "Picture in Picture")
                     .tooltip_with_action("Picture in Picture", &TogglePip, Some(CONTEXT))
                     .on_click(
                         cx.listener(|this, _, window, cx| this.toggle_pip(&TogglePip, window, cx)),
                     ),
             )
-            .child(
-                round_icon_button(
-                    "player-fullscreen",
-                    if window.is_fullscreen() {
-                        "icons/minimize.svg"
-                    } else {
-                        "icons/maximize.svg"
-                    },
-                    fullscreen_label,
-                )
-                .tooltip_with_action(fullscreen_label, &ToggleFullscreen, Some(CONTEXT))
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.toggle_fullscreen(&ToggleFullscreen, window, cx)
-                })),
-            );
+        } else {
+            controls
+        };
+        let controls = controls.child(
+            round_icon_button(
+                "player-fullscreen",
+                if window.is_fullscreen() {
+                    "icons/minimize.svg"
+                } else {
+                    "icons/maximize.svg"
+                },
+                fullscreen_label,
+            )
+            .tooltip_with_action(fullscreen_label, &ToggleFullscreen, Some(CONTEXT))
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.toggle_fullscreen(&ToggleFullscreen, window, cx)
+            })),
+        );
 
         bottom_bar(v_flex().w_full().child(timeline).child(controls)).into_any_element()
     }
@@ -251,32 +276,51 @@ impl PlayerView {
         }
         let (id, icon, tooltip) = match kind {
             TrackKind::Audio => ("player-audio", "icons/headphones.svg", "Audio"),
-            TrackKind::Subtitle if tracks.iter().any(|t| t.selected) => {
+            TrackKind::Subtitle if tracks.iter().any(|t| t.selected || t.secondary) => {
                 ("player-subtitles", "icons/cc-filled.svg", "Subtitles")
             }
             TrackKind::Subtitle => ("player-subtitles", "icons/cc.svg", "Subtitles"),
         };
         let this = cx.entity().downgrade();
         // subtitles lead with "Off" (id None)
-        let mut choices: Vec<(Option<_>, SharedString, bool)> = Vec::new();
-        if kind == TrackKind::Subtitle {
-            choices.push((None, "Off".into(), !tracks.iter().any(|t| t.selected)));
-        }
-        choices.extend(
-            tracks
-                .iter()
-                .map(|t| (Some(t.id), t.label.clone().into(), t.selected)),
-        );
+        let choices = track_choices(&tracks, kind == TrackKind::Subtitle, |t| t.selected);
         let options = choices.iter().map(|(_, l, c)| (l.clone(), *c)).collect();
-        Some(choice_menu(
+        if kind == TrackKind::Audio {
+            return Some(choice_menu(
+                round_icon_button(id, icon, tooltip),
+                options,
+                // long track lists overflow the window otherwise
+                true,
+                move |ix, cx| {
+                    let track_id = choices[ix].0;
+                    this.update(cx, |this, _| this.select_track(kind, track_id))
+                        .ok();
+                },
+                self.on_menu_open(cx),
+            ));
+        }
+        // second row: same tracks, mpv's `secondary-sid`
+        let secondary_choices = track_choices(&tracks, true, |t| t.secondary);
+        let secondary_options = secondary_choices
+            .iter()
+            .map(|(_, l, c)| (l.clone(), *c))
+            .collect();
+        Some(choice_menu_sections(
             round_icon_button(id, icon, tooltip),
-            options,
-            // long track lists overflow the window otherwise
+            vec![
+                (Some("Subtitles".into()), options),
+                (Some("Secondary subtitles".into()), secondary_options),
+            ],
             true,
-            move |ix, cx| {
-                let track_id = choices[ix].0;
-                this.update(cx, |this, _| this.select_track(kind, track_id))
-                    .ok();
+            move |section, ix, cx| {
+                this.update(cx, |this, _| {
+                    if section == 0 {
+                        this.select_track(kind, choices[ix].0)
+                    } else {
+                        this.select_secondary_subtitle(secondary_choices[ix].0)
+                    }
+                })
+                .ok();
             },
             self.on_menu_open(cx),
         ))

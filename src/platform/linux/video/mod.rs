@@ -15,6 +15,9 @@ use crate::mpv::{Extent, Handle};
 /// ADR-0010). Hardware decode needs the display handed to mpv, see `wayland.rs`.
 pub const HWDEC: &str = "vaapi,nvdec,vaapi-copy,nvdec-copy,no";
 
+/// Whether the surface can move to another window (Picture-in-Picture).
+pub const SUPPORTS_PIP: bool = true;
+
 /// Main-thread side: owns the on-screen video surface.
 pub enum Surface {
     Wayland(wayland::Surface),
@@ -65,7 +68,7 @@ impl Renderer {
     }
 
     /// Draws current frame; returns true if a frame was presented.
-    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> bool {
+    pub fn draw(&mut self, ctx: *mut mpv_render_context, extent: Extent) -> Result<bool, String> {
         match self {
             Self::Wayland(r) => r.draw(ctx, extent),
             Self::X11(r) => r.draw(ctx, extent),

@@ -1,11 +1,9 @@
-# Push to prod: bump the version from commit types, build and test, bundle the
-# self-contained app, and publish a GitHub release with the app zip and the GPL
-# sources archive (ADR-0004).
 name: Release
 
 on:
   push:
     branches: [prod]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,84 +13,116 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    # the version-bump commit this job pushes must not release again
-    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
-    runs-on: macos-15 # arm64: the bundle ships Homebrew's arm64 libraries
+  prepare:
+    if: ${{ github.ref == 'refs/heads/prod' && !startsWith(github.event.head_commit.message, 'chore(release):') }}
+    runs-on: macos-15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # tags and history for scripts/next-version.sh
           submodules: true # vendor/libtailscale (ADR-0007)
-
       - name: Next version
         id: version
         run: echo "version=$(sh scripts/next-version.sh)" >> "$GITHUB_OUTPUT"
-
-      # before tagging: notes cover commits since the previous tag
-      - name: Release notes
-        run: sh scripts/release-notes.sh > "$RUNNER_TEMP/notes.md"
-
-      - name: Install mpv
-        run: brew install mpv pkgconf
-
-      # builds the linked-in libtailscale (ADR-0007)
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: vendor/libtailscale/go.mod
-          cache-dependency-path: vendor/libtailscale/go.sum
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Set version
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-
-      - name: Test
-        run: cargo test --release
-
-      - name: Bundle
-        run: sh scripts/bundle.sh
-
-      - name: Commit and tag
+      - name: Prepare shared release revision
         env:
           VERSION: ${{ steps.version.outputs.version }}
           BOT: github-actions[bot]
         run: |
+          sh scripts/release-notes.sh > notes.md
+          sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+          sed -i '' "/^name = \"tbis\"$/{n;s/^version = \".*\"/version = \"$VERSION\"/;}" Cargo.lock
           git config user.name "$BOT"
-          git config user.email \
-            "41898282+$BOT@users.noreply.github.com"
-          # first release keeps Cargo.toml's version: nothing to commit
+          git config user.email "41898282+$BOT@users.noreply.github.com"
           git diff --quiet || git commit -am "chore(release): v$VERSION"
-          git tag "v$VERSION"
+          git bundle create release.bundle HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-revision
+          path: |
+            release.bundle
+            notes.md
+          if-no-files-found: error
 
-      - name: Package
+  macos:
+    needs: prepare
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          prepared: true
+      - name: Initialize submodules
+        run: git submodule update --init
+      - name: Install mpv
+        run: brew install mpv pkgconf
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: vendor/libtailscale/go.mod
+          cache-dependency-path: vendor/libtailscale/go.sum
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --release --locked
+      - name: Bundle
+        run: sh scripts/bundle.sh
+      - name: Package and GPL sources
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          ditto -c -k --keepParent target/tbis.app \
-            "tbis-$VERSION-macos-arm64.zip"
+          ditto -c -k --keepParent target/tbis.app "tbis-$VERSION-macos-arm64.zip"
           sh scripts/gpl-sources.sh "tbis-$VERSION-sources.tar"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: |
+            tbis-*-macos-arm64.zip
+            tbis-*-sources.tar
+          if-no-files-found: error
 
+  windows:
+    needs: prepare
+    uses: ./.github/workflows/windows.yml
+    with:
+      prepared: true
+
+  publish:
+    needs: [prepare, macos, windows]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          prepared: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-release
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-release
       - name: Push and release
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          git tag "v$VERSION"
           git push origin HEAD:prod "v$VERSION"
           gh release create "v$VERSION" \
             "tbis-$VERSION-macos-arm64.zip" \
             "tbis-$VERSION-sources.tar" \
+            "tbis-$VERSION-windows-x86_64.zip" \
+            "tbis-$VERSION-windows-sources.tar" \
             --title "tbis $VERSION" \
-            --notes-file "$RUNNER_TEMP/notes.md"
+            --notes-file prepared/notes.md
 
       # mahi160/homebrew-tbis: deploy key with write access to the tap only
       - name: Update Homebrew cask
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
           DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
           # pinned: GitHub's ed25519 host key from api.github.com/meta
           GITHUB_HOST_KEY: >-

@@ -13,8 +13,8 @@ use crate::design::{self, color, overlay};
 use crate::mpv::{Mpv, VideoSize};
 
 use super::{
-    CONTEXT, Escape, NextEpisode, PlayerView, PreviousEpisode, SeekBack, SeekBackLong,
-    SeekForward, SeekForwardLong, TogglePause, TogglePip,
+    CONTEXT, Escape, NextEpisode, PlayerView, PreviousEpisode, SeekBack, SeekBackLong, SeekForward,
+    SeekForwardLong, TogglePause, TogglePip,
 };
 
 /// mpv sizes subtitles to the window, so they shrink to unreadable in PiP; this enlarges them.
@@ -242,7 +242,9 @@ impl PlayerView {
             });
             let view = cx.new(|cx| PipView::new(player, video, mirror, seek, cx));
             let root = cx.new(|cx| Root::new(view, pip_window, cx));
-            root.update(cx, |root, _| root.style().background = Some(overlay::CLEAR.into()));
+            root.update(cx, |root, _| {
+                root.style().background = Some(overlay::CLEAR.into())
+            });
             root
         });
         let Some(mpv) = &mut self.mpv else {
@@ -265,10 +267,8 @@ impl PlayerView {
                 self.pip = Some(handle);
             }
             // not fatal: video stays in the Player
-            Err(err) => window.push_notification(
-                Notification::error(format!("Cannot start PiP: {err}")),
-                cx,
-            ),
+            Err(err) => window
+                .push_notification(Notification::error(format!("Cannot start PiP: {err}")), cx),
         }
         cx.notify();
     }

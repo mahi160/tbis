@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** wontfix — parental restrictions are managed on the Jellyfin server (per-user parental rating and library access).
 
 - [ ] A PIN can be set and changed from Settings
 - [ ] Kids Mode restricts the browsed library (e.g. to items marked suitable) until the correct PIN is entered
