@@ -434,9 +434,14 @@ impl Api {
         self.request(method, &path, serde_json::Value::Null).await
     }
 
-    /// Every item of one kind (Movie or Series) from all Libraries.
-    pub async fn library(&self, kind: Kind, sort: Sort) -> Result<Vec<Item>> {
-        self.items(kind, sort.query(kind)).await
+    /// Every item of one kind (Movie or Series) from all Libraries, or only `within`.
+    pub async fn library(
+        &self,
+        kind: Kind,
+        sort: Sort,
+        within: Option<&Library>,
+    ) -> Result<Vec<Item>> {
+        self.items(kind, &library_query(kind, sort, within)).await
     }
 
     /// Random items of `kind` (Movies and Series when `None`) that have a backdrop, for
@@ -575,13 +580,21 @@ impl Api {
     }
 }
 
+/// `library`'s filter: `sort`, narrowed to one Library when `within` is set.
+fn library_query(kind: Kind, sort: Sort, within: Option<&Library>) -> String {
+    match within {
+        Some(library) => format!("ParentId={}&{}", library.id, sort.query(kind)),
+        None => sort.query(kind).to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Api, UserViewsResult};
+    use super::{Api, UserViewsResult, library_query};
     use crate::jellyfin::tests::fake_server;
     use crate::jellyfin::{
         Item, Kind, Library, Person, PlaybackItem, Segment, SegmentKind, Session, SessionExpired,
-        TrickplayInfo,
+        Sort, TrickplayInfo,
     };
     use gpui_kit::http_client::Method;
     use std::sync::Arc;
@@ -608,6 +621,21 @@ mod tests {
                 library("tv", "TV Shows", Kind::Series),
                 library("m", "Movies", Kind::Movie),
             ]
+        );
+    }
+
+    #[test]
+    fn library_query_narrows_to_one_library() {
+        let movies = Library {
+            id: "m".into(),
+            name: "Movies".into(),
+            kind: Kind::Movie,
+        };
+        let sort = Sort::DateAdded.query(Kind::Movie);
+        assert_eq!(library_query(Kind::Movie, Sort::DateAdded, None), sort);
+        assert_eq!(
+            library_query(Kind::Movie, Sort::DateAdded, Some(&movies)),
+            format!("ParentId=m&{sort}")
         );
     }
 

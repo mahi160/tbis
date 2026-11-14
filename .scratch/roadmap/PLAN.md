@@ -100,7 +100,7 @@ House rules that apply to every ticket:
 | 29 | Reusable paged row component | haiku | done |
 | 30 | Hero component | sonnet | done |
 | 31 | Layout setting and Modern Home | sonnet | done, partly runtime unverified |
-| 32 | Per-Library sub-tabs on Movies and Series | sonnet | needs-triage |
+| 32 | Per-Library sub-tabs on Movies and Series | sonnet | done, partly runtime unverified |
 
 ## Owner decisions still open
 

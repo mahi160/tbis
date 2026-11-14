@@ -377,8 +377,11 @@ impl AppView {
             home.refresh(cx);
             home
         });
-        let movies = cx.new(|_| LibraryView::new(Kind::Movie, api.clone(), config.movies_sort));
-        let series = cx.new(|_| LibraryView::new(Kind::Series, api.clone(), config.series_sort));
+        let grouping = config.library_grouping;
+        let movies =
+            cx.new(|_| LibraryView::new(Kind::Movie, api.clone(), config.movies_sort, grouping));
+        let series =
+            cx.new(|_| LibraryView::new(Kind::Series, api.clone(), config.series_sort, grouping));
         let local = [movies.clone(), series.clone()];
         let recent = config.recent_searches.clone();
         let search = cx.new(|_| SearchView::new(api.clone(), local, recent));
@@ -628,6 +631,14 @@ impl AppView {
                     if let Screen::Main(main) = &this.screen {
                         main.home
                             .update(cx, |view, cx| view.set_layout(*layout, cx));
+                    }
+                }
+                SettingsChanged::LibraryGrouping(grouping) => {
+                    this.config.library_grouping = *grouping;
+                    if let Screen::Main(main) = &this.screen {
+                        for view in [&main.movies, &main.series] {
+                            view.update(cx, |view, cx| view.set_grouping(*grouping, cx));
+                        }
                     }
                 }
                 SettingsChanged::Audio(style) => this.config.audio = *style,

@@ -117,6 +117,9 @@ pub struct Config {
     /// Home layout (Settings).
     #[serde(default)]
     pub home_layout: HomeLayout,
+    /// Movies and Series as one grid, or with a tab per Library (Settings).
+    #[serde(default)]
+    pub library_grouping: LibraryGrouping,
     #[serde(default)]
     pub auto_skip: AutoSkip,
     /// Audio passthrough and loudness normalization (Settings), for the Player and PiP.
@@ -244,6 +247,27 @@ impl HomeLayout {
         match self {
             Self::Default => "Default",
             Self::Modern => "Modern",
+        }
+    }
+}
+
+/// How the Movies and Series pages show several Libraries of one kind (Settings).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum LibraryGrouping {
+    /// One grid merged from every Library.
+    #[default]
+    Merged,
+    /// Tabs: All, then one per Library.
+    Separate,
+}
+
+impl LibraryGrouping {
+    pub const ALL: [Self; 2] = [Self::Merged, Self::Separate];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Merged => "Merged",
+            Self::Separate => "Separate",
         }
     }
 }
@@ -415,6 +439,7 @@ fn defaults() -> Config {
         hide_spoilers: HideSpoilers::default(),
         backdrops: ShowBackdrops::default(),
         home_layout: HomeLayout::default(),
+        library_grouping: LibraryGrouping::default(),
         auto_skip: AutoSkip::default(),
         audio: AudioStyle::default(),
     }
@@ -476,8 +501,8 @@ fn save_to(config: &Config, path: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AudioStyle, Config, HomeLayout, VideoQuality, WindowState, defaults, forget_session_at,
-        load_from, save_to,
+        AudioStyle, Config, HomeLayout, LibraryGrouping, VideoQuality, WindowState, defaults,
+        forget_session_at, load_from, save_to,
     };
     use crate::jellyfin::Session;
     use std::fs;
@@ -646,6 +671,14 @@ mod tests {
         json.as_object_mut().unwrap().remove("home_layout");
         let config: Config = serde_json::from_value(json).unwrap();
         assert_eq!(config.home_layout, HomeLayout::Default);
+    }
+
+    #[test]
+    fn config_without_library_grouping_loads_as_merged() {
+        let mut json = serde_json::to_value(defaults()).unwrap();
+        json.as_object_mut().unwrap().remove("library_grouping");
+        let config: Config = serde_json::from_value(json).unwrap();
+        assert_eq!(config.library_grouping, LibraryGrouping::Merged);
     }
 
     #[test]

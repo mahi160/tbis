@@ -9,8 +9,8 @@ use crate::components::button::icon_button;
 use crate::components::layout::{grow, page_header};
 use crate::components::settings::{SettingField, SettingGroup, SettingItem, SettingPage, settings};
 use crate::config::{
-    AudioStyle, AutoSkip, BITRATE_CAPS, Config, HideSpoilers, HomeLayout, LanguagePref, SeekSteps,
-    ShowBackdrops, SubtitleStyle, VideoQuality,
+    AudioStyle, AutoSkip, BITRATE_CAPS, Config, HideSpoilers, HomeLayout, LanguagePref,
+    LibraryGrouping, SeekSteps, ShowBackdrops, SubtitleStyle, VideoQuality,
 };
 use crate::mpv;
 use crate::nav::Nav;
@@ -64,6 +64,7 @@ pub enum SettingsChanged {
     HideSpoilers(HideSpoilers),
     Backdrops(ShowBackdrops),
     Layout(HomeLayout),
+    LibraryGrouping(LibraryGrouping),
     Audio(AudioStyle),
     AutoSkip(AutoSkip),
 }
@@ -79,13 +80,14 @@ pub struct SettingsView {
     hide_spoilers: Entity<HideSpoilers>,
     backdrops: Entity<ShowBackdrops>,
     layout: Entity<HomeLayout>,
+    grouping: Entity<LibraryGrouping>,
     audio: Entity<AudioStyle>,
     auto_skip: Entity<AutoSkip>,
     mpv_conf: Entity<TextareaState>,
     /// Reset was clicked once; a second click within a few seconds resets.
     confirm_reset: bool,
     _confirm_reset: Task<()>,
-    _observe: [Subscription; 12],
+    _observe: [Subscription; 13],
     _save_mpv_conf: Subscription,
     /// Text not yet written; saved on drop so leaving Settings mid-debounce keeps it.
     mpv_conf_pending: Option<String>,
@@ -122,6 +124,7 @@ impl SettingsView {
         let hide_spoilers = cx.new(|_| config.hide_spoilers);
         let backdrops = cx.new(|_| config.backdrops);
         let layout = cx.new(|_| config.home_layout);
+        let grouping = cx.new(|_| config.library_grouping);
         let audio = cx.new(|_| config.audio);
         let auto_skip = cx.new(|_| config.auto_skip);
         let mpv_conf = cx.new(|cx| {
@@ -173,6 +176,9 @@ impl SettingsView {
             cx.observe(&layout, |_, layout, cx| {
                 cx.emit(SettingsChanged::Layout(*layout.read(cx)))
             }),
+            cx.observe(&grouping, |_, grouping, cx| {
+                cx.emit(SettingsChanged::LibraryGrouping(*grouping.read(cx)))
+            }),
             cx.observe(&audio, |_, audio, cx| {
                 cx.emit(SettingsChanged::Audio(*audio.read(cx)))
             }),
@@ -191,6 +197,7 @@ impl SettingsView {
             hide_spoilers,
             backdrops,
             layout,
+            grouping,
             audio,
             auto_skip,
             mpv_conf,
@@ -249,6 +256,7 @@ impl SettingsView {
         set(&self.hide_spoilers, HideSpoilers::default(), cx);
         set(&self.backdrops, ShowBackdrops::default(), cx);
         set(&self.layout, HomeLayout::default(), cx);
+        set(&self.grouping, LibraryGrouping::default(), cx);
         set(&self.audio, AudioStyle::default(), cx);
         set(&self.auto_skip, AutoSkip::default(), cx);
     }
@@ -390,8 +398,29 @@ impl SettingsView {
             ),
         )
         .description("Modern puts a featured item on top of Home, then a row for each Library.");
+        let (read, write) = (self.grouping.clone(), self.grouping.clone());
+        let grouping = SettingItem::new(
+            "Libraries",
+            SettingField::dropdown(
+                LibraryGrouping::ALL
+                    .iter()
+                    .map(|g| (SharedString::from(g.label()), SharedString::from(g.label())))
+                    .collect(),
+                move |cx| read.read(cx).label().into(),
+                move |value, cx| {
+                    write.update(cx, |grouping, cx| {
+                        *grouping = LibraryGrouping::ALL
+                            .into_iter()
+                            .find(|g| g.label() == value.as_ref())
+                            .unwrap_or_default();
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description("Separate adds a tab for each Library on Movies and Series.");
         SettingPage::new("Appearance")
-            .group(SettingGroup::new().items([theme, layout, backdrops, spoilers]))
+            .group(SettingGroup::new().items([theme, layout, grouping, backdrops, spoilers]))
     }
 
     fn video_group(&self) -> SettingGroup {

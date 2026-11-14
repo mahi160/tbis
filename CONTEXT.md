@@ -5,7 +5,7 @@ A desktop Jellyfin client for browsing a user's Movies and Series and playing th
 ## Library
 
 **Library**:
-A Jellyfin media folder on the server. The Default Home layout merges every Library; the Modern layout shows one row per Movie or Series Library. The user never picks one.
+A Jellyfin media folder on the server. The Default Home layout merges every Library; the Modern layout shows one row per Movie or Series Library. With the Libraries setting on Separate, Movies and Series get a tab per Library (after All) to narrow the grid to one; the pick lasts until the app quits.
 _Avoid_: Folder, collection
 
 **Movie**:
