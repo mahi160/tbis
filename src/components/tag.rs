@@ -5,7 +5,7 @@ use gpui_kit::component::tag::Tag;
 use gpui_kit::component::{Icon, h_flex};
 use gpui_kit::*;
 
-use crate::design::{color, gap, icon, radius, text, tokens};
+use crate::design::{color, gap, icon, overlay, radius, text, tokens};
 
 pub fn pill(label: impl Into<SharedString>, cx: &App) -> Tag {
     Styled::h(
@@ -18,6 +18,22 @@ pub fn pill(label: impl Into<SharedString>, cx: &App) -> Tag {
     .font_weight(FontWeight::MEDIUM)
     .border_color(color::border(cx))
     .text_color(color::foreground(cx))
+    .child(label.into())
+}
+
+/// `pill` for text over art (the hero): white outline and label, body text.
+pub fn overlay_pill(label: impl Into<SharedString>) -> Tag {
+    Styled::h(
+        Tag::secondary().outline().rounded(radius::base()),
+        text::fit(tokens().badge.height, text::body(), px(0.)),
+    )
+    .px(gap::item())
+    .py(px(0.))
+    .text_size(text::body())
+    .font_weight(FontWeight::MEDIUM)
+    .bg(overlay::CLEAR)
+    .border_color(overlay::white(0.5))
+    .text_color(overlay::WHITE)
     .child(label.into())
 }
 

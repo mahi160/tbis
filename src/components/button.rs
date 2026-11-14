@@ -17,6 +17,8 @@ pub trait VegaSize: Sized {
     fn xs(self) -> Self;
     fn sm(self) -> Self;
     fn lg(self) -> Self;
+    /// Hero actions: taller, gpui-kit Large's bigger label and icon, group-gap padding.
+    fn xl(self) -> Self;
     fn icon_xs(self) -> Self;
 }
 
@@ -70,6 +72,13 @@ impl VegaSize for Button {
     fn lg(self) -> Self {
         text_size(self, tokens().button.lg)
     }
+    fn xl(self) -> Self {
+        Styled::h(
+            self.with_size(Size::Large),
+            text::fit(tokens().button.xl, text::lead(), px(0.)),
+        )
+        .px(gap::group())
+    }
     fn icon_xs(self) -> Self {
         square(self.with_size(Size::XSmall), tokens().button.icon_xs)
     }
@@ -103,6 +112,15 @@ pub fn outline_button(
     cx: &App,
 ) -> Button {
     base(id).outline().bg(input_bg(cx)).label(label.into())
+}
+
+/// Secondary action over art (the hero): translucent white fill, no border, white label.
+pub fn glass_button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Button {
+    base(id)
+        .ghost()
+        .bg(overlay::white(0.2))
+        .text_color(overlay::WHITE)
+        .label(label.into())
 }
 
 /// Low-emphasis text action.

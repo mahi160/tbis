@@ -10,7 +10,7 @@ Built with [gpui-kit](https://gpui-kit.com/component/) (components) on top of [G
 - `src/design.rs` is the single source UI code reads for every visual value. It is the only file allowed to call `cx.theme()`; components and pages use `design::color` and `design::font` instead, and never hardcode a color.
 - Design tokens live in `src/design.rs`: `color` and `font` (from the theme), `text`, `radius`, `gap`, `size` (sizes shared across files), `window`, `opacity`, `overlay` (`black(a)` / `white(a)` tints over video and images), and `shadow`.
 - The system is deliberately small, the same for every theme. Don't add steps:
-  - Type: three sizes only, `text::meta()` (details), `text::body()` (everything else), `text::title()` (headings). Build hierarchy with weight and muted color.
+  - Type: three sizes only, `text::meta()` (details), `text::body()` (everything else), `text::title()` (headings). Build hierarchy with weight and muted color. The one exception is the hero (`components/hero.rs`), which alone uses `text::lead()` and `text::display()`.
   - Radius: one, `radius::base()`, for everything.
   - Spacing between and inside things: three gaps only, `gap::tight()`, `gap::item()`, `gap::group()`, plus `page()` for the window padding around every page.
   - Color: a theme sets 15 roles (`theme::ROLES`: background, foreground, surface, muted bg/fg, border, subtle border, hover, active, selection, primary bg/fg, focus, danger bg/fg); `theme::apply` derives every other gpui-kit color from them.

@@ -21,7 +21,7 @@ A single playable part of a Series.
 ## Home
 
 **Hero**:
-The featured item at the top of the Modern Home layout: the first Continue Watching item, else the newest item of the first Library, with its logo or title, overview, and Play and More info buttons.
+The carousel at the top of the Modern Home layout: the five newest Movies the user hasn't started, from all Libraries. Each slide shows the Movie's logo or title, meta, overview, and Play and More info buttons. The previous and next films peek in at the edges. It advances on its own and pauses while the pointer is on it; dots below or a peek pick a slide.
 _Avoid_: Banner, spotlight
 
 **Continue Watching**:

@@ -4,7 +4,8 @@ use gpui_kit::*;
 use std::time::{Duration, Instant};
 
 use crate::components::button::{GhostState as _, VegaSize as _, icon_button};
-use crate::components::hero::Hero;
+use crate::components::detail::tag_labels;
+use crate::components::hero::{Hero, HeroCarousel, Peek};
 use crate::components::image_cache::lru_images;
 use crate::components::layout::rows_page;
 use crate::components::row::paged_row;
@@ -20,6 +21,10 @@ const PER_ROW: usize = 24;
 // four rows of up to 24 cards, with room to scroll back
 const IMAGES_KEPT: usize = 120;
 const PAGE_ANIMATION: Duration = Duration::from_millis(350);
+/// Films in the Modern hero carousel.
+const HERO_SLIDES: usize = 5;
+/// How long a hero slide shows before the next, unless the pointer is on it.
+const HERO_DWELL: Duration = Duration::from_secs(8);
 
 #[derive(Default)]
 struct Rows {
@@ -29,8 +34,8 @@ struct Rows {
     series: Vec<Item>,
     /// Modern layout only: each Movie and Series Library with its newest items.
     libraries: Vec<(Library, Vec<Item>)>,
-    /// Modern layout only: the Hero.
-    featured: Option<Featured>,
+    /// Modern layout only: the hero's films, in full.
+    featured: Vec<Item>,
 }
 
 impl Rows {
@@ -40,20 +45,30 @@ impl Rows {
             && self.next_up.is_empty()
             && match layout {
                 HomeLayout::Default => self.movies.is_empty() && self.series.is_empty(),
-                HomeLayout::Modern => self.libraries.iter().all(|(_, items)| items.is_empty()),
+                HomeLayout::Modern => {
+                    self.featured.is_empty()
+                        && self.libraries.iter().all(|(_, items)| items.is_empty())
+                }
             }
     }
 }
 
-/// The Hero: Play starts `play`; `art` (an Episode's Series, else `play` in full)
-/// supplies the logo, backdrop and overview.
-struct Featured {
-    play: Item,
-    art: Item,
+/// Which hero slide shows, and the one fading out under it.
+#[derive(Default)]
+struct Carousel {
+    active: usize,
+    previous: Option<usize>,
+    /// Keys the fade; bumped per slide change.
+    generation: usize,
+    /// Keys the active dot's fill; bumped per countdown restart.
+    cycle: usize,
+    /// Pointer on the hero; the countdown waits.
+    hovered: bool,
 }
 
 /// Default: Continue Watching, Next Up, Movies row, Series row, all Libraries merged.
-/// Modern: Hero, Continue Watching, Next Up, then one row per Library.
+/// Modern: hero carousel of the newest unwatched films, Continue Watching, Next Up,
+/// then one row per Library.
 pub struct HomeView {
     api: Api,
     layout: HomeLayout,
@@ -67,7 +82,10 @@ pub struct HomeView {
     paging: Option<Paging>,
     /// When the rows last loaded; `None` means stale.
     loaded_at: Option<Instant>,
+    hero: Carousel,
     _load: Task<()>,
+    /// Hero auto-advance; replaced to restart the wait after a dot click.
+    _advance: Task<()>,
 }
 
 struct Paging {
@@ -90,7 +108,48 @@ impl HomeView {
             scroll: Default::default(),
             paging: None,
             loaded_at: None,
+            hero: Carousel::default(),
             _load: Task::ready(()),
+            _advance: Task::ready(()),
+        }
+    }
+
+    /// Fades to hero slide `ix`.
+    fn show_slide(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if ix == self.hero.active || ix >= self.rows.featured.len() {
+            return;
+        }
+        self.hero.previous = Some(self.hero.active);
+        self.hero.active = ix;
+        self.hero.generation += 1;
+        cx.notify();
+    }
+
+    /// Restarts the wait before the next hero slide; each advance starts the next wait.
+    fn countdown(&mut self, cx: &mut Context<Self>) {
+        self.hero.cycle += 1;
+        cx.notify();
+        self._advance = cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(HERO_DWELL).await;
+            this.update(cx, |this, cx| {
+                let count = this.rows.featured.len();
+                if count > 1 && !this.hero.hovered {
+                    this.show_slide((this.hero.active + 1) % count, cx);
+                    this.countdown(cx);
+                }
+            })
+            .ok();
+        });
+    }
+
+    /// Pointer on the hero pauses the countdown; leaving restarts it in full.
+    fn hero_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        self.hero.hovered = hovered;
+        if hovered {
+            self._advance = Task::ready(());
+            cx.notify();
+        } else {
+            self.countdown(cx);
         }
     }
 
@@ -128,40 +187,33 @@ impl HomeView {
             // over-fetch: dedupe below drops items already in Continue Watching
             let (resume, next_up, movies, series, libraries, featured) = cx
                 .background_spawn(async move {
+                    // each layout fetches only the rows it shows
                     let (resume, next_up, movies, series, libraries) = futures::join!(
                         api.resume(PER_ROW),
                         api.next_up_all(PER_ROW * 2),
-                        // each layout fetches only the rows it shows
+                        // Default's Movies row; Modern's hero picks from the same films
+                        api.latest_unplayed(
+                            Kind::Movie,
+                            if modern { HERO_SLIDES * 2 } else { PER_ROW * 2 }
+                        ),
                         async {
-                            match modern {
-                                true => Ok(Vec::new()),
-                                false => api.latest_unplayed(Kind::Movie, PER_ROW * 2).await,
+                            if modern {
+                                Ok(Vec::new())
+                            } else {
+                                api.latest_unplayed(Kind::Series, PER_ROW).await
                             }
                         },
                         async {
-                            match modern {
-                                true => Ok(Vec::new()),
-                                false => api.latest_unplayed(Kind::Series, PER_ROW).await,
-                            }
-                        },
-                        async {
-                            match modern {
-                                true => library_rows(&api).await,
-                                false => Ok(Vec::new()),
+                            if modern {
+                                library_rows(&api).await
+                            } else {
+                                Ok(Vec::new())
                             }
                         },
                     );
-                    let pick = resume
-                        .as_ref()
-                        .ok()
-                        .and_then(|items| items.first())
-                        .or_else(|| {
-                            let libraries = libraries.as_ref().ok()?;
-                            libraries.iter().find_map(|(_, items)| items.first())
-                        });
-                    let featured = match pick.filter(|_| modern) {
-                        Some(play) => Some(featured(&api, play.clone()).await),
-                        None => None,
+                    let featured = match &movies {
+                        Ok(movies) if modern => featured(&api, movies).await,
+                        _ => Vec::new(),
                     };
                     (resume, next_up, movies, series, libraries, featured)
                 })
@@ -191,6 +243,11 @@ impl HomeView {
                             libraries,
                             featured,
                         };
+                        if this.hero.active >= this.rows.featured.len() {
+                            this.hero.active = 0;
+                        }
+                        this.hero.previous = None;
+                        this.countdown(cx);
                         this.error = None;
                         this.loaded_at = Some(Instant::now());
                     }
@@ -293,6 +350,74 @@ impl HomeView {
         } else {
             self.paging = None;
         }
+    }
+
+    /// The Modern hero: the active film's slide over the one fading out, with dots.
+    fn hero_carousel(&self, cx: &mut Context<Self>) -> Option<HeroCarousel> {
+        let films = &self.rows.featured;
+        let slide = |film: &Item, cx: &mut Context<Self>| Hero {
+            backdrop: self.api.backdrop_url(film),
+            logo: self.api.logo_url(film),
+            title: film.name.clone().into(),
+            facts: [
+                film.production_year.map(|year| year.to_string()),
+                film.run_time_ticks.map(runtime_label),
+            ]
+            .into_iter()
+            .flatten()
+            .map(Into::into)
+            .collect(),
+            rating: film.community_rating,
+            tags: tag_labels(film).into_iter().map(Into::into).collect(),
+            overview: film.overview.clone().map(Into::into),
+            on_play: Self::play_on_click(film, cx),
+            on_more: Self::open_on_click(film, cx),
+        };
+        let active = films.get(self.hero.active)?;
+        let previous = self
+            .hero
+            .previous
+            .and_then(|ix| films.get(ix))
+            .map(|film| slide(film, cx));
+        let dots = films
+            .iter()
+            .enumerate()
+            .map(|(ix, film)| -> (SharedString, OnClick) {
+                let on_click = cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.show_slide(ix, cx);
+                    this.countdown(cx);
+                });
+                (film.name.clone().into(), Box::new(on_click))
+            })
+            .collect();
+        let count = films.len();
+        let peek = |ix: usize, cx: &mut Context<Self>| Peek {
+            backdrop: self.api.backdrop_url(&films[ix]),
+            title: films[ix].name.clone().into(),
+            on_click: Box::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.show_slide(ix, cx);
+                this.countdown(cx);
+            })),
+        };
+        let peeks = (count > 1).then(|| {
+            let ix = self.hero.active;
+            [
+                peek((ix + count - 1) % count, cx),
+                peek((ix + 1) % count, cx),
+            ]
+        });
+        let on_hover = cx.listener(|this, hovered: &bool, _, cx| this.hero_hovered(*hovered, cx));
+        Some(HeroCarousel {
+            slide: slide(active, cx),
+            previous,
+            peeks,
+            active: self.hero.active,
+            generation: self.hero.generation,
+            cycle: self.hero.cycle,
+            dwell: (!self.hero.hovered).then_some(HERO_DWELL),
+            dots,
+            on_hover: Box::new(on_hover),
+        })
     }
 
     /// One Home row: its cards plus page arrows wired to this row's paging.
@@ -416,18 +541,7 @@ impl Render for HomeView {
                         posters(items, cx),
                     ));
                 }
-                self.rows.featured.as_ref().map(|featured| {
-                    let (play, art) = (&featured.play, &featured.art);
-                    Hero {
-                        backdrop: api.backdrop_url(art),
-                        logo: api.logo_url(art),
-                        title: art.name.clone().into(),
-                        meta: hero_meta(play, art).into(),
-                        overview: art.overview.clone().map(Into::into),
-                        on_play: Self::play_on_click(play, cx),
-                        on_more: Self::open_on_click(&play.detail_target(), cx),
-                    }
-                })
+                self.hero_carousel(cx)
             }
         };
 
@@ -486,29 +600,13 @@ async fn library_rows(api: &Api) -> anyhow::Result<Vec<(Library, Vec<Item>)>> {
     Ok(libraries.into_iter().zip(rows).collect())
 }
 
-/// The Hero for `play`, with its art item's full details: list items carry no logo
-/// tag or overview. A failed lookup keeps the list item.
-async fn featured(api: &Api, play: Item) -> Featured {
-    let art = api
-        .item(&play.detail_target().id)
-        .await
-        .unwrap_or_else(|_| play.clone());
-    Featured { play, art }
-}
-
-/// `S01E02 · Name` for an Episode; else year · runtime · ★ rating, skipping missing parts.
-fn hero_meta(play: &Item, art: &Item) -> String {
-    if play.kind == Kind::Episode {
-        return play.episode_label();
-    }
-    [
-        art.production_year.map(|year| year.to_string()),
-        art.run_time_ticks.map(runtime_label),
-        art.community_rating
-            .map(|score| format!("\u{2605} {score:.1}")),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>()
-    .join(" \u{b7} ")
+/// The hero's films: the newest unstarted ones, each fetched in full, since list items
+/// carry no logo tag, overview, age rating or streams. A failed lookup keeps the list item.
+async fn featured(api: &Api, newest: &[Item]) -> Vec<Item> {
+    let films = newest
+        .iter()
+        .filter(|film| film.user_data.playback_position_ticks == 0)
+        .take(HERO_SLIDES)
+        .map(|film| async move { api.item(&film.id).await.unwrap_or_else(|_| film.clone()) });
+    futures::future::join_all(films).await
 }
