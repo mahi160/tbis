@@ -30,9 +30,7 @@ jobs:
           targets: x86_64-pc-windows-msvc
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Source provenance tests
-        run: python -B scripts/windows_sources_tests.py
-      - name: Source-built pinned dependencies
+      - name: Pinned libmpv and Vulkan loader
         run: ./scripts/setup-windows-deps.ps1
       - name: Test
         run: |
@@ -47,7 +45,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows-release
-          path: |
-            target/tbis-*-windows-x86_64.zip
-            target/tbis-*-windows-sources.tar
+          path: target/tbis-*-windows-x86_64.zip
           if-no-files-found: error

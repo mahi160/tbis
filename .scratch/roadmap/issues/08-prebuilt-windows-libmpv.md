@@ -6,7 +6,7 @@
 
 **Blocked by:** Owner decision 1 in `PLAN.md` (this changes how the GPL source offer is met). Do ticket 06 first when possible: its log shows whether missing codecs are a real problem.
 
-**Status:** blocked
+**Status:** needs-human (code landed; run the Mirror Windows libmpv workflow once, then `windows.yml`; nothing has run on Windows). Owner chose shinchiro's package with a link-only source offer (`components/sources.txt`), as jellyfin-mpv-shim does. Pinned `mpv-dev-x86_64-20261111-git-bcde6b93cc.7z` (mpv v0.42.0-38): inspected on macOS, its only non-system import is `vulkan-1.dll` (hard import), so setup builds the Khronos loader from pinned source (`vulkan-sdk-1.4.357.0`, static CRT) and the zip ships it. The DLL is 116 MB (98 MB of code, not debug info), so the zip grows. Lua is enabled; `Handle::init` already handles `osc`. mpv's SMTC is compiled in but off by default under libmpv. Updater needs no change: `*.dll` and `components/` are already managed.
 
 **Read first:** `docs/windows-build.md`, `docs/adr/0004-bundle-libmpv-and-license-as-gpl.md`, `scripts/setup-windows-deps.ps1`, `scripts/build-windows-mpv.ps1`, `scripts/bundle-windows.ps1`, `scripts/windows_sources.py`, `.github/workflows/windows.yml`, `.github/workflows/mirror-windows-deps.yml`, `.scratch/cross-platform/PLAN.md` (the "Reusable now" list describes this approach).
 

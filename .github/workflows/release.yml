@@ -108,7 +108,6 @@ jobs:
             "tbis-$VERSION-macos-arm64.zip" \
             "tbis-$VERSION-sources.tar" \
             "tbis-$VERSION-windows-x86_64.zip" \
-            "tbis-$VERSION-windows-sources.tar" \
             --title "tbis $VERSION" \
             --notes-file prepared/notes.md
 

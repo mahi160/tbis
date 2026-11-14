@@ -46,7 +46,7 @@ House rules that apply to every ticket:
 | 05 | Log the Windows GPU at Player start | sonnet | done |
 | 06 | Run tbis on a real Windows PC and record the log | human | needs-human |
 | 07 | Spike: mpv draws into a child window on Windows | opus + human | blocked by 06 |
-| 08 | Windows libmpv from a prebuilt package | opus | blocked by owner decision |
+| 08 | Windows libmpv from a prebuilt package | opus | code landed; Windows CI and mirror run pending |
 
 ### B. mpv quality
 
@@ -104,7 +104,7 @@ House rules that apply to every ticket:
 
 ## Owner decisions still open
 
-1. **Windows libmpv (ticket 08):** prebuilt package (full codecs, short CI, source by link) or keep the source build (strict source mirror, 1.4 GB archive). Recommended: prebuilt.
+1. **Windows libmpv (ticket 08):** decided: prebuilt shinchiro package, mirrored, source offered by link, as jellyfin-mpv-shim does.
 2. **Defaults (ticket 17):** decided: all four rows applied.
 3. **Modern layout (ticket 31):** decided: one row per Library under a hero; the hero is the first Continue Watching item, else the newest item of the first Library. The owner also wants per-Library sub-tabs on the Movies and Series pages; that is ticket 32.
 
