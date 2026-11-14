@@ -89,7 +89,7 @@ House rules that apply to every ticket:
 | --- | --- | --- | --- |
 | 24 | Log dropped mpv errors in the Player | haiku | done |
 | 25 | Warn about unencrypted remote servers | haiku | done |
-| 26 | Split `jellyfin.rs` into modules | sonnet | ready |
+| 26 | Split `jellyfin.rs` into modules | sonnet | done |
 | 27 | Signed releases | human | needs-human |
 
 ### G. Modern view (parked until the owner picks the layout)

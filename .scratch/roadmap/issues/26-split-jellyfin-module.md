@@ -6,7 +6,7 @@
 
 **Blocked by:** 21 and 25 (they edit this file; do them first to avoid conflicts).
 
-**Status:** ready-for-agent
+**Status:** done. `cargo test`: 80 tests before, 80 after. Test-only `fake_server` lives in `mod.rs`'s test module (`pub(super)`), shared by the `auth` and `api` tests; request-only DTOs (`ItemsResult`, `SegmentsResult`, PlaybackInfo types, `device_profile`, image-field constants) moved to `api.rs`.
 
 **Read first:** `src/jellyfin.rs` (all of it), `.scratch/windows/issues/23-split-mpv-module.md` (how the mpv module was split the same way).
 
@@ -31,9 +31,9 @@
 
 ## Done when
 
-- [ ] `src/jellyfin.rs` is gone and the five files exist
-- [ ] `git diff --stat` shows changes only under `src/jellyfin/` plus the deleted file
-- [ ] The test count printed by `cargo test` is the same as before the change (note both numbers in the Status)
-- [ ] No file is over about 700 lines
+- [x] `src/jellyfin.rs` is gone and the five files exist
+- [x] `git diff --stat` shows changes only under `src/jellyfin/` plus the deleted file
+- [x] The test count printed by `cargo test` is the same as before the change (note both numbers in the Status)
+- [x] No file is over about 700 lines
 
 **Check:** the gate in `PLAN.md`.
