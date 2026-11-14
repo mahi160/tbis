@@ -22,7 +22,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # tags and history for scripts/next-version.sh
-          submodules: true # vendor/libtailscale (ADR-0007)
       - name: Next version
         id: version
         run: echo "version=$(sh scripts/next-version.sh)" >> "$GITHUB_OUTPUT"
@@ -54,14 +53,8 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           prepared: true
-      - name: Initialize submodules
-        run: git submodule update --init
       - name: Install mpv
         run: brew install mpv pkgconf
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: vendor/libtailscale/go.mod
-          cache-dependency-path: vendor/libtailscale/go.sum
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Test

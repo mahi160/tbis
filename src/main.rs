@@ -8,7 +8,6 @@ mod assets;
 mod backdrops;
 mod components;
 mod config;
-mod connection;
 mod design;
 mod detail;
 mod embed;
@@ -31,11 +30,6 @@ mod shaders;
 mod shortcuts;
 mod stats;
 mod support_dir;
-#[cfg(target_os = "macos")]
-mod tailnet;
-mod tailnet_connect;
-#[cfg(target_os = "macos")]
-mod tailscale;
 mod theme;
 mod update;
 

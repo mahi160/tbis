@@ -13,12 +13,11 @@ use crate::components::layout::{grow, screen};
 use crate::components::tabs::tabs;
 use crate::components::title_bar::{app_title_bar, title_bar};
 use crate::config::{self, Config, WindowState};
-use crate::connection::{Route, RouteKind, Service};
 use crate::design;
 use crate::home::HomeView;
 use crate::jellyfin::{Api, Item, Kind, Session};
 use crate::library::{LibraryView, SortChanged};
-use crate::login::{LoginEvent, LoginView};
+use crate::login::{LoggedIn, LoginView};
 use crate::movie::MovieView;
 use crate::nav::Nav;
 use crate::player::{Closed, PlayerView};
@@ -50,7 +49,6 @@ const TABS: [(Tab, &str); 3] = [
 struct Main {
     session: Session,
     api: Api,
-    route: RouteKind,
     tab: Tab,
     home: Entity<HomeView>,
     movies: Entity<LibraryView>,
@@ -148,7 +146,6 @@ enum Screen {
 
 pub struct AppView {
     config: Config,
-    tailnet: Service,
     screen: Screen,
     /// Keeps app-wide shortcuts (⌘F) reachable when nothing else has focus.
     focus: FocusHandle,
@@ -174,9 +171,14 @@ impl AppView {
         }
         cx.set_global(config.seek);
         cx.set_global(config.hide_spoilers);
-        let tailnet = Service::new();
-        let screen = Self::login_screen(&config, tailnet.clone(), window, cx);
+        let screen = match config.session.clone() {
+            Some(session) => Self::main_screen(session, &config, window, cx),
+            None => Self::login_screen(&config, window, cx),
+        };
         let focus = cx.focus_handle();
+        if matches!(screen, Screen::Main(_)) {
+            focus.focus(window, cx);
+        }
         // cmd-Q: entity's still alive when this runs (shutdown() awaits quit_observers
         // before dropping windows), so the weak-entity update below succeeds directly.
         cx.on_app_quit(|this, cx| {
@@ -217,7 +219,6 @@ impl AppView {
         });
         let mut this = Self {
             config,
-            tailnet,
             screen,
             focus,
             _window_bounds,
@@ -320,28 +321,16 @@ impl AppView {
         });
     }
 
-    fn login_screen(
-        config: &Config,
-        tailnet: Service,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Screen {
-        let login = cx.new(|cx| LoginView::new(config, tailnet, window, cx));
+    fn login_screen(config: &Config, window: &mut Window, cx: &mut Context<Self>) -> Screen {
+        let login = cx.new(|cx| LoginView::new(config.device_id.clone(), window, cx));
         let subscription =
-            cx.subscribe_in(&login, window, |this, _, event, window, cx| match event {
-                LoginEvent::LoggedIn(session, route) => {
-                    this.invalidate_navigation();
-                    this.config.session = Some(session.clone());
-                    save_config(&this.config, "session");
-                    this.screen =
-                        Self::main_screen(session.clone(), route.clone(), &this.config, window, cx);
-                    this.focus.focus(window, cx);
-                    cx.notify();
-                }
-                LoginEvent::OptionsChanged(options) => {
-                    this.config.tailscale = options.clone();
-                    save_config(&this.config, "Tailscale settings");
-                }
+            cx.subscribe_in(&login, window, |this, _, LoggedIn(session), window, cx| {
+                this.invalidate_navigation();
+                this.config.session = Some(session.clone());
+                save_config(&this.config, "session");
+                this.screen = Self::main_screen(session.clone(), &this.config, window, cx);
+                this.focus.focus(window, cx);
+                cx.notify();
             });
         Screen::Login {
             view: login,
@@ -351,13 +340,12 @@ impl AppView {
 
     fn main_screen(
         session: Session,
-        route: Route,
         config: &Config,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Screen {
         let (expired_tx, mut expired_rx) = futures::channel::mpsc::unbounded();
-        let server = route.server;
+        let server = session.server.clone();
         let api = Api::new(
             cx.http_client(),
             session.clone(),
@@ -461,7 +449,6 @@ impl AppView {
         let main = Main {
             session,
             api,
-            route: route.kind,
             tab: Tab::Home,
             home,
             movies,
@@ -600,81 +587,38 @@ impl AppView {
     }
 
     fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Screen::Main(main) = &self.screen else {
-            return;
-        };
-        let route = main.route;
-        let tailnet = self.tailnet.clone();
-        let view = cx.new(|cx| SettingsView::new(&self.config, tailnet, route, window, cx));
-        let changed = cx.subscribe_in(
-            &view,
-            window,
-            |this, settings, changed: &SettingsChanged, window, cx| {
-                match changed {
-                    SettingsChanged::Language(language) => this.config.language = language.clone(),
-                    SettingsChanged::Subtitles(style) => this.config.subtitles = style.clone(),
-                    SettingsChanged::MaxBitrate(cap) => this.config.max_bitrate_mbps = *cap,
-                    SettingsChanged::Shaders(profile) => this.config.shaders = *profile,
-                    SettingsChanged::Seek(steps) => {
-                        this.config.seek = *steps;
-                        cx.set_global(*steps);
-                    }
-                    SettingsChanged::Theme(name) => this.config.theme = Some(name.clone()),
-                    SettingsChanged::HideSpoilers(hide) => {
-                        this.config.hide_spoilers = *hide;
-                        cx.set_global(*hide);
-                    }
-                    SettingsChanged::Backdrops(show) => {
-                        this.config.backdrops = *show;
-                        if let Screen::Main(main) = &this.screen {
-                            main.sync_backdrops(show.0, cx);
-                        }
-                    }
-                    SettingsChanged::Audio(style) => this.config.audio = *style,
-                    SettingsChanged::TailscaleEnabled(enabled) => {
-                        this.config.tailscale.enabled = *enabled
-                    }
-                    SettingsChanged::SignOutTailscale => {
-                        this.config.tailscale.enabled = false;
-                        this.sign_out_tailnet(settings.downgrade(), window, cx);
+        let view = cx.new(|cx| SettingsView::new(&self.config, window, cx));
+        let changed = cx.subscribe(&view, |this, _, changed: &SettingsChanged, cx| {
+            match changed {
+                SettingsChanged::Language(language) => this.config.language = language.clone(),
+                SettingsChanged::Subtitles(style) => this.config.subtitles = style.clone(),
+                SettingsChanged::MaxBitrate(cap) => this.config.max_bitrate_mbps = *cap,
+                SettingsChanged::Shaders(profile) => this.config.shaders = *profile,
+                SettingsChanged::Seek(steps) => {
+                    this.config.seek = *steps;
+                    cx.set_global(*steps);
+                }
+                SettingsChanged::Theme(name) => this.config.theme = Some(name.clone()),
+                SettingsChanged::HideSpoilers(hide) => {
+                    this.config.hide_spoilers = *hide;
+                    cx.set_global(*hide);
+                }
+                SettingsChanged::Backdrops(show) => {
+                    this.config.backdrops = *show;
+                    if let Screen::Main(main) = &this.screen {
+                        main.sync_backdrops(show.0, cx);
                     }
                 }
-                save_config(&this.config, "settings");
-            },
-        );
+                SettingsChanged::Audio(style) => this.config.audio = *style,
+            }
+            save_config(&this.config, "settings");
+        });
         self.set_detail(view, |_| {}, window, cx);
         if let Screen::Main(main) = &mut self.screen
             && let Some(detail) = main.details.last_mut()
         {
             detail._subscriptions.push(changed);
         }
-    }
-
-    fn sign_out_tailnet(
-        &mut self,
-        settings: WeakEntity<SettingsView>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let service = self.tailnet.clone();
-        // The operation must outlive the Settings page that initiated it.
-        cx.spawn_in(window, async move |this, cx| {
-            let error = cx
-                .background_spawn(async move { service.log_out() })
-                .await
-                .err()
-                .map(|err| format!("Tailscale sign-out failed: {err}"));
-            this.update_in(cx, |_, window, cx| {
-                if let Some(error) = &error {
-                    window.push_notification(Notification::error(error.clone()), cx);
-                }
-                settings
-                    .update(cx, |view, cx| view.tailnet_signed_out(error, cx))
-                    .ok();
-            })
-            .ok();
-        })
-        .detach();
     }
 
     fn open_stats(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -771,7 +715,7 @@ impl AppView {
     fn log_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.invalidate_navigation();
         let persistence = config::forget_session(&mut self.config);
-        self.screen = Self::login_screen(&self.config, self.tailnet.clone(), window, cx);
+        self.screen = Self::login_screen(&self.config, window, cx);
         if let Err(message) = persistence {
             window.push_notification(Notification::error(message), cx);
         }

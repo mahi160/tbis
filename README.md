@@ -103,7 +103,7 @@ These numbers are rough. Energy Impact is an estimate from macOS, not a measurem
 
 ## Build from source
 
-On macOS, you need Rust, Homebrew's mpv, and Go, which builds the linked-in libtailscale (`brew install mpv go`). Clone with `--recurse-submodules`, or run `git submodule update --init` in an existing checkout.
+On macOS, you need Rust and Homebrew's mpv (`brew install mpv`).
 
 ```sh
 cargo run --release         # run straight from the build

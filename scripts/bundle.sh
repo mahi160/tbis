@@ -1,8 +1,8 @@
 #!/bin/sh
 # Builds target/tbis.app, self-contained (ADR-0004): Homebrew's libmpv and every
 # Homebrew dylib it loads are copied into the bundle and relinked, with their
-# license files. Needs `brew install mpv go` on
-# the build machine only (Go builds the linked-in libtailscale, ADR-0007).
+# license files. Needs `brew install mpv` on
+# the build machine only.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -77,27 +77,6 @@ fi
 # versions of everything bundled, for the GPL source offer (ADR-0004)
 ls "$licenses" > "$app/Contents/Resources/bundled-components.txt"
 
-# after the list above, which names Homebrew formulae only: libtailscale and every
-# Go module statically linked with it, plus Go's own runtime (ADR-0007)
-go_licenses="$licenses/libtailscale"
-mkdir -p "$go_licenses"
-goroot=$(go env GOROOT)
-# Homebrew's go keeps LICENSE beside GOROOT (libexec), not in it
-go_license=$(ls "$goroot/LICENSE" "$goroot/../LICENSE" 2>/dev/null | head -n 1)
-[ -n "$go_license" ] || { echo "Go's LICENSE not found near $goroot" >&2; exit 1; }
-cp "$go_license" "$go_licenses/go-$(go env GOVERSION)-LICENSE"
-# captured first: `set -e` misses a failure on the left of a pipe
-modules=$(cd vendor/libtailscale && go list -deps -f '{{with .Module}}{{.Path}}@{{.Version}} {{.Dir}}{{end}}' .)
-printf '%s\n' "$modules" | sort -u | while read -r module dir; do
-    dest="$go_licenses/$(echo "${module%@}" | tr '/' '_')"
-    mkdir -p "$dest"
-    find "$dir" -maxdepth 1 -type f \( -iname 'LICEN[SC]E*' -o -iname 'COPYING*' \
-        -o -iname 'NOTICE*' -o -iname 'PATENTS*' \) -exec cp {} "$dest/" \;
-    if [ -z "$(ls "$dest")" ]; then
-        echo "no license file found for $module in $dir" >&2
-        exit 1
-    fi
-done
 
 iconset=target/tbis.iconset
 rm -rf "$iconset"
