@@ -427,6 +427,12 @@ impl PlayerView {
             .or_default();
         prefs.bitrate_set = true;
         prefs.max_bitrate_mbps = mbps;
+        self.reload_current(cx);
+    }
+
+    /// Restarts the current item in a fresh session from where it is (else its start
+    /// point); also the error panel's Retry.
+    pub(super) fn reload_current(&mut self, cx: &mut Context<Self>) {
         let item = self.playback.source.clone();
         let at = if self.playback.time > 0. {
             Some(self.playback.time)
