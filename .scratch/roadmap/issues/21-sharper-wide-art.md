@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Read first:** `src/jellyfin.rs` (`fn wide_image_url`), `src/design.rs` (`wide_w` in `mod size`).
 
@@ -18,7 +18,7 @@
 
 ## Done when
 
-- [ ] Wide images are requested at 600 px
-- [ ] No `fillWidth=480` remains
+- [x] Wide images are requested at 600 px
+- [x] No `fillWidth=480` remains
 
 **Check:** the gate in `PLAN.md`.

@@ -76,12 +76,12 @@ House rules that apply to every ticket:
 
 | # | Ticket | Model | Status |
 | --- | --- | --- | --- |
-| 18 | Tabs reload only when stale | haiku | ready |
-| 19 | Home decodes off the UI thread | haiku | ready |
-| 20 | Bounded image memory on Home and Search | haiku | ready |
-| 21 | Sharper wide art on Retina | haiku | ready |
-| 22 | Debounce mpv.conf saves | haiku | ready |
-| 23 | Load config once at launch | haiku | ready |
+| 18 | Tabs reload only when stale | haiku | done |
+| 19 | Home decodes off the UI thread | haiku | done |
+| 20 | Bounded image memory on Home and Search | haiku | done |
+| 21 | Sharper wide art on Retina | haiku | done |
+| 22 | Debounce mpv.conf saves | haiku | done |
+| 23 | Load config once at launch | haiku | done |
 
 ### F. Safety and tidiness
 

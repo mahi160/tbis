@@ -1079,8 +1079,9 @@ impl Api {
                 .or_else(|| own("Primary", item.image_tags.get("Primary")))
         };
         let (id, kind, tag) = pick?;
+        // wide_w is 288 pt; 600 px covers a 2x display
         Some(format!(
-            "{}/Items/{id}/Images/{kind}?fillWidth=480&quality=90&tag={tag}",
+            "{}/Items/{id}/Images/{kind}?fillWidth=600&quality=90&tag={tag}",
             self.server
         ))
     }

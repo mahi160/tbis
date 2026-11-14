@@ -107,8 +107,12 @@ impl Main {
         !self.search_input.read(cx).value().trim().is_empty()
     }
 
-    /// Reloads whatever is on screen so played state and progress are fresh.
+    /// Reloads whatever is on screen so played state and progress are fresh; marks every
+    /// tab stale so the next visit reloads it too.
     fn refresh_visible(&self, cx: &mut App) {
+        self.home.update(cx, |view, _| view.mark_stale());
+        self.movies.update(cx, |view, _| view.mark_stale());
+        self.series.update(cx, |view, _| view.mark_stale());
         if let Some(detail) = self.details.last() {
             detail.refresh(cx);
         } else {
@@ -117,6 +121,15 @@ impl Main {
                 Tab::Series => self.series.update(cx, |view, cx| view.refresh(cx)),
                 Tab::Home => self.home.update(cx, |view, cx| view.refresh(cx)),
             }
+        }
+    }
+
+    /// Tab visit: reloads the tab only when its data is stale.
+    fn refresh_tab_if_stale(&self, cx: &mut App) {
+        match self.tab {
+            Tab::Movies => self.movies.update(cx, |view, cx| view.refresh_if_stale(cx)),
+            Tab::Series => self.series.update(cx, |view, cx| view.refresh_if_stale(cx)),
+            Tab::Home => self.home.update(cx, |view, cx| view.refresh_if_stale(cx)),
         }
     }
 
@@ -159,8 +172,7 @@ pub struct AppView {
 }
 
 impl AppView {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let config = config::load();
+    pub fn new(config: Config, window: &mut Window, cx: &mut Context<Self>) -> Self {
         if let Some(err) = config::load_error(&config) {
             window.push_notification(
                 Notification::error(format!(
@@ -481,7 +493,7 @@ impl AppView {
         main.sync_backdrops(self.config.backdrops.0, cx);
         main.details.clear();
         Self::clear_search(main, window, cx);
-        main.refresh_visible(cx);
+        main.refresh_tab_if_stale(cx);
         cx.notify();
     }
 

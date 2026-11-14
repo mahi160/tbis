@@ -48,6 +48,8 @@ pub fn same_language(a: &str, b: &str) -> bool {
 }
 
 const NO_PREFERENCE: &str = "";
+/// Pause in typing before mpv.conf is written.
+const MPV_CONF_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
 const OFF: &str = "off";
 
 /// A setting changed; the app saves it.
@@ -83,6 +85,24 @@ pub struct SettingsView {
     _confirm_reset: Task<()>,
     _observe: [Subscription; 11],
     _save_mpv_conf: Subscription,
+    /// Text not yet written; saved on drop so leaving Settings mid-debounce keeps it.
+    mpv_conf_pending: Option<String>,
+    /// Debounced mpv.conf write; replacing it restarts the wait.
+    _write_mpv_conf: Task<()>,
+}
+
+impl Drop for SettingsView {
+    fn drop(&mut self) {
+        if let Some(text) = self.mpv_conf_pending.take() {
+            save_mpv_conf(&text);
+        }
+    }
+}
+
+fn save_mpv_conf(text: &str) {
+    if let Err(err) = mpv::save_user_config(text) {
+        crate::log::write(&format!("saving mpv.conf failed: {err}"));
+    }
 }
 
 impl EventEmitter<Nav> for SettingsView {}
@@ -106,11 +126,15 @@ impl SettingsView {
                 .auto_grow(6, 20)
                 .default_value(mpv::user_config())
         });
-        let _save_mpv_conf = cx.subscribe(&mpv_conf, |_, state, event: &InputEvent, cx| {
-            if let InputEvent::Change = event
-                && let Err(err) = mpv::save_user_config(&state.read(cx).value())
-            {
-                crate::log::write(&format!("saving mpv.conf failed: {err}"));
+        let _save_mpv_conf = cx.subscribe(&mpv_conf, |this, state, event: &InputEvent, cx| {
+            if let InputEvent::Change = event {
+                let text = state.read(cx).value().to_string();
+                this.mpv_conf_pending = Some(text.clone());
+                this._write_mpv_conf = cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(MPV_CONF_DEBOUNCE).await;
+                    save_mpv_conf(&text);
+                    this.update(cx, |this, _| this.mpv_conf_pending = None).ok();
+                });
             }
         });
         let _observe = [
@@ -167,6 +191,8 @@ impl SettingsView {
             _confirm_reset: Task::ready(()),
             _observe,
             _save_mpv_conf,
+            mpv_conf_pending: None,
+            _write_mpv_conf: Task::ready(()),
         }
     }
 

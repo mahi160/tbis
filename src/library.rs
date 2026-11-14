@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::time::{Duration, Instant};
 
 use gpui_kit::component::v_flex;
 use gpui_kit::*;
@@ -33,6 +34,8 @@ pub struct LibraryView {
     scroll: UniformListScrollHandle,
     columns: usize,
     card_width: Pixels,
+    /// When the items last loaded; `None` means stale.
+    loaded_at: Option<Instant>,
     _load: Task<()>,
 }
 
@@ -52,6 +55,7 @@ impl LibraryView {
             scroll: UniformListScrollHandle::new(),
             columns: 1,
             card_width: size::poster_min_w(),
+            loaded_at: None,
             _load: Task::ready(()),
         }
     }
@@ -64,6 +68,23 @@ impl LibraryView {
             .zip(&self.names)
             .filter(move |(_, name)| name.contains(needle))
             .map(|(item, _)| item)
+    }
+
+    /// Marks the data out of date, so the next tab visit reloads it.
+    pub fn mark_stale(&mut self) {
+        self.loaded_at = None;
+        // a load already in flight may predate the change; drop it so it can't mark itself fresh
+        self._load = Task::ready(());
+        self.loading = false;
+    }
+
+    /// Reloads unless the data is under a minute old.
+    pub fn refresh_if_stale(&mut self, cx: &mut Context<Self>) {
+        const FRESH_FOR: Duration = Duration::from_secs(60);
+        if self.loaded_at.is_some_and(|at| at.elapsed() < FRESH_FOR) {
+            return;
+        }
+        self.refresh(cx);
     }
 
     /// Keeps showing the current list until fresh data arrives.
@@ -88,6 +109,7 @@ impl LibraryView {
                         this.items = items;
                         this.names = names;
                         this.error = None;
+                        this.loaded_at = Some(Instant::now());
                     }
                     Err(err) => {
                         this.error = Some(format!("Could not load {}: {err}", this.title()).into())

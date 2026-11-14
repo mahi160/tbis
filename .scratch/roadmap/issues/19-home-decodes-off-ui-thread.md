@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done (Home loads in a fresh debug build)
 
 **Read first:** `src/home.rs` (`fn refresh`), `src/library.rs` (`fn refresh`, the `cx.background_spawn` block is the pattern).
 
@@ -31,7 +31,7 @@
 
 ## Done when
 
-- [ ] The four requests and their decoding run inside `background_spawn`
-- [ ] Home shows the same rows as before
+- [x] The four requests and their decoding run inside `background_spawn`
+- [x] Home shows the same rows as before
 
 **Check:** the gate in `PLAN.md`, then open the app and confirm Home loads.

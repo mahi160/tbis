@@ -4,6 +4,7 @@ use gpui_kit::*;
 use std::time::{Duration, Instant};
 
 use crate::components::button::{GhostState as _, VegaSize as _, icon_button};
+use crate::components::image_cache::lru_images;
 use crate::components::layout::{header_row, rows_page, scroll_row};
 use crate::components::status::{Placeholder, Status, error_banner, full_status};
 use crate::components::{OnClick, card, typography};
@@ -13,6 +14,8 @@ use crate::jellyfin::{Api, Item, Kind, blurred};
 use crate::nav::Nav;
 
 const PER_ROW: usize = 24;
+// four rows of up to 24 cards, with room to scroll back
+const IMAGES_KEPT: usize = 120;
 const PAGE_ANIMATION: Duration = Duration::from_millis(350);
 
 #[derive(Default)]
@@ -42,6 +45,8 @@ pub struct HomeView {
     scroll: [ScrollHandle; 4],
     /// Arrow-driven slide in progress; advanced each frame in `render`.
     paging: Option<Paging>,
+    /// When the rows last loaded; `None` means stale.
+    loaded_at: Option<Instant>,
     _load: Task<()>,
 }
 
@@ -63,8 +68,26 @@ impl HomeView {
             error: None,
             scroll: Default::default(),
             paging: None,
+            loaded_at: None,
             _load: Task::ready(()),
         }
+    }
+
+    /// Marks the data out of date, so the next tab visit reloads it.
+    pub fn mark_stale(&mut self) {
+        self.loaded_at = None;
+        // a load already in flight may predate the change; drop it so it can't mark itself fresh
+        self._load = Task::ready(());
+        self.loading = false;
+    }
+
+    /// Reloads unless the data is under a minute old.
+    pub fn refresh_if_stale(&mut self, cx: &mut Context<Self>) {
+        const FRESH_FOR: Duration = Duration::from_secs(60);
+        if self.loaded_at.is_some_and(|at| at.elapsed() < FRESH_FOR) {
+            return;
+        }
+        self.refresh(cx);
     }
 
     /// Keeps showing the current rows until fresh data arrives.
@@ -74,12 +97,16 @@ impl HomeView {
         cx.notify();
         self._load = cx.spawn(async move |this, cx| {
             // over-fetch: dedupe below drops items already in Continue Watching
-            let (resume, next_up, movies, series) = futures::join!(
-                api.resume(PER_ROW),
-                api.next_up_all(PER_ROW * 2),
-                api.latest_unplayed(Kind::Movie, PER_ROW * 2),
-                api.latest_unplayed(Kind::Series, PER_ROW),
-            );
+            let (resume, next_up, movies, series) = cx
+                .background_spawn(async move {
+                    futures::join!(
+                        api.resume(PER_ROW),
+                        api.next_up_all(PER_ROW * 2),
+                        api.latest_unplayed(Kind::Movie, PER_ROW * 2),
+                        api.latest_unplayed(Kind::Series, PER_ROW),
+                    )
+                })
+                .await;
             this.update(cx, |this, cx| {
                 this.loading = false;
                 match (resume, next_up, movies, series) {
@@ -104,6 +131,7 @@ impl HomeView {
                             series,
                         };
                         this.error = None;
+                        this.loaded_at = Some(Instant::now());
                     }
                     (Err(err), ..) | (_, Err(err), ..) | (.., Err(err), _) | (.., Err(err)) => {
                         this.error = Some(format!("Could not load Home: {err}").into());
@@ -307,18 +335,23 @@ impl Render for HomeView {
             .error
             .clone()
             .map(|error| error_banner(error, retry, self.loading, cx).px(page()));
-        rows_page("home")
-            .children(banner)
-            .children(row(
-                "Continue Watching",
-                "row-continue",
-                continue_watching,
-                0,
-                cx,
-            ))
-            .children(row("Next Up", "row-next-up", next_up, 1, cx))
-            .children(row("Movies", "row-movies", movies, 2, cx))
-            .children(row("Series", "row-series", series, 3, cx))
+        // rows' images freed when page stops rendering
+        image_cache(lru_images("home-images", IMAGES_KEPT))
+            .size_full()
+            .child(
+                rows_page("home")
+                    .children(banner)
+                    .children(row(
+                        "Continue Watching",
+                        "row-continue",
+                        continue_watching,
+                        0,
+                        cx,
+                    ))
+                    .children(row("Next Up", "row-next-up", next_up, 1, cx))
+                    .children(row("Movies", "row-movies", movies, 2, cx))
+                    .children(row("Series", "row-series", series, 3, cx)),
+            )
             .into_any_element()
     }
 }
