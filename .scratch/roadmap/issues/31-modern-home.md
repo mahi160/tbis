@@ -6,7 +6,16 @@
 
 **Blocked by:** 28, 29, 30, and owner decision 3 in `PLAN.md`. The layout below is the recommended one; confirm it before starting.
 
-**Status:** ready-for-agent. The owner confirmed the layout below and the hero pick in step 4.
+**Status:** done, partly runtime unverified. Differences from the steps:
+- List items carry no logo tag or overview, so the Hero fetches its item in full with `api.item`. For an Episode it shows its Series' art and overview, with `S01E02 · Name` as meta; Play still plays the Episode. A failed lookup falls back to the list item.
+- When nothing is in Continue Watching, the Hero shows the first item of the first non-empty Library.
+- The loading task is shared, but each layout fetches only the rows it shows. The empty state counts only those rows.
+- Library rows include played items, because `latest_in` doesn't filter them (ticket 28). So the fallback Hero can be a played item.
+- Row scroll handles are keyed by row id, so a row keeps its scroll position when the Library list changes.
+- The loading skeleton has no hero slot, so the page shifts when the hero appears.
+- `Hero` now adds its own page gutter, so it lines up with the rows.
+
+Screenshots taken: Default and Modern on all four themes, plus Modern scrolled down to its Library rows on Raptor Night. Default matches the old Home. Not run: switching the setting live, clicking Hero Play or More info, the page arrows in Modern, and servers with one Library or none.
 
 **Read first:** `CONTEXT.md`, `AGENTS.md`, `src/home.rs` (all), `src/app.rs` (`Main`, `main_screen`, `fn open_settings`), `src/config.rs`, `src/settings.rs` (`fn appearance_page`), `src/components/hero.rs`, `src/components/row.rs`.
 
@@ -24,11 +33,11 @@
 ## Done when
 
 - [ ] Settings > Appearance > Layout switches between Default and Modern, saved to `config.json`
-- [ ] Default looks exactly as before
+- [x] Default looks exactly as before
 - [ ] Modern shows the hero, Continue Watching, Next Up and one row per Movie or Series Library, each with working page arrows
 - [ ] Hero Play starts playback; More info opens the detail page
 - [ ] A server with one Library and a server with none both render without errors
-- [ ] `CONTEXT.md` reflects the new words
-- [ ] Old configs load as Default (test)
+- [x] `CONTEXT.md` reflects the new words
+- [x] Old configs load as Default (test)
 
 **Check:** the gate in `PLAN.md`, then screenshots of both layouts on each theme. Follow the build-freshness rule in `AGENTS.md`.

@@ -12,7 +12,7 @@ use crate::design::overlay::{self, black};
 use crate::design::{gap, page, radius, size, text};
 
 /// Everything the hero shows; `logo` falls back to `title` when missing or broken.
-#[allow(dead_code)] // used by the Modern view (roadmap 31)
+/// Sits inside the page gutter, like the rows below it.
 #[derive(IntoElement)]
 pub struct Hero {
     pub backdrop: Option<String>,
@@ -36,7 +36,7 @@ impl RenderOnce for Hero {
                 .into_any_element(),
             None => title(name).truncate().into_any_element(),
         };
-        div()
+        let card = div()
             .relative()
             .w_full()
             .h(size::hero_h())
@@ -88,6 +88,7 @@ impl RenderOnce for Hero {
                                 outline_button("hero-more", "More info", cx).on_click(self.on_more),
                             ),
                     ),
-            )
+            );
+        div().w_full().px(page()).child(card)
     }
 }

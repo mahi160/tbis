@@ -99,13 +99,14 @@ House rules that apply to every ticket:
 | 28 | Jellyfin: Libraries and per-Library queries | sonnet | done |
 | 29 | Reusable paged row component | haiku | done |
 | 30 | Hero component | sonnet | done |
-| 31 | Layout setting and Modern Home | sonnet | ready |
+| 31 | Layout setting and Modern Home | sonnet | done, partly runtime unverified |
+| 32 | Per-Library sub-tabs on Movies and Series | sonnet | needs-triage |
 
 ## Owner decisions still open
 
 1. **Windows libmpv (ticket 08):** prebuilt package (full codecs, short CI, source by link) or keep the source build (strict source mirror, 1.4 GB archive). Recommended: prebuilt.
 2. **Defaults (ticket 17):** decided: all four rows applied.
-3. **Modern layout (ticket 31):** decided: one row per Library under a hero; the hero is the first Continue Watching item, else the newest item of the first Library. The owner also wants per-Library sub-tabs on the Movies and Series pages, which needs its own ticket.
+3. **Modern layout (ticket 31):** decided: one row per Library under a hero; the hero is the first Continue Watching item, else the newest item of the first Library. The owner also wants per-Library sub-tabs on the Movies and Series pages; that is ticket 32.
 
 ## Already decided
 

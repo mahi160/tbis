@@ -128,7 +128,6 @@ struct UserViewsResult {
 
 impl UserViewsResult {
     /// Movie and Series Libraries only, in server order.
-    #[allow(dead_code)] // used by the Modern view (roadmap 31)
     fn libraries(self) -> Vec<Library> {
         self.items
             .into_iter()
@@ -549,14 +548,12 @@ impl Api {
     }
 
     /// Movie and Series Libraries, in server order.
-    #[allow(dead_code)] // used by the Modern view (roadmap 31)
     pub async fn libraries(&self) -> Result<Vec<Library>> {
         let path = format!("/UserViews?userId={}", self.session.user_id);
         Ok(self.get::<UserViewsResult>(&path).await?.libraries())
     }
 
     /// Newest items of one Library, with the tags the hero's backdrop and logo need.
-    #[allow(dead_code)] // used by the Modern view (roadmap 31)
     pub async fn latest_in(&self, library: &Library, limit: usize) -> Result<Vec<Item>> {
         self.items_with(
             library.kind,

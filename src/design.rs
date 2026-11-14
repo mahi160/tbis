@@ -287,6 +287,9 @@ pub mod size {
         header_still_w = 80.,
         header_still_h = 45.,
         chart_h = 45.,
+        hero_h = 110.,
+        // a hero's title logo; its width follows the image
+        hero_logo_h = 20.,
     );
 
     // text containers: scale with body type (like Tailwind's rem-based max-w-*); a unit
@@ -307,16 +310,6 @@ pub mod size {
     /// Scrub-preview width; the Player scales sprite tiles to it.
     pub fn trickplay_w() -> Pixels {
         sp(40.)
-    }
-    // move both into `units!` once the hero is used (roadmap 31)
-    #[allow(dead_code)] // used by the Modern view (roadmap 31)
-    pub fn hero_h() -> Pixels {
-        sp(110.)
-    }
-    /// Height of a hero's title logo; its width follows the image.
-    #[allow(dead_code)] // used by the Modern view (roadmap 31)
-    pub fn hero_logo_h() -> Pixels {
-        sp(20.)
     }
 }
 

@@ -9,7 +9,7 @@ use crate::components::button::icon_button;
 use crate::components::layout::{grow, page_header};
 use crate::components::settings::{SettingField, SettingGroup, SettingItem, SettingPage, settings};
 use crate::config::{
-    AudioStyle, AutoSkip, BITRATE_CAPS, Config, HideSpoilers, LanguagePref, SeekSteps,
+    AudioStyle, AutoSkip, BITRATE_CAPS, Config, HideSpoilers, HomeLayout, LanguagePref, SeekSteps,
     ShowBackdrops, SubtitleStyle, VideoQuality,
 };
 use crate::mpv;
@@ -63,6 +63,7 @@ pub enum SettingsChanged {
     Theme(String),
     HideSpoilers(HideSpoilers),
     Backdrops(ShowBackdrops),
+    Layout(HomeLayout),
     Audio(AudioStyle),
     AutoSkip(AutoSkip),
 }
@@ -77,13 +78,14 @@ pub struct SettingsView {
     theme: Entity<SharedString>,
     hide_spoilers: Entity<HideSpoilers>,
     backdrops: Entity<ShowBackdrops>,
+    layout: Entity<HomeLayout>,
     audio: Entity<AudioStyle>,
     auto_skip: Entity<AutoSkip>,
     mpv_conf: Entity<TextareaState>,
     /// Reset was clicked once; a second click within a few seconds resets.
     confirm_reset: bool,
     _confirm_reset: Task<()>,
-    _observe: [Subscription; 11],
+    _observe: [Subscription; 12],
     _save_mpv_conf: Subscription,
     /// Text not yet written; saved on drop so leaving Settings mid-debounce keeps it.
     mpv_conf_pending: Option<String>,
@@ -119,6 +121,7 @@ impl SettingsView {
         let theme = cx.new(|_| SharedString::from(theme::active(config)));
         let hide_spoilers = cx.new(|_| config.hide_spoilers);
         let backdrops = cx.new(|_| config.backdrops);
+        let layout = cx.new(|_| config.home_layout);
         let audio = cx.new(|_| config.audio);
         let auto_skip = cx.new(|_| config.auto_skip);
         let mpv_conf = cx.new(|cx| {
@@ -167,6 +170,9 @@ impl SettingsView {
             cx.observe(&backdrops, |_, show, cx| {
                 cx.emit(SettingsChanged::Backdrops(*show.read(cx)))
             }),
+            cx.observe(&layout, |_, layout, cx| {
+                cx.emit(SettingsChanged::Layout(*layout.read(cx)))
+            }),
             cx.observe(&audio, |_, audio, cx| {
                 cx.emit(SettingsChanged::Audio(*audio.read(cx)))
             }),
@@ -184,6 +190,7 @@ impl SettingsView {
             theme,
             hide_spoilers,
             backdrops,
+            layout,
             audio,
             auto_skip,
             mpv_conf,
@@ -241,6 +248,7 @@ impl SettingsView {
         set(&self.theme, theme::NAMES[0].into(), cx);
         set(&self.hide_spoilers, HideSpoilers::default(), cx);
         set(&self.backdrops, ShowBackdrops::default(), cx);
+        set(&self.layout, HomeLayout::default(), cx);
         set(&self.audio, AudioStyle::default(), cx);
         set(&self.auto_skip, AutoSkip::default(), cx);
     }
@@ -361,8 +369,29 @@ impl SettingsView {
             ),
         )
         .description("Show a dimmed backdrop from your library behind Home, Movies and Series.");
+        let (read, write) = (self.layout.clone(), self.layout.clone());
+        let layout = SettingItem::new(
+            "Layout",
+            SettingField::dropdown(
+                HomeLayout::ALL
+                    .iter()
+                    .map(|l| (SharedString::from(l.label()), SharedString::from(l.label())))
+                    .collect(),
+                move |cx| read.read(cx).label().into(),
+                move |value, cx| {
+                    write.update(cx, |layout, cx| {
+                        *layout = HomeLayout::ALL
+                            .into_iter()
+                            .find(|l| l.label() == value.as_ref())
+                            .unwrap_or_default();
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description("Modern puts a featured item on top of Home, then a row for each Library.");
         SettingPage::new("Appearance")
-            .group(SettingGroup::new().items([theme, backdrops, spoilers]))
+            .group(SettingGroup::new().items([theme, layout, backdrops, spoilers]))
     }
 
     fn video_group(&self) -> SettingGroup {

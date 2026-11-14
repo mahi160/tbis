@@ -93,7 +93,6 @@ impl Api {
     }
 
     /// Title logo (transparent title art) for the hero.
-    #[allow(dead_code)] // used by the Modern view (roadmap 31)
     pub fn logo_url(&self, item: &Item) -> Option<String> {
         let tag = item.image_tags.get("Logo")?;
         Some(format!(

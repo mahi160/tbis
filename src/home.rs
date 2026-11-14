@@ -4,14 +4,16 @@ use gpui_kit::*;
 use std::time::{Duration, Instant};
 
 use crate::components::button::{GhostState as _, VegaSize as _, icon_button};
+use crate::components::hero::Hero;
 use crate::components::image_cache::lru_images;
 use crate::components::layout::rows_page;
 use crate::components::row::paged_row;
 use crate::components::status::{Placeholder, Status, error_banner, full_status};
 use crate::components::{OnClick, card, typography};
-use crate::config::HideSpoilers;
+use crate::config::{HideSpoilers, HomeLayout};
 use crate::design::{page, size};
-use crate::jellyfin::{Api, Item, Kind, blurred};
+use crate::detail::runtime_label;
+use crate::jellyfin::{Api, Item, Kind, Library, blurred};
 use crate::nav::Nav;
 
 const PER_ROW: usize = 24;
@@ -25,25 +27,42 @@ struct Rows {
     next_up: Vec<Item>,
     movies: Vec<Item>,
     series: Vec<Item>,
+    /// Modern layout only: each Movie and Series Library with its newest items.
+    libraries: Vec<(Library, Vec<Item>)>,
+    /// Modern layout only: the Hero.
+    featured: Option<Featured>,
 }
 
 impl Rows {
-    fn is_empty(&self) -> bool {
+    /// Whether `layout` has nothing to show; rows loaded for the other layout don't count.
+    fn is_empty(&self, layout: HomeLayout) -> bool {
         self.continue_watching.is_empty()
             && self.next_up.is_empty()
-            && self.movies.is_empty()
-            && self.series.is_empty()
+            && match layout {
+                HomeLayout::Default => self.movies.is_empty() && self.series.is_empty(),
+                HomeLayout::Modern => self.libraries.iter().all(|(_, items)| items.is_empty()),
+            }
     }
 }
 
-/// Continue Watching, Next Up, Movies row, Series row; all Libraries.
+/// The Hero: Play starts `play`; `art` (an Episode's Series, else `play` in full)
+/// supplies the logo, backdrop and overview.
+struct Featured {
+    play: Item,
+    art: Item,
+}
+
+/// Default: Continue Watching, Next Up, Movies row, Series row, all Libraries merged.
+/// Modern: Hero, Continue Watching, Next Up, then one row per Library.
 pub struct HomeView {
     api: Api,
+    layout: HomeLayout,
     rows: Rows,
     loading: bool,
     error: Option<SharedString>,
-    /// Per row, same order as `render`'s rows; drives the heading arrows.
-    scroll: [ScrollHandle; 4],
+    /// Per row, same order as `render`'s rows, keyed by row id so a row keeps its
+    /// scroll when rows come or go; drives the heading arrows.
+    scroll: Vec<(SharedString, ScrollHandle)>,
     /// Arrow-driven slide in progress; advanced each frame in `render`.
     paging: Option<Paging>,
     /// When the rows last loaded; `None` means stale.
@@ -61,9 +80,10 @@ struct Paging {
 impl EventEmitter<Nav> for HomeView {}
 
 impl HomeView {
-    pub fn new(api: Api) -> Self {
+    pub fn new(api: Api, layout: HomeLayout) -> Self {
         Self {
             api,
+            layout,
             rows: Rows::default(),
             loading: false,
             error: None,
@@ -82,6 +102,13 @@ impl HomeView {
         self.loading = false;
     }
 
+    /// Switches layout; Modern's Library rows load on the next visit.
+    pub fn set_layout(&mut self, layout: HomeLayout, cx: &mut Context<Self>) {
+        self.layout = layout;
+        self.mark_stale();
+        cx.notify();
+    }
+
     /// Reloads unless the data is under a minute old.
     pub fn refresh_if_stale(&mut self, cx: &mut Context<Self>) {
         const FRESH_FOR: Duration = Duration::from_secs(60);
@@ -94,24 +121,55 @@ impl HomeView {
     /// Keeps showing the current rows until fresh data arrives.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         let api = self.api.clone();
+        let modern = self.layout == HomeLayout::Modern;
         self.loading = true;
         cx.notify();
         self._load = cx.spawn(async move |this, cx| {
             // over-fetch: dedupe below drops items already in Continue Watching
-            let (resume, next_up, movies, series) = cx
+            let (resume, next_up, movies, series, libraries, featured) = cx
                 .background_spawn(async move {
-                    futures::join!(
+                    let (resume, next_up, movies, series, libraries) = futures::join!(
                         api.resume(PER_ROW),
                         api.next_up_all(PER_ROW * 2),
-                        api.latest_unplayed(Kind::Movie, PER_ROW * 2),
-                        api.latest_unplayed(Kind::Series, PER_ROW),
-                    )
+                        // each layout fetches only the rows it shows
+                        async {
+                            match modern {
+                                true => Ok(Vec::new()),
+                                false => api.latest_unplayed(Kind::Movie, PER_ROW * 2).await,
+                            }
+                        },
+                        async {
+                            match modern {
+                                true => Ok(Vec::new()),
+                                false => api.latest_unplayed(Kind::Series, PER_ROW).await,
+                            }
+                        },
+                        async {
+                            match modern {
+                                true => library_rows(&api).await,
+                                false => Ok(Vec::new()),
+                            }
+                        },
+                    );
+                    let pick = resume
+                        .as_ref()
+                        .ok()
+                        .and_then(|items| items.first())
+                        .or_else(|| {
+                            let libraries = libraries.as_ref().ok()?;
+                            libraries.iter().find_map(|(_, items)| items.first())
+                        });
+                    let featured = match pick.filter(|_| modern) {
+                        Some(play) => Some(featured(&api, play.clone()).await),
+                        None => None,
+                    };
+                    (resume, next_up, movies, series, libraries, featured)
                 })
                 .await;
             this.update(cx, |this, cx| {
                 this.loading = false;
-                match (resume, next_up, movies, series) {
-                    (Ok(continue_watching), Ok(next_up), Ok(movies), Ok(series)) => {
+                match (resume, next_up, movies, series, libraries) {
+                    (Ok(continue_watching), Ok(next_up), Ok(movies), Ok(series), Ok(libraries)) => {
                         let resumed =
                             |item: &Item| continue_watching.iter().any(|c| c.id == item.id);
                         let next_up = next_up
@@ -130,11 +188,17 @@ impl HomeView {
                             next_up,
                             movies,
                             series,
+                            libraries,
+                            featured,
                         };
                         this.error = None;
                         this.loaded_at = Some(Instant::now());
                     }
-                    (Err(err), ..) | (_, Err(err), ..) | (.., Err(err), _) | (.., Err(err)) => {
+                    (Err(err), ..)
+                    | (_, Err(err), ..)
+                    | (_, _, Err(err), ..)
+                    | (.., Err(err), _)
+                    | (.., Err(err)) => {
                         this.error = Some(format!("Could not load Home: {err}").into());
                     }
                 }
@@ -158,7 +222,7 @@ impl HomeView {
     /// starts at the left gutter: forward brings the first cropped card there.
     fn page(&mut self, row: usize, next: bool, window: &mut Window) {
         let gutter = page();
-        let scroll = &self.scroll[row];
+        let scroll = &self.scroll[row].1;
         let viewport = scroll.bounds();
         // card lefts/rights in content coords (child bounds are unscrolled)
         let cards: Vec<(Pixels, Pixels)> = (0..)
@@ -220,7 +284,7 @@ impl HomeView {
         } else {
             (paging.start.elapsed().as_secs_f32() / PAGE_ANIMATION.as_secs_f32()).min(1.)
         };
-        let scroll = &self.scroll[paging.row];
+        let scroll = &self.scroll[paging.row].1;
         let mut offset = scroll.offset();
         offset.x = paging.from + (paging.to - paging.from) * ease_out_quint()(t);
         scroll.set_offset(offset);
@@ -233,8 +297,8 @@ impl HomeView {
 
     /// One Home row: its cards plus page arrows wired to this row's paging.
     fn row(
-        title: &'static str,
-        id: &'static str,
+        title: SharedString,
+        id: SharedString,
         cards: Vec<AnyElement>,
         row: usize,
         scroll: ScrollHandle,
@@ -278,7 +342,7 @@ impl HomeView {
 
 impl Render for HomeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.rows.is_empty()
+        if self.rows.is_empty(self.layout)
             && let Some(status) = Status::pick(
                 self.error.clone(),
                 self.loading,
@@ -317,16 +381,84 @@ impl Render for HomeView {
                 })
                 .collect()
         };
-        let continue_watching = wide(&self.rows.continue_watching, cx);
-        let next_up = wide(&self.rows.next_up, cx);
-        let movies = posters(&self.rows.movies, cx);
-        let series = posters(&self.rows.series, cx);
-
-        self.advance_paging(window, cx);
-        let row = |title, id, cards, ix: usize, cx: &mut Context<Self>| {
-            let scroll = self.scroll[ix].clone();
-            Self::row(title, id, cards, ix, scroll, cx)
+        // (title, element id, cards), in screen order; each row's index is its scroll handle
+        let mut rows: Vec<(SharedString, SharedString, Vec<AnyElement>)> = vec![
+            (
+                "Continue Watching".into(),
+                "row-continue".into(),
+                wide(&self.rows.continue_watching, cx),
+            ),
+            (
+                "Next Up".into(),
+                "row-next-up".into(),
+                wide(&self.rows.next_up, cx),
+            ),
+        ];
+        let hero = match self.layout {
+            HomeLayout::Default => {
+                rows.push((
+                    "Movies".into(),
+                    "row-movies".into(),
+                    posters(&self.rows.movies, cx),
+                ));
+                rows.push((
+                    "Series".into(),
+                    "row-series".into(),
+                    posters(&self.rows.series, cx),
+                ));
+                None
+            }
+            HomeLayout::Modern => {
+                for (library, items) in &self.rows.libraries {
+                    rows.push((
+                        library.name.clone().into(),
+                        format!("row-library-{}", library.id).into(),
+                        posters(items, cx),
+                    ));
+                }
+                self.rows.featured.as_ref().map(|featured| {
+                    let (play, art) = (&featured.play, &featured.art);
+                    Hero {
+                        backdrop: api.backdrop_url(art),
+                        logo: api.logo_url(art),
+                        title: art.name.clone().into(),
+                        meta: hero_meta(play, art).into(),
+                        overview: art.overview.clone().map(Into::into),
+                        on_play: Self::play_on_click(play, cx),
+                        on_more: Self::open_on_click(&play.detail_target(), cx),
+                    }
+                })
+            }
         };
+
+        if !self
+            .scroll
+            .iter()
+            .map(|(id, _)| id)
+            .eq(rows.iter().map(|(_, id, _)| id))
+        {
+            // a running slide targets a row by index, which may now be another row
+            self.paging = None;
+            let mut old = std::mem::take(&mut self.scroll);
+            self.scroll = rows
+                .iter()
+                .map(|(_, id, _)| {
+                    let kept = old
+                        .iter()
+                        .position(|(o, _)| o == id)
+                        .map(|ix| old.remove(ix).1);
+                    (id.clone(), kept.unwrap_or_default())
+                })
+                .collect();
+        }
+        self.advance_paging(window, cx);
+        let rows: Vec<AnyElement> = rows
+            .into_iter()
+            .enumerate()
+            .filter_map(|(ix, (title, id, cards))| {
+                Self::row(title, id, cards, ix, self.scroll[ix].1.clone(), cx)
+            })
+            .collect();
         // shown while a background refresh fails but the rows still have the old data
         let retry: OnClick = Box::new(cx.listener(|this, _, _, cx| this.refresh(cx)));
         let banner = self
@@ -339,17 +471,44 @@ impl Render for HomeView {
             .child(
                 rows_page("home")
                     .children(banner)
-                    .children(row(
-                        "Continue Watching",
-                        "row-continue",
-                        continue_watching,
-                        0,
-                        cx,
-                    ))
-                    .children(row("Next Up", "row-next-up", next_up, 1, cx))
-                    .children(row("Movies", "row-movies", movies, 2, cx))
-                    .children(row("Series", "row-series", series, 3, cx)),
+                    .children(hero)
+                    .children(rows),
             )
             .into_any_element()
     }
+}
+
+/// Each Movie and Series Library with its newest items, in server order.
+async fn library_rows(api: &Api) -> anyhow::Result<Vec<(Library, Vec<Item>)>> {
+    let libraries = api.libraries().await?;
+    let rows =
+        futures::future::try_join_all(libraries.iter().map(|l| api.latest_in(l, PER_ROW))).await?;
+    Ok(libraries.into_iter().zip(rows).collect())
+}
+
+/// The Hero for `play`, with its art item's full details: list items carry no logo
+/// tag or overview. A failed lookup keeps the list item.
+async fn featured(api: &Api, play: Item) -> Featured {
+    let art = api
+        .item(&play.detail_target().id)
+        .await
+        .unwrap_or_else(|_| play.clone());
+    Featured { play, art }
+}
+
+/// `S01E02 · Name` for an Episode; else year · runtime · ★ rating, skipping missing parts.
+fn hero_meta(play: &Item, art: &Item) -> String {
+    if play.kind == Kind::Episode {
+        return play.episode_label();
+    }
+    [
+        art.production_year.map(|year| year.to_string()),
+        art.run_time_ticks.map(runtime_label),
+        art.community_rating
+            .map(|score| format!("\u{2605} {score:.1}")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" \u{b7} ")
 }

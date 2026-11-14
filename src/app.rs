@@ -373,7 +373,7 @@ impl AppView {
             }
         });
         let home = cx.new(|cx| {
-            let mut home = HomeView::new(api.clone());
+            let mut home = HomeView::new(api.clone(), config.home_layout);
             home.refresh(cx);
             home
         });
@@ -621,6 +621,13 @@ impl AppView {
                     this.config.backdrops = *show;
                     if let Screen::Main(main) = &this.screen {
                         main.sync_backdrops(show.0, cx);
+                    }
+                }
+                SettingsChanged::Layout(layout) => {
+                    this.config.home_layout = *layout;
+                    if let Screen::Main(main) = &this.screen {
+                        main.home
+                            .update(cx, |view, cx| view.set_layout(*layout, cx));
                     }
                 }
                 SettingsChanged::Audio(style) => this.config.audio = *style,

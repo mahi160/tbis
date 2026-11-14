@@ -114,6 +114,9 @@ pub struct Config {
     pub hide_spoilers: HideSpoilers,
     #[serde(default)]
     pub backdrops: ShowBackdrops,
+    /// Home layout (Settings).
+    #[serde(default)]
+    pub home_layout: HomeLayout,
     #[serde(default)]
     pub auto_skip: AutoSkip,
     /// Audio passthrough and loudness normalization (Settings), for the Player and PiP.
@@ -220,6 +223,27 @@ impl VideoQuality {
             Self::Fast => Some("fast"),
             Self::Balanced => None,
             Self::High => Some("high-quality"),
+        }
+    }
+}
+
+/// How Home arranges its rows (Settings).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum HomeLayout {
+    /// Continue Watching, Next Up, then Movies and Series rows merged from every Library.
+    #[default]
+    Default,
+    /// A Hero, Continue Watching, Next Up, then one row per Library.
+    Modern,
+}
+
+impl HomeLayout {
+    pub const ALL: [Self; 2] = [Self::Default, Self::Modern];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Default => "Default",
+            Self::Modern => "Modern",
         }
     }
 }
@@ -390,6 +414,7 @@ fn defaults() -> Config {
         theme: None,
         hide_spoilers: HideSpoilers::default(),
         backdrops: ShowBackdrops::default(),
+        home_layout: HomeLayout::default(),
         auto_skip: AutoSkip::default(),
         audio: AudioStyle::default(),
     }
@@ -451,8 +476,8 @@ fn save_to(config: &Config, path: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AudioStyle, Config, VideoQuality, WindowState, defaults, forget_session_at, load_from,
-        save_to,
+        AudioStyle, Config, HomeLayout, VideoQuality, WindowState, defaults, forget_session_at,
+        load_from, save_to,
     };
     use crate::jellyfin::Session;
     use std::fs;
@@ -613,6 +638,14 @@ mod tests {
         json.as_object_mut().unwrap().remove("video_quality");
         let config: Config = serde_json::from_value(json).unwrap();
         assert_eq!(config.video_quality, VideoQuality::High);
+    }
+
+    #[test]
+    fn config_without_home_layout_loads_as_default() {
+        let mut json = serde_json::to_value(defaults()).unwrap();
+        json.as_object_mut().unwrap().remove("home_layout");
+        let config: Config = serde_json::from_value(json).unwrap();
+        assert_eq!(config.home_layout, HomeLayout::Default);
     }
 
     #[test]
