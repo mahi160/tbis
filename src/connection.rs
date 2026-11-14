@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow};
 use futures::future::{Either, select};
 use gpui_kit::{BackgroundExecutor, http_client::HttpClient};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(target_os = "macos")]
 pub use crate::tailnet::Service;
@@ -126,6 +126,7 @@ async fn wait_for_node(
     mut auth_url: impl FnMut(Option<String>),
 ) -> Result<()> {
     use crate::tailscale::BackendState;
+    use std::time::Instant;
     let deadline = Instant::now() + Duration::from_secs(if interactive { 300 } else { 15 });
     loop {
         let service = service.clone();
