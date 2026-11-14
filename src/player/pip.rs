@@ -14,7 +14,7 @@ use crate::mpv::{Mpv, VideoSize};
 
 use super::{
     CONTEXT, Escape, NextEpisode, PlayerView, PreviousEpisode, SeekBack, SeekBackLong, SeekForward,
-    SeekForwardLong, TogglePause, TogglePip,
+    SeekForwardLong, TogglePause, TogglePip, logged,
 };
 
 /// mpv sizes subtitles to the window, so they shrink to unreadable in PiP; this enlarges them.
@@ -26,7 +26,10 @@ fn scale_subs(mpv: &Mpv, factor: f64) {
         .property("sub-scale")
         .and_then(|s| s.parse::<f64>().ok())
     {
-        let _ = mpv.set_property("sub-scale", &(scale * factor).to_string());
+        logged(
+            "set_property",
+            mpv.set_property("sub-scale", &(scale * factor).to_string()),
+        );
     }
 }
 
@@ -90,7 +93,7 @@ impl PipView {
     fn toggle_pause(&mut self, _: &TogglePause, _: &mut Window, cx: &mut Context<Self>) {
         let _ = self.player.update(cx, |player, _| {
             if let Some(mpv) = &player.mpv {
-                let _ = mpv.set_pause(!player.paused);
+                logged("set_pause", mpv.set_pause(!player.paused));
             }
         });
     }

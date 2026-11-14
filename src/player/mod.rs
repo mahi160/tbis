@@ -200,7 +200,7 @@ impl PlayerView {
             cx.subscribe_in(&volume_slider, window, |this, _, event, window, cx| {
                 let (SliderEvent::Change(value) | SliderEvent::Release(value)) = event;
                 if let Some(mpv) = this.active_mpv() {
-                    let _ = mpv.set_volume(value.end() as f64);
+                    logged("set_volume", mpv.set_volume(value.end() as f64));
                 }
                 this.show_controls(window, cx);
             }),
@@ -224,8 +224,8 @@ impl PlayerView {
             .collect();
         let (mpv, mpv_error) = match Mpv::new(window, &api.auth_header(), &defaults, events_tx) {
             Ok(mpv) => {
-                let _ = mpv.set_volume(volume);
-                let _ = mpv.set_mute(muted);
+                logged("set_volume", mpv.set_volume(volume));
+                logged("set_mute", mpv.set_mute(muted));
                 (Some(mpv), None)
             }
             Err(err) => {
@@ -449,6 +449,13 @@ impl PlayerView {
     /// Track memory to persist on quit, mirroring what `Closed` carries on a normal close.
     pub fn track_prefs(&self) -> TrackPrefs {
         self.track_prefs.clone()
+    }
+}
+
+/// Logs a failed mpv call the Player can carry on without.
+pub(super) fn logged<T, E: std::fmt::Display>(what: &str, result: Result<T, E>) {
+    if let Err(err) = result {
+        crate::log::write(&format!("mpv: {what} failed: {err}"));
     }
 }
 

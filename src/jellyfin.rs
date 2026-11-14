@@ -26,6 +26,35 @@ pub fn normalize_server(input: &str) -> String {
     }
 }
 
+/// True when `server` (already normalized) is plain HTTP to a host outside private
+/// networks: sign-in details would cross the internet unencrypted.
+pub fn is_unencrypted_remote(server: &str) -> bool {
+    let Ok(url) = Url::parse(server) else {
+        return false;
+    };
+    if url.scheme() != "http" {
+        return false;
+    }
+    match url.host() {
+        Some(url::Host::Ipv4(ip)) => {
+            // 100.64.0.0/10 is carrier-grade NAT space, used by Tailscale
+            let cgnat = ip.octets()[0] == 100 && (64..128).contains(&ip.octets()[1]);
+            !(ip.is_private() || ip.is_loopback() || ip.is_link_local() || cgnat)
+        }
+        Some(url::Host::Ipv6(ip)) => !(ip.is_loopback() || ip.is_unique_local()),
+        Some(url::Host::Domain(name)) => {
+            let name = name.to_ascii_lowercase();
+            // a bare name (no dot) or .local/.lan/.home is a machine on the local network
+            name.contains('.')
+                && name != "localhost"
+                && ![".local", ".lan", ".home", ".internal", ".ts.net"]
+                    .iter()
+                    .any(|suffix| name.ends_with(suffix))
+        }
+        None => false,
+    }
+}
+
 fn auth_header(device_id: &str, token: Option<&str>) -> String {
     let mut header = format!(
         r#"MediaBrowser Client="tbis", Device="Mac", DeviceId="{device_id}", Version="{}""#,
@@ -1351,7 +1380,7 @@ pub async fn quick_connect_login(
 mod tests {
     use super::{
         Api, Item, Person, PlaybackItem, Segment, SegmentKind, Session, SessionExpired,
-        TrickplayInfo, blurred, login, normalize_server,
+        TrickplayInfo, blurred, is_unencrypted_remote, login, normalize_server,
     };
     use gpui_kit::http_client::Method;
     use std::io::{Read as _, Write as _};
@@ -1625,5 +1654,20 @@ mod tests {
         );
         assert_eq!(normalize_server("HTTP://host"), "HTTP://host");
         assert_eq!(normalize_server("host/jellyfin/"), "http://host/jellyfin");
+    }
+
+    #[test]
+    fn flags_only_unencrypted_public_servers() {
+        for (server, expected) in [
+            ("http://192.168.1.5:8096", false),
+            ("http://100.100.1.2:8096", false),
+            ("http://nas:8096", false),
+            ("http://jellyfin.local", false),
+            ("https://example.com", false),
+            ("http://example.com:8096", true),
+            ("http://8.8.8.8", true),
+        ] {
+            assert_eq!(is_unencrypted_remote(server), expected, "{server}");
+        }
     }
 }

@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done, runtime unverified (caption not seen on the sign-in screen)
 
 **Read first:** `src/jellyfin.rs` (`fn normalize_server` and its tests), `src/login.rs` (`fn render`, where the Server field and error text are placed), `src/components/typography.rs` (`caption`).
 
@@ -55,9 +55,9 @@
 
 ## Done when
 
-- [ ] The caption shows for a public `http://` address and for a public host typed without a scheme
-- [ ] It does not show for private, loopback, tailnet, local-name or `https://` addresses
-- [ ] Signing in still works in every case
-- [ ] The seven test cases pass
+- [x] The caption shows for a public `http://` address and for a public host typed without a scheme
+- [x] It does not show for private, loopback, tailnet, local-name or `https://` addresses
+- [x] Signing in still works in every case
+- [x] The seven test cases pass
 
 **Check:** the gate in `PLAN.md`.

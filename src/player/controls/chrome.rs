@@ -24,6 +24,7 @@ use super::super::{
     TogglePip, TogglePlaybackInfo,
 };
 use super::SPEEDS;
+use crate::player::logged;
 
 /// Menu rows for `tracks`: (mpv track id, label, checked); `with_off` leads with "Off" (id None).
 fn track_choices(
@@ -369,7 +370,7 @@ impl PlayerView {
                 let seconds = chapters[ix].start_seconds();
                 this.update(cx, |this, _| {
                     if let Some(mpv) = this.active_mpv() {
-                        let _ = mpv.seek(seconds);
+                        logged("seek", mpv.seek(seconds));
                     }
                 })
                 .ok();

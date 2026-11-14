@@ -239,6 +239,9 @@ impl Render for LoginView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let busy = self.busy;
         let field = |label, input, cx: &App| text_field(label, input, busy, cx);
+        let server = self.server.read(cx).value();
+        let unencrypted = !server.trim().is_empty()
+            && jellyfin::is_unencrypted_remote(&jellyfin::normalize_server(&server));
 
         centered_scroll(
             "login",
@@ -267,6 +270,12 @@ impl Render for LoginView {
                             ),
                         None => this
                             .child(field("Server address", &self.server, cx))
+                            .when(unencrypted, |this| {
+                                this.child(caption(
+                                    "This address is not encrypted. Use https:// if your server supports it.",
+                                    cx,
+                                ))
+                            })
                             .when(!self.users.is_empty(), |this| {
                                 this.child(h_flex().flex_wrap().gap(gap::item()).children(
                                     self.users.iter().enumerate().map(|(i, user)| {

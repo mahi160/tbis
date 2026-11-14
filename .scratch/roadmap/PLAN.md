@@ -87,8 +87,8 @@ House rules that apply to every ticket:
 
 | # | Ticket | Model | Status |
 | --- | --- | --- | --- |
-| 24 | Log dropped mpv errors in the Player | haiku | ready |
-| 25 | Warn about unencrypted remote servers | haiku | ready |
+| 24 | Log dropped mpv errors in the Player | haiku | done |
+| 25 | Warn about unencrypted remote servers | haiku | done |
 | 26 | Split `jellyfin.rs` into modules | sonnet | ready |
 | 27 | Signed releases | human | needs-human |
 

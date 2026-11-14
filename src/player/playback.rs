@@ -12,6 +12,7 @@ use crate::mpv::{FileEvent, MpvEvent, PlayerEvent, Track, TrackKind};
 
 use super::PlayerView;
 use super::controls::StaticInfo;
+use super::logged;
 
 /// Seconds left in an Episode when the next one is offered.
 const UP_NEXT_AT: f64 = 30.;
@@ -384,7 +385,7 @@ impl PlayerView {
             return;
         }
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.seek(segment.end);
+            logged("seek", mpv.seek(segment.end));
         }
         self.refocus(window, cx);
     }
@@ -425,8 +426,8 @@ impl PlayerView {
         self.end_current();
         if let Some(mpv) = &self.mpv {
             // stop old file during fetch; pause would carry over
-            let _ = mpv.stop();
-            let _ = mpv.set_pause(false);
+            logged("stop", mpv.stop());
+            logged("set_pause", mpv.set_pause(false));
         }
         self.paused = false;
         self.playback = Playback::new(&next, &self.api, cx);
@@ -466,7 +467,7 @@ impl PlayerView {
         // Stopped also ends the server's transcode for the old stream
         self.end_current();
         if let Some(mpv) = &self.mpv {
-            let _ = mpv.stop();
+            logged("stop", mpv.stop());
         }
         self.playback = Playback::new(&item, &self.api, cx);
         self.load(item.id, at, cx);
@@ -519,7 +520,7 @@ impl PlayerView {
 
     pub(super) fn select_track(&mut self, kind: TrackKind, id: Option<i64>) {
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.select_track(kind, id);
+            logged("select_track", mpv.select_track(kind, id));
         }
         self.remember_track(kind, id);
     }
@@ -527,7 +528,10 @@ impl PlayerView {
     /// Not remembered: track memory only covers the primary subtitle.
     pub(super) fn select_secondary_subtitle(&mut self, id: Option<i64>) {
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.select_secondary_subtitle(id);
+            logged(
+                "select_secondary_subtitle",
+                mpv.select_secondary_subtitle(id),
+            );
         }
     }
 
@@ -624,13 +628,13 @@ impl PlayerView {
         if let Some(mpv) = self.active_mpv()
             && let Some(id) = audio
         {
-            let _ = mpv.select_track(TrackKind::Audio, Some(id));
+            logged("select_track", mpv.select_track(TrackKind::Audio, Some(id)));
         }
 
         if let Some(r) = remembered {
             if r.subtitle_off {
                 if let Some(mpv) = self.active_mpv() {
-                    let _ = mpv.select_track(TrackKind::Subtitle, None);
+                    logged("select_track", mpv.select_track(TrackKind::Subtitle, None));
                 }
                 return;
             }
@@ -639,7 +643,10 @@ impl PlayerView {
                 .filter(|id| self.has_track(TrackKind::Subtitle, *id))
             {
                 if let Some(mpv) = self.active_mpv() {
-                    let _ = mpv.select_track(TrackKind::Subtitle, Some(id));
+                    logged(
+                        "select_track",
+                        mpv.select_track(TrackKind::Subtitle, Some(id)),
+                    );
                 }
                 return;
             }
@@ -648,7 +655,10 @@ impl PlayerView {
             && let Some(id) = self.track_by_lang(TrackKind::Subtitle, subtitle_lang.as_deref())
             && let Some(mpv) = self.active_mpv()
         {
-            let _ = mpv.select_track(TrackKind::Subtitle, Some(id));
+            logged(
+                "select_track",
+                mpv.select_track(TrackKind::Subtitle, Some(id)),
+            );
         }
     }
 
@@ -762,7 +772,7 @@ impl PlayerView {
             (current as i32 + direction).clamp(0, item.chapters.len() as i32 - 1) as usize
         };
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.seek(item.chapters[target].start_seconds());
+            logged("seek", mpv.seek(item.chapters[target].start_seconds()));
         }
     }
 }

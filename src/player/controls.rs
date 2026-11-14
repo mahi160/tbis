@@ -21,6 +21,7 @@ use crate::now_playing::{Info, NowPlaying, RemoteCommand};
 use crate::shaders::ShaderProfile;
 
 use super::clock::format_time;
+use super::logged;
 mod chrome;
 
 use super::{
@@ -92,7 +93,10 @@ impl PlayerView {
             SliderEvent::Release(value) => {
                 self.playback.scrubbing = None;
                 if let Some(mpv) = &self.mpv {
-                    let _ = mpv.seek(value.end() as f64 * self.playback.duration);
+                    logged(
+                        "seek",
+                        mpv.seek(value.end() as f64 * self.playback.duration),
+                    );
                 }
             }
         }
@@ -111,7 +115,7 @@ impl PlayerView {
 
     fn pause_toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.set_pause(!self.paused);
+            logged("set_pause", mpv.set_pause(!self.paused));
         }
         self.refocus(window, cx);
     }
@@ -137,7 +141,10 @@ impl PlayerView {
         let steps = cx.global::<SeekSteps>();
         let seconds = f64::from(if long { steps.long } else { steps.short });
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.seek_by(if forward { seconds } else { -seconds });
+            logged(
+                "seek_by",
+                mpv.seek_by(if forward { seconds } else { -seconds }),
+            );
         }
     }
 
@@ -164,7 +171,7 @@ impl PlayerView {
 
     fn seek_back_nudge(&mut self, _: &SeekBackNudge, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.seek_by(-5.);
+            logged("seek_by", mpv.seek_by(-5.));
         }
         self.show_controls(window, cx);
     }
@@ -176,28 +183,28 @@ impl PlayerView {
         cx: &mut Context<Self>,
     ) {
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.seek_by(5.);
+            logged("seek_by", mpv.seek_by(5.));
         }
         self.show_controls(window, cx);
     }
 
     fn frame_back(&mut self, _: &FrameBack, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.frame_step(false);
+            logged("frame_step", mpv.frame_step(false));
         }
         self.show_controls(window, cx);
     }
 
     fn frame_forward(&mut self, _: &FrameForward, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.frame_step(true);
+            logged("frame_step", mpv.frame_step(true));
         }
         self.show_controls(window, cx);
     }
 
     fn toggle_mute(&mut self, _: &ToggleMute, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.set_mute(!self.muted);
+            logged("set_mute", mpv.set_mute(!self.muted));
         }
         let message = if self.muted { "Unmuted" } else { "Muted" };
         self.flash(message.into(), window, cx);
@@ -221,7 +228,7 @@ impl PlayerView {
             } else {
                 (self.volume - VOLUME_STEP).max(0.)
             };
-            let _ = mpv.set_volume(volume);
+            logged("set_volume", mpv.set_volume(volume));
         }
         self.show_controls(window, cx);
         self.show_volume_hud(window, cx);
@@ -401,7 +408,10 @@ impl PlayerView {
         match command {
             RemoteCommand::Play | RemoteCommand::Pause => {
                 if let Some(mpv) = self.active_mpv() {
-                    let _ = mpv.set_pause(matches!(command, RemoteCommand::Pause));
+                    logged(
+                        "set_pause",
+                        mpv.set_pause(matches!(command, RemoteCommand::Pause)),
+                    );
                 }
             }
             RemoteCommand::Toggle => self.toggle_pause(&TogglePause, window, cx),
@@ -409,7 +419,7 @@ impl PlayerView {
             RemoteCommand::SkipBackward => self.seek_back(&SeekBack, window, cx),
             RemoteCommand::Seek(seconds) => {
                 if let Some(mpv) = self.active_mpv() {
-                    let _ = mpv.seek(seconds);
+                    logged("seek", mpv.seek(seconds));
                 }
             }
             RemoteCommand::Previous => self.previous_episode(&PreviousEpisode, window, cx),
@@ -500,7 +510,7 @@ impl PlayerView {
                 announce.then(|| Notification::info(format!("Upscaling: {}", profile.label())))
             }
             Err(err) => {
-                let _ = mpv.set_property("glsl-shaders", "");
+                logged("set_property", mpv.set_property("glsl-shaders", ""));
                 self.shaders = ShaderProfile::Off;
                 Some(Notification::error(format!("Upscaling unavailable: {err}")))
             }
