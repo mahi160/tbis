@@ -594,6 +594,7 @@ impl AppView {
                 SettingsChanged::Subtitles(style) => this.config.subtitles = style.clone(),
                 SettingsChanged::MaxBitrate(cap) => this.config.max_bitrate_mbps = *cap,
                 SettingsChanged::Shaders(profile) => this.config.shaders = *profile,
+                SettingsChanged::VideoQuality(quality) => this.config.video_quality = *quality,
                 SettingsChanged::Seek(steps) => {
                     this.config.seek = *steps;
                     cx.set_global(*steps);

@@ -213,6 +213,13 @@ impl PlayerView {
             .mpv_options()
             .into_iter()
             .chain(config.audio.mpv_options())
+            // as an option, not `apply-profile`, so the user's mpv.conf still overrides it
+            .chain(
+                config
+                    .video_quality
+                    .mpv_profile()
+                    .map(|profile| ("profile", profile.to_string())),
+            )
             .collect();
         let (mpv, mpv_error) = match Mpv::new(window, &api.auth_header(), &defaults, events_tx) {
             Ok(mpv) => {

@@ -10,7 +10,7 @@ use crate::components::layout::{grow, page_header};
 use crate::components::settings::{SettingField, SettingGroup, SettingItem, SettingPage, settings};
 use crate::config::{
     AudioStyle, BITRATE_CAPS, Config, HideSpoilers, LanguagePref, SeekSteps, ShowBackdrops,
-    SubtitleStyle,
+    SubtitleStyle, VideoQuality,
 };
 use crate::mpv;
 use crate::nav::Nav;
@@ -56,6 +56,7 @@ pub enum SettingsChanged {
     Subtitles(SubtitleStyle),
     MaxBitrate(Option<u32>),
     Shaders(ShaderProfile),
+    VideoQuality(VideoQuality),
     Seek(SeekSteps),
     Theme(String),
     HideSpoilers(HideSpoilers),
@@ -68,13 +69,14 @@ pub struct SettingsView {
     subtitles: Entity<SubtitleStyle>,
     max_bitrate: Entity<Option<u32>>,
     shaders: Entity<ShaderProfile>,
+    video_quality: Entity<VideoQuality>,
     seek: Entity<SeekSteps>,
     theme: Entity<SharedString>,
     hide_spoilers: Entity<HideSpoilers>,
     backdrops: Entity<ShowBackdrops>,
     audio: Entity<AudioStyle>,
     mpv_conf: Entity<TextareaState>,
-    _observe: [Subscription; 9],
+    _observe: [Subscription; 10],
     _save_mpv_conf: Subscription,
 }
 
@@ -87,6 +89,7 @@ impl SettingsView {
         let subtitles = cx.new(|_| config.subtitles.clone());
         let max_bitrate = cx.new(|_| config.max_bitrate_mbps);
         let shaders = cx.new(|_| config.shaders);
+        let video_quality = cx.new(|_| config.video_quality);
         let seek = cx.new(|_| config.seek);
         let theme = cx.new(|_| SharedString::from(theme::active(config)));
         let hide_spoilers = cx.new(|_| config.hide_spoilers);
@@ -117,6 +120,9 @@ impl SettingsView {
             cx.observe(&shaders, |_, shaders, cx| {
                 cx.emit(SettingsChanged::Shaders(*shaders.read(cx)))
             }),
+            cx.observe(&video_quality, |_, quality, cx| {
+                cx.emit(SettingsChanged::VideoQuality(*quality.read(cx)))
+            }),
             cx.observe(&seek, |_, seek, cx| {
                 cx.emit(SettingsChanged::Seek(*seek.read(cx)))
             }),
@@ -140,6 +146,7 @@ impl SettingsView {
             subtitles,
             max_bitrate,
             shaders,
+            video_quality,
             seek,
             theme,
             hide_spoilers,
@@ -244,6 +251,29 @@ impl SettingsView {
     }
 
     fn video_group(&self) -> SettingGroup {
+        let (read, write) = (self.video_quality.clone(), self.video_quality.clone());
+        let quality = SettingItem::new(
+            "Quality",
+            SettingField::dropdown(
+                VideoQuality::ALL
+                    .iter()
+                    .map(|q| (SharedString::from(q.label()), SharedString::from(q.label())))
+                    .collect(),
+                move |cx| read.read(cx).label().into(),
+                move |value, cx| {
+                    write.update(cx, |quality, cx| {
+                        *quality = VideoQuality::ALL
+                            .into_iter()
+                            .find(|q| q.label() == value.as_ref())
+                            .unwrap_or_default();
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description(
+            "Fast saves power; High looks best on a capable GPU. Applies to the next video.",
+        );
         let (read, write) = (self.shaders.clone(), self.shaders.clone());
         let upscaling = SettingItem::new(
             "Upscaling",
@@ -268,7 +298,9 @@ impl SettingsView {
             "Anime4K sharpens and upscales animation; not meant for live action. \
              Quality needs a strong GPU. Press U in the Player to cycle.",
         );
-        SettingGroup::new().title("Video").items([upscaling])
+        SettingGroup::new()
+            .title("Video")
+            .items([quality, upscaling])
     }
 
     fn mpv_group(&self) -> SettingGroup {

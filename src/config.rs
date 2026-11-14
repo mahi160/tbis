@@ -95,6 +95,9 @@ pub struct Config {
     /// Upscaling shaders the Player starts with (Settings).
     #[serde(default)]
     pub shaders: ShaderProfile,
+    /// mpv rendering profile the Player starts with (Settings).
+    #[serde(default)]
+    pub video_quality: VideoQuality,
     /// Player seek distances (Settings).
     #[serde(default)]
     pub seek: SeekSteps,
@@ -165,6 +168,36 @@ impl Default for SubtitleStyle {
             color: "#FFFFFF".into(),
             position: 100,
             background: false,
+        }
+    }
+}
+
+/// mpv rendering profile the Player starts with (Settings).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum VideoQuality {
+    Fast,
+    #[default]
+    Balanced,
+    High,
+}
+
+impl VideoQuality {
+    pub const ALL: [Self; 3] = [Self::Fast, Self::Balanced, Self::High];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Fast => "Fast",
+            Self::Balanced => "Balanced",
+            Self::High => "High",
+        }
+    }
+
+    /// mpv built-in profile to apply; `None` keeps mpv's defaults.
+    pub fn mpv_profile(self) -> Option<&'static str> {
+        match self {
+            Self::Fast => Some("fast"),
+            Self::Balanced => None,
+            Self::High => Some("high-quality"),
         }
     }
 }
@@ -328,6 +361,7 @@ fn defaults() -> Config {
         subtitles: SubtitleStyle::default(),
         max_bitrate_mbps: None,
         shaders: ShaderProfile::Off,
+        video_quality: VideoQuality::default(),
         seek: SeekSteps::default(),
         recent_searches: Vec::new(),
         theme: None,
@@ -392,7 +426,9 @@ fn save_to(config: &Config, path: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{WindowState, defaults, forget_session_at, load_from, save_to};
+    use super::{
+        Config, VideoQuality, WindowState, defaults, forget_session_at, load_from, save_to,
+    };
     use crate::jellyfin::Session;
     use std::fs;
     use std::path::PathBuf;
@@ -544,6 +580,14 @@ mod tests {
         assert_eq!(item.max_bitrate_mbps, None);
         assert_eq!(item.subtitle_delay, Some(-5.));
         assert!(!loaded.playback.contains_key("other"));
+    }
+
+    #[test]
+    fn config_without_video_quality_loads_as_balanced() {
+        let mut json = serde_json::to_value(defaults()).unwrap();
+        json.as_object_mut().unwrap().remove("video_quality");
+        let config: Config = serde_json::from_value(json).unwrap();
+        assert_eq!(config.video_quality, VideoQuality::Balanced);
     }
 
     #[test]
