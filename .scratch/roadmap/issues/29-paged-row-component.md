@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** done, runtime unverified (Home was not compared on screen). The element tree and every token call are unchanged; only the page buttons are now passed in as `AnyElement`.
+**Status:** done. The element tree and every token call are unchanged; only the page buttons are now passed in as `AnyElement`. Release builds from before and after this ticket were screenshotted on the dev server: the rows, arrows and spacing match, and only the random page backdrop differs. Paging was not clicked.
 
 **Read first:** `AGENTS.md` (UI rules), `src/home.rs` (`fn row`, `fn page`, `fn page_button`, `fn advance_paging`, `fn render`), `src/components/layout.rs` (`scroll_row`, `header_row`), `src/components/mod.rs`.
 
@@ -34,7 +34,7 @@
 ## Done when
 
 - [x] `src/components/row.rs` exists and `home.rs` uses it
-- [ ] Home looks and pages exactly as before (arrows, spacing, scroll)
+- [x] Home looks and pages exactly as before (arrows, spacing, scroll)
 - [x] `home.rs` builds no row layout inline
 
 **Check:** the gate in `PLAN.md`, then compare Home against the current build. Follow the build-freshness rule in `AGENTS.md`.

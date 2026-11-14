@@ -17,7 +17,7 @@ const WIDE_IMAGES: &str = "EnableImageTypes=Primary,Thumb,Backdrop&ImageTypeLimi
 /// Tags needed by `Api::poster_url`, shared by every plain item listing.
 const POSTER_IMAGES: &str = "EnableImageTypes=Primary&ImageTypeLimit=1";
 
-/// Tags needed by `Api::backdrop_url` and `Api::logo_url`, for the Modern view's hero.
+/// Poster, backdrop and logo tags, for the Modern view's cards and hero.
 const HERO_IMAGES: &str = "EnableImageTypes=Primary,Backdrop,Logo&ImageTypeLimit=1";
 
 #[derive(Deserialize)]

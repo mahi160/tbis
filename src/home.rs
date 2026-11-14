@@ -231,7 +231,7 @@ impl HomeView {
         }
     }
 
-    /// Row heading: bold title, plus page arrows.
+    /// One Home row: its cards plus page arrows wired to this row's paging.
     fn row(
         title: &'static str,
         id: &'static str,
