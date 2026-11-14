@@ -220,7 +220,11 @@ impl PlayerView {
                 let _ = mpv.set_mute(muted);
                 (Some(mpv), None)
             }
-            Err(err) => (None, Some(format!("Cannot start player: {err}").into())),
+            Err(err) => {
+                let message = format!("Cannot start player: {err}");
+                crate::log::write(&format!("player error: {message}"));
+                (None, Some(message.into()))
+            }
         };
         playback.error = mpv_error;
 
@@ -392,7 +396,7 @@ impl PlayerView {
     ) {
         let (Some(mpv), Ok(item)) = (&self.mpv, result.as_ref()) else {
             if let Err(err) = result {
-                self.playback.error = Some(format!("Cannot load item: {err}").into());
+                self.fail(format!("Cannot load item: {err}"));
             }
             cx.notify();
             return;
@@ -400,7 +404,7 @@ impl PlayerView {
         let start = start_at.unwrap_or_else(|| item.resume_seconds());
         match mpv.load(&item.stream.url, start) {
             Ok(load) => self.playback.load = Some(load),
-            Err(err) => self.playback.error = Some(err.into()),
+            Err(err) => self.fail(err),
         }
         self.playback.item = result.ok().map(std::sync::Arc::new);
         cx.notify();

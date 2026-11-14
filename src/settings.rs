@@ -12,11 +12,9 @@ use crate::config::{
     AudioStyle, BITRATE_CAPS, Config, HideSpoilers, LanguagePref, SeekSteps, ShowBackdrops,
     SubtitleStyle,
 };
-use crate::connection::{RouteKind, Service};
 use crate::mpv;
 use crate::nav::Nav;
 use crate::shaders::ShaderProfile;
-use crate::tailnet_connect::{ConnectionEvent, TailnetConnectView};
 use crate::theme;
 
 /// Languages offered in Settings: canonical code (ISO 639-2/B, as most containers
@@ -63,8 +61,6 @@ pub enum SettingsChanged {
     HideSpoilers(HideSpoilers),
     Backdrops(ShowBackdrops),
     Audio(AudioStyle),
-    TailscaleEnabled(bool),
-    SignOutTailscale,
 }
 
 pub struct SettingsView {
@@ -78,13 +74,6 @@ pub struct SettingsView {
     backdrops: Entity<ShowBackdrops>,
     audio: Entity<AudioStyle>,
     mpv_conf: Entity<TextareaState>,
-    tailnet: Service,
-    connection: Option<(Entity<TailnetConnectView>, Subscription)>,
-    tailnet_status: SharedString,
-    tailnet_error: Option<String>,
-    signing_out: bool,
-    route: RouteKind,
-    _tailnet_status: Task<()>,
     _observe: [Subscription; 9],
     _save_mpv_conf: Subscription,
 }
@@ -93,37 +82,7 @@ impl EventEmitter<Nav> for SettingsView {}
 impl EventEmitter<SettingsChanged> for SettingsView {}
 
 impl SettingsView {
-    pub fn new(
-        config: &Config,
-        tailnet: Service,
-        route: RouteKind,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let status_service = tailnet.clone();
-        let tailnet_status = cx.spawn(async move |this, cx| {
-            loop {
-                let service = status_service.clone();
-                let result = cx
-                    .background_spawn(async move { service.status_label() })
-                    .await;
-                if this
-                    .update(cx, |this, cx| {
-                        match result {
-                            Ok(status) => this.tailnet_status = status.into(),
-                            Err(_) => this.tailnet_status = "Status unavailable".into(),
-                        }
-                        cx.notify();
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-                cx.background_executor()
-                    .timer(std::time::Duration::from_secs(2))
-                    .await;
-            }
-        });
+    pub fn new(config: &Config, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let language = cx.new(|_| config.language.clone());
         let subtitles = cx.new(|_| config.subtitles.clone());
         let max_bitrate = cx.new(|_| config.max_bitrate_mbps);
@@ -187,96 +146,9 @@ impl SettingsView {
             backdrops,
             audio,
             mpv_conf,
-            tailnet,
-            connection: None,
-            tailnet_status: "Checking…".into(),
-            tailnet_error: None,
-            signing_out: false,
-            route,
-            _tailnet_status: tailnet_status,
             _observe,
             _save_mpv_conf,
         }
-    }
-
-    fn sign_out_tailnet(&mut self, cx: &mut Context<Self>) {
-        if self.signing_out {
-            return;
-        }
-        self.signing_out = true;
-        self.tailnet_error = None;
-        cx.emit(SettingsChanged::SignOutTailscale);
-        cx.notify();
-    }
-
-    pub fn tailnet_signed_out(&mut self, error: Option<String>, cx: &mut Context<Self>) {
-        self.signing_out = false;
-        self.tailnet_error = error;
-        if self.tailnet_error.is_none() {
-            self.tailnet_status = "off".into();
-        }
-        cx.notify();
-    }
-
-    fn connect_tailnet(&mut self, cx: &mut Context<Self>) {
-        if self.signing_out {
-            return;
-        }
-        let service = self.tailnet.clone();
-        let view = cx.new(|cx| TailnetConnectView::new(service, cx));
-        let subscription = cx.subscribe(&view, |this, _, event, cx| {
-            this.connection = None;
-            if let ConnectionEvent::Connected = event {
-                this.tailnet_status = "connected".into();
-                this.tailnet_error = None;
-                cx.emit(SettingsChanged::TailscaleEnabled(true));
-            }
-            cx.notify();
-        });
-        self.connection = Some((view, subscription));
-        cx.notify();
-    }
-
-    fn network_page(&self, cx: &Context<Self>) -> SettingPage {
-        let reconnect = cx.entity().downgrade();
-        let sign_out = reconnect.clone();
-        let description = self.tailnet_error.clone().unwrap_or_else(|| {
-            "Disconnect this device from Tailscale without signing out of Jellyfin.".into()
-        });
-        SettingPage::new("Network").group(
-            SettingGroup::new().title("Tailscale").items([
-                SettingItem::new(
-                    "Node status",
-                    SettingField::text(self.tailnet_status.clone()),
-                ),
-                SettingItem::new("Route in use", SettingField::text(self.route.label())),
-                SettingItem::new(
-                    "Connection",
-                    SettingField::action("Reconnect", move |cx| {
-                        reconnect
-                            .update(cx, |this, cx| this.connect_tailnet(cx))
-                            .ok();
-                    }),
-                )
-                .description("Authorize this device again if its Tailscale login has expired."),
-                SettingItem::new(
-                    "This device",
-                    SettingField::action(
-                        if self.signing_out {
-                            "Signing out…"
-                        } else {
-                            "Sign out of Tailscale"
-                        },
-                        move |cx| {
-                            sign_out
-                                .update(cx, |this, cx| this.sign_out_tailnet(cx))
-                                .ok();
-                        },
-                    ),
-                )
-                .description(description),
-            ]),
-        )
     }
 
     /// Seconds dropdown over one `SeekSteps` field.
@@ -625,9 +497,6 @@ impl SettingsView {
 
 impl Render for SettingsView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if let Some((view, _)) = &self.connection {
-            return view.clone().into_any_element();
-        }
         v_flex()
             .size_full()
             .child(page_header(
@@ -637,12 +506,11 @@ impl Render for SettingsView {
                 ),
                 "Settings",
             ))
-            .child(grow().child(settings("settings").pages([
-                self.playback_page(),
-                self.appearance_page(),
-                self.network_page(cx),
-            ])))
-            .into_any_element()
+            .child(
+                grow().child(
+                    settings("settings").pages([self.playback_page(), self.appearance_page()]),
+                ),
+            )
     }
 }
 

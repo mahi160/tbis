@@ -14,7 +14,6 @@ gpui-pre-reqwest-client = "0.3.9"
 libc = "0.2"
 libmpv-sys = "3"
 raw-window-handle = "0.6"
-qrcode = { version = "0.14.1", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "=0.10.9"

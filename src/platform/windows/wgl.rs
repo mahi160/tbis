@@ -129,6 +129,21 @@ impl Gl {
             let _ = wglDeleteContext(old);
             wglMakeCurrent(gl.dc, context).map_err(|e| e.to_string())?;
         }
+        // logged before the interop check so a failed start still names the driver
+        let gl_string = |name| {
+            let text = unsafe { glGetString(name) };
+            if text.is_null() {
+                "unknown".into()
+            } else {
+                unsafe { CStr::from_ptr(text.cast()) }.to_string_lossy()
+            }
+        };
+        crate::log::write(&format!(
+            "windows video: GL {} | {} | {}",
+            gl_string(GL_VENDOR),
+            gl_string(GL_RENDERER),
+            gl_string(GL_VERSION)
+        ));
         let extensions = load!(
             "wglGetExtensionsStringARB",
             unsafe extern "system" fn(HDC) -> *const c_char

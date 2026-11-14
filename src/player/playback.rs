@@ -180,6 +180,12 @@ impl PlayerView {
         true
     }
 
+    /// Shows `message` in the error panel and records it in the log.
+    pub(super) fn fail(&mut self, message: String) {
+        crate::log::write(&format!("player error: {message}"));
+        self.playback.error = Some(message.into());
+    }
+
     pub(super) fn on_mpv(&mut self, event: MpvEvent, window: &mut Window, cx: &mut Context<Self>) {
         if !event.is_current(self.playback.load) {
             return;
@@ -287,9 +293,7 @@ impl PlayerView {
                 return;
             }
             FileEvent::EndFile(Ok(false)) => {}
-            FileEvent::EndFile(Err(err)) => {
-                self.playback.error = Some(format!("Playback failed: {err}").into())
-            }
+            FileEvent::EndFile(Err(err)) => self.fail(format!("Playback failed: {err}")),
         }
         cx.notify();
     }
@@ -306,7 +310,7 @@ impl PlayerView {
             }
             PlayerEvent::Mute(muted) => self.muted = muted,
             PlayerEvent::RenderFailed(err) => {
-                self.playback.error = Some(format!("Playback failed: {err}").into());
+                self.fail(format!("Playback failed: {err}"));
                 // video is gone for good; mpv would otherwise play on, unseen
                 self.mpv = None;
                 self.drop_pip(cx);
@@ -423,6 +427,12 @@ impl PlayerView {
             .or_default();
         prefs.bitrate_set = true;
         prefs.max_bitrate_mbps = mbps;
+        self.reload_current(cx);
+    }
+
+    /// Restarts the current item in a fresh session from where it is (else its start
+    /// point); also the error panel's Retry.
+    pub(super) fn reload_current(&mut self, cx: &mut Context<Self>) {
         let item = self.playback.source.clone();
         let at = if self.playback.time > 0. {
             Some(self.playback.time)

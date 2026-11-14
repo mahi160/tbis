@@ -25,7 +25,6 @@ pub mod shortcuts;
 pub mod status;
 pub mod tabs;
 pub mod tag;
-pub mod tailnet;
 pub mod title_bar;
 pub mod toggle_button;
 pub mod typography;

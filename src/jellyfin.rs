@@ -634,8 +634,7 @@ struct ItemsResult {
 pub struct Api {
     http: Arc<dyn HttpClient>,
     session: Session,
-    /// Server in use: base of every request and URL. Can differ from the saved
-    /// `session.server` (e.g. a tailnet forwarder); never written to config.
+    /// Server in use: base of every request and URL; never written to config.
     server: String,
     device_id: String,
     /// Fired on every 401 so the app can drop the session and return to sign-in.
@@ -1165,15 +1164,6 @@ pub struct PublicUser {
     pub name: String,
     #[serde(default)]
     pub has_password: bool,
-}
-
-/// Public, unauthenticated reachability check used before selecting a route.
-pub async fn probe(http: Arc<dyn HttpClient>, server: &str) -> Result<()> {
-    let request = Request::builder()
-        .uri(format!("{server}/System/Info/Public"))
-        .body(AsyncBody::empty())?;
-    read_json::<PublicSystemInfo>(send(&http, request).await?).await?;
-    Ok(())
 }
 
 /// Users the server lists on its sign-in screen; empty when it hides them.

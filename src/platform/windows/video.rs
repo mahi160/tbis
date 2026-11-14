@@ -138,8 +138,6 @@ impl Drop for Interop {
 impl Runtime {
     fn new(hwnd: HWND) -> Result<Self, String> {
         let apartment = Apartment::new()?;
-        let gl = Gl::new()?;
-        let functions = Functions::load()?;
         let mut device = None;
         unsafe {
             D3D11CreateDevice(
@@ -157,6 +155,20 @@ impl Runtime {
         .map_err(|e| e.to_string())?;
         let device = device.ok_or("D3D11CreateDevice returned no device")?;
         let context = unsafe { device.GetImmediateContext() }.map_err(|e| e.to_string())?;
+        let dxgi: IDXGIDevice = device.cast().map_err(|e| e.to_string())?;
+        let adapter = unsafe { dxgi.GetAdapter() }.map_err(|e| e.to_string())?;
+        // logged before the GL setup, whose failures are usually a GL/D3D adapter mismatch
+        let name = unsafe { adapter.GetDesc() }.map_or_else(
+            |_| "unknown".into(),
+            |desc| {
+                let text = &desc.Description;
+                let end = text.iter().position(|&c| c == 0).unwrap_or(text.len());
+                String::from_utf16_lossy(&text[..end])
+            },
+        );
+        crate::log::write(&format!("windows video: D3D adapter {name}"));
+        let gl = Gl::new()?;
+        let functions = Functions::load()?;
         let handle = unsafe { (functions.open)(device.as_raw()) };
         if handle.0.is_null() {
             return Err(
@@ -169,8 +181,6 @@ impl Runtime {
             device,
             context,
         });
-        let dxgi: IDXGIDevice = interop.device.cast().map_err(|e| e.to_string())?;
-        let adapter = unsafe { dxgi.GetAdapter() }.map_err(|e| e.to_string())?;
         let factory: IDXGIFactory2 = unsafe { adapter.GetParent() }.map_err(|e| e.to_string())?;
         let desc = DXGI_SWAP_CHAIN_DESC1 {
             Width: 1,

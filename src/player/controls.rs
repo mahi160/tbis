@@ -730,12 +730,25 @@ impl Render for PlayerView {
             .then(|| (self.top_chrome(cx), self.bottom_chrome(time, window, cx)));
 
         let error = self.playback.error.clone().map(|error| {
+            let title = if error.starts_with("Cannot start player") {
+                "The player could not start"
+            } else if error.starts_with("Cannot load item") {
+                "This item could not be loaded"
+            } else {
+                "Playback stopped"
+            };
             let back = button("error-back", "Go back")
                 .on_click(cx.listener(|this, _, window, cx| this.close(window, cx)))
                 .into_any_element();
-            overlay_banner(
-                error_panel("Can't play this", error, [back], Tone::Video, cx).p(gap::group()),
-            )
+            let actions: Vec<AnyElement> = if self.mpv.is_some() {
+                let retry = button("error-retry", "Retry")
+                    .on_click(cx.listener(|this, _, _, cx| this.reload_current(cx)))
+                    .into_any_element();
+                vec![retry, back]
+            } else {
+                vec![back]
+            };
+            overlay_banner(error_panel(title, error, actions, Tone::Video, cx).p(gap::group()))
         });
 
         let pip_notice = self

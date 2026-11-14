@@ -1,6 +1,8 @@
 ---
-status: accepted
+status: withdrawn
 ---
+
+> Withdrawn: embedded Tailscale was removed from every platform, to be planned again. The text below is kept as the record of what was tried.
 
 # Reach a Jellyfin server over a tailnet by embedding libtailscale
 
