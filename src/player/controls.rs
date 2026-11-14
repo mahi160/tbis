@@ -11,7 +11,7 @@ use crate::components::button::{VegaSize as _, button, ghost_button, primary_but
 use crate::components::status::{Tone, error_panel};
 use crate::components::typography::{caption, strong};
 use crate::components::video::{
-    info_panel, overlay_banner, overlay_card, overlay_corner, overlay_spinner,
+    info_panel, overlay_banner, overlay_card, overlay_corner, overlay_spinner, video_surface,
 };
 use crate::config::SeekSteps;
 use crate::design::{self, gap, overlay};
@@ -106,6 +106,10 @@ impl PlayerView {
     }
 
     fn toggle_pause(&mut self, _: &TogglePause, window: &mut Window, cx: &mut Context<Self>) {
+        self.pause_toggle(window, cx);
+    }
+
+    fn pause_toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(mpv) = self.active_mpv() {
             let _ = mpv.set_pause(!self.paused);
         }
@@ -121,6 +125,10 @@ impl PlayerView {
         cx: &mut Context<Self>,
     ) {
         self.seek_by_step(forward, long, cx);
+        let steps = *cx.global::<SeekSteps>();
+        let seconds = if long { steps.long } else { steps.short };
+        let sign = if forward { "+" } else { "\u{2212}" };
+        self.flash(format!("{sign}{seconds} s"), window, cx);
         self.show_controls(window, cx);
     }
 
@@ -191,22 +199,29 @@ impl PlayerView {
         if let Some(mpv) = self.active_mpv() {
             let _ = mpv.set_mute(!self.muted);
         }
+        let message = if self.muted { "Unmuted" } else { "Muted" };
+        self.flash(message.into(), window, cx);
         self.refocus(window, cx);
     }
 
     /// Actual `self.volume` update comes back through `PlayerEvent::Volume`, same as the
     /// volume slider's own drag handler.
     fn volume_up(&mut self, _: &VolumeUp, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.set_volume((self.volume + VOLUME_STEP).min(100.));
-        }
-        self.show_controls(window, cx);
-        self.show_volume_hud(window, cx);
+        self.nudge_volume(true, window, cx);
     }
 
     fn volume_down(&mut self, _: &VolumeDown, window: &mut Window, cx: &mut Context<Self>) {
+        self.nudge_volume(false, window, cx);
+    }
+
+    fn nudge_volume(&mut self, up: bool, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.set_volume((self.volume - VOLUME_STEP).max(0.));
+            let volume = if up {
+                (self.volume + VOLUME_STEP).min(100.)
+            } else {
+                (self.volume - VOLUME_STEP).max(0.)
+            };
+            let _ = mpv.set_volume(volume);
         }
         self.show_controls(window, cx);
         self.show_volume_hud(window, cx);
@@ -310,18 +325,24 @@ impl PlayerView {
             self.audio_delay = delay;
         }
         let label = if subtitle { "Subtitle" } else { "Audio" };
-        self.sync_hud = Some(format!("{label} sync: {delay:+.1} s").into());
-        self._sync_hud = cx.spawn_in(window, async move |this, cx| {
+        self.flash(format!("{label} sync: {delay:+.1} s"), window, cx);
+        self.show_controls(window, cx);
+    }
+
+    /// Shows `message` in the banner for a moment; a newer message replaces it.
+    fn flash(&mut self, message: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.hud = Some(message.into());
+        self._hud = cx.spawn_in(window, async move |this, cx| {
             cx.background_executor()
                 .timer(super::VOLUME_HUD_AFTER)
                 .await;
             this.update(cx, |this, cx| {
-                this.sync_hud = None;
+                this.hud = None;
                 cx.notify();
             })
             .ok();
         });
-        self.show_controls(window, cx);
+        cx.notify();
     }
 
     fn speed_up(&mut self, _: &SpeedUp, window: &mut Window, cx: &mut Context<Self>) {
@@ -334,6 +355,7 @@ impl PlayerView {
 
     fn speed_reset(&mut self, _: &SpeedReset, window: &mut Window, cx: &mut Context<Self>) {
         self.set_speed(1.);
+        self.flash(format!("{}\u{d7}", self.speed), window, cx);
         self.show_controls(window, cx);
     }
 
@@ -342,6 +364,7 @@ impl PlayerView {
         let current = SPEEDS.iter().position(|&s| s == self.speed).unwrap_or(2);
         let next = (current as i32 + direction).clamp(0, SPEEDS.len() as i32 - 1) as usize;
         self.set_speed(SPEEDS[next]);
+        self.flash(format!("{}\u{d7}", self.speed), window, cx);
         self.show_controls(window, cx);
     }
 
@@ -351,6 +374,10 @@ impl PlayerView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.fullscreen_toggle(window, cx);
+    }
+
+    fn fullscreen_toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         window.toggle_fullscreen();
         self.refocus(window, cx);
     }
@@ -816,6 +843,27 @@ impl Render for PlayerView {
             )
         });
 
+        // under every overlay, so the chrome, banners and cards keep their own clicks
+        let click_layer = (self.playback.error.is_none() && self.pip.is_none()).then(|| {
+            video_surface("video-click")
+                .on_click(cx.listener(|this, event: &ClickEvent, window, cx| {
+                    if event.click_count() >= 2 {
+                        // the first click of the pair paused; undo it, then go fullscreen
+                        this.pause_toggle(window, cx);
+                        this.fullscreen_toggle(window, cx);
+                    } else {
+                        this.pause_toggle(window, cx);
+                    }
+                }))
+                .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, window, cx| {
+                    let dy = event.delta.pixel_delta(px(1.)).y;
+                    // horizontal-only scrolls carry no vertical delta
+                    if dy != px(0.) {
+                        this.nudge_volume(dy > px(0.), window, cx);
+                    }
+                }))
+        });
+
         v_flex()
             .id("player")
             .key_context(CONTEXT)
@@ -867,10 +915,11 @@ impl Render for PlayerView {
                     this.show_controls(window, cx);
                 }
             }))
+            .children(click_layer)
             .children(error)
             .children(pip_notice)
             .children(buffering)
-            .children(self.sync_hud.clone().map(overlay_banner))
+            .children(self.hud.clone().map(overlay_banner))
             // stays up until closed (x or i), independent of the controls
             .children(info)
             .children(up_next)

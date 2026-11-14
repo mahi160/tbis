@@ -10,9 +10,16 @@ use gpui_kit::*;
 use crate::design::overlay::{self, black, white};
 use crate::design::{gap, radius, shadow, size, sp, text};
 
+/// Bare layer filling the video, for mouse input on the video itself. Chrome built
+/// here blocks the mouse, so the layer only sees clicks that reach the picture.
+pub fn video_surface(id: &'static str) -> Stateful<Div> {
+    div().id(id).absolute().inset_0()
+}
+
 /// Top chrome: fades from black down to clear.
 pub fn top_bar() -> Div {
     h_flex()
+        .block_mouse_except_scroll()
         // fixed: clears the traffic lights
         .pt(sp(9.))
         .px(gap::group())
@@ -28,6 +35,7 @@ pub fn top_bar() -> Div {
 /// Bottom chrome: fades from black up to clear; content centered at max width.
 pub fn bottom_bar(content: impl IntoElement) -> Div {
     div()
+        .block_mouse_except_scroll()
         // fixed: room for the gradient to fade
         .pt(sp(14.))
         .px(gap::group())
@@ -164,6 +172,7 @@ pub fn pip_frame(
 /// Anchors `content` bottom-right, above the timeline.
 pub fn overlay_corner(content: impl IntoElement) -> Div {
     div()
+        .block_mouse_except_scroll()
         .absolute()
         .right(gap::group())
         // fixed: clears the bottom bar
@@ -174,6 +183,7 @@ pub fn overlay_corner(content: impl IntoElement) -> Div {
 /// Dark rounded floating card in `fill`.
 pub fn overlay_card(fill: Hsla) -> Div {
     v_flex()
+        .block_mouse_except_scroll()
         .p(gap::group())
         .rounded(radius::base())
         .text_color(overlay::WHITE)
@@ -235,10 +245,12 @@ pub fn info_panel(groups: &[InfoGroup], close: impl IntoElement) -> Div {
         }))
 }
 
-/// Elapsed time, `slider` with `preview` floating above it at `fraction`, total time.
+/// Elapsed time, `slider` over a `buffered` bar (fraction of the duration) with
+/// `preview` floating above it at `fraction`, total time.
 pub fn timeline(
     elapsed: impl IntoElement,
     slider: impl IntoElement,
+    buffered: f32,
     preview: Option<(f32, AnyElement)>,
     total: impl IntoElement,
     mono: SharedString,
@@ -253,6 +265,16 @@ pub fn timeline(
             div()
                 .relative()
                 .flex_1()
+                // painted first so it sits under the slider's translucent track, which centres it too
+                .child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top(relative(0.5))
+                        .h(px(1.))
+                        .w(relative(buffered.clamp(0., 1.)))
+                        .bg(white(0.35)),
+                )
                 .child(slider)
                 .children(preview.map(|(fraction, preview)| {
                     div()

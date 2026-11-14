@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified). The wheel handler ignores events with no vertical delta (horizontal-only scrolls), so they don't lower the volume. gpui hit-testing lets clicks fall through to the layer under ordinary hitboxes, so `top_bar`, `bottom_bar`, `overlay_corner` and `overlay_card` in `components/video.rs` now call `block_mouse_except_scroll()`. The layer itself is `components::video::video_surface`.
 
 **Read first:** `src/player/controls.rs` (`fn render` from `let chrome =` to the end, `fn toggle_pause`, `fn toggle_fullscreen`, `fn volume_up`, `fn volume_down`), `src/player/mod.rs` (`VOLUME_STEP`). In gpui: `ClickEvent::click_count` in `~/.cargo/registry/src/*/gpui-pre-0.3.9/src/interactive.rs` and `on_scroll_wheel` in `src/elements/div.rs`.
 

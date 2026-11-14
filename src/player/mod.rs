@@ -148,7 +148,8 @@ pub struct PlayerView {
     controls_visible: bool,
     /// Volume slider forced open by VolumeUp/VolumeDown, independent of mute-button hover.
     volume_hud: bool,
-    sync_hud: Option<SharedString>,
+    /// Short banner after a key (seek, speed, mute, sync); see `flash`.
+    hud: Option<SharedString>,
     menu_open: bool,
     track_prefs: TrackPrefs,
     /// Settings' preferred languages (read-only here).
@@ -168,7 +169,7 @@ pub struct PlayerView {
     _info: Task<()>,
     _hide: Task<()>,
     _volume_hud: Task<()>,
-    _sync_hud: Task<()>,
+    _hud: Task<()>,
     _tasks: Vec<Task<()>>,
     _subscriptions: [Subscription; 2],
 }
@@ -302,7 +303,7 @@ impl PlayerView {
             focus,
             controls_visible: true,
             volume_hud: false,
-            sync_hud: None,
+            hud: None,
             menu_open: false,
             track_prefs: config.track_prefs.clone(),
             language: config.language.clone(),
@@ -316,7 +317,7 @@ impl PlayerView {
             _info: Task::ready(()),
             _hide: Task::ready(()),
             _volume_hud: Task::ready(()),
-            _sync_hud: Task::ready(()),
+            _hud: Task::ready(()),
             _tasks: tasks,
             _subscriptions,
         };

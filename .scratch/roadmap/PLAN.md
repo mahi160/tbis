@@ -59,10 +59,10 @@ House rules that apply to every ticket:
 
 | # | Ticket | Model | Status |
 | --- | --- | --- | --- |
-| 11 | On-screen feedback for seek, speed and mute | haiku | ready |
-| 12 | Click to pause, double-click fullscreen, wheel volume | haiku | ready |
-| 13 | Buffered range on the timeline | sonnet | ready |
-| 14 | Thumbnail preview while hovering the timeline | sonnet | blocked by 13 |
+| 11 | On-screen feedback for seek, speed and mute | haiku | done |
+| 12 | Click to pause, double-click fullscreen, wheel volume | haiku | done |
+| 13 | Buffered range on the timeline | sonnet | done |
+| 14 | Thumbnail preview while hovering the timeline | sonnet | ready |
 | 15 | Auto-skip intros and credits | haiku | ready |
 
 ### D. Settings

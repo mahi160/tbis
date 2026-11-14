@@ -97,6 +97,7 @@ impl PlayerView {
                 .bg(color::primary(cx))
                 .text_color(overlay::WHITE)
                 .disabled(self.playback.duration <= 0.),
+            (self.playback.buffered_until / self.playback.duration.max(1.)) as f32,
             scrub_preview,
             format_time(self.playback.duration),
             mono.clone(),

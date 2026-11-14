@@ -102,6 +102,8 @@ pub(super) struct Playback {
     /// Time last drawn; throttles redraws to `REDRAW_STEP`.
     pub(super) shown_time: f64,
     pub(super) duration: f64,
+    /// Stream position mpv has buffered up to, in seconds; read on each shown-time step.
+    pub(super) buffered_until: f64,
     pub(super) scrubbing: Option<f64>,
     /// Time-driven overlays last drawn; see `PlayerView::time_overlays`.
     pub(super) overlays: TimeOverlays,
@@ -142,6 +144,7 @@ impl Playback {
             time: 0.,
             shown_time: 0.,
             duration: 0.,
+            buffered_until: 0.,
             scrubbing: None,
             overlays: TimeOverlays::default(),
             info_static: None,
@@ -202,6 +205,12 @@ impl PlayerView {
                 if !self.update_time(time) {
                     return;
                 }
+                let ahead = self
+                    .active_mpv()
+                    .and_then(|mpv| mpv.property("demuxer-cache-duration"))
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(0.);
+                self.playback.buffered_until = time + ahead;
                 self.sync_seek_bar(window, cx);
                 self.sync_now_playing(window, cx);
                 // with the controls hidden only the skip button and up-next card show time
@@ -472,7 +481,7 @@ impl PlayerView {
             .unwrap_or_default();
         self.speed = prefs.speed.unwrap_or(1.);
         self.audio_delay = 0.;
-        self.sync_hud = None;
+        self.hud = None;
         self.max_bitrate_mbps = if prefs.bitrate_set {
             prefs.max_bitrate_mbps
         } else {
