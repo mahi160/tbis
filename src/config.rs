@@ -213,8 +213,8 @@ pub struct AudioStyle {
 
 impl AudioStyle {
     /// mpv options applying this style, shared by the Player and PiP.
-    pub fn mpv_options(&self) -> [(&'static str, String); 3] {
-        [
+    pub fn mpv_options(&self) -> Vec<(&'static str, String)> {
+        let mut options = vec![
             (
                 "audio-spdif",
                 if self.passthrough {
@@ -224,10 +224,6 @@ impl AudioStyle {
                 },
             ),
             (
-                "audio-exclusive",
-                if self.passthrough { "yes" } else { "no" }.to_string(),
-            ),
-            (
                 "af",
                 if self.loudness_norm {
                     "dynaudnorm".to_string()
@@ -235,7 +231,12 @@ impl AudioStyle {
                     String::new()
                 },
             ),
-        ]
+        ];
+        // only when on, so a user's own `audio-exclusive` in mpv.conf still applies
+        if self.passthrough {
+            options.push(("audio-exclusive", "yes".to_string()));
+        }
+        options
     }
 }
 
@@ -588,6 +589,26 @@ mod tests {
         json.as_object_mut().unwrap().remove("video_quality");
         let config: Config = serde_json::from_value(json).unwrap();
         assert_eq!(config.video_quality, VideoQuality::Balanced);
+    }
+
+    #[test]
+    fn audio_exclusive_is_set_only_with_passthrough() {
+        let exclusive = |passthrough| {
+            super::AudioStyle {
+                passthrough,
+                loudness_norm: false,
+            }
+            .mpv_options()
+            .into_iter()
+            .find(|(name, _)| *name == "audio-exclusive")
+            .map(|(_, value)| value)
+        };
+        assert_eq!(
+            exclusive(false),
+            None,
+            "leaves the user's mpv.conf in charge"
+        );
+        assert_eq!(exclusive(true).as_deref(), Some("yes"));
     }
 
     #[test]
