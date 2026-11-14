@@ -114,6 +114,8 @@ pub struct Config {
     pub hide_spoilers: HideSpoilers,
     #[serde(default)]
     pub backdrops: ShowBackdrops,
+    #[serde(default)]
+    pub auto_skip: AutoSkip,
     /// Audio passthrough and loudness normalization (Settings), for the Player and PiP.
     #[serde(default)]
     pub audio: AudioStyle,
@@ -131,11 +133,31 @@ pub const BITRATE_CAPS: [(Option<u32>, &str); 6] = [
 
 /// Blur the stills and hide the descriptions of unwatched Episodes (Settings).
 /// Also an app global, so Episode lists read the live value.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct HideSpoilers(pub bool);
 
 impl gpui_kit::Global for HideSpoilers {}
+
+impl Default for HideSpoilers {
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
+/// Skip intros and credits without asking (Settings).
+/// Also an app global, so the Player reads the live value.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AutoSkip(pub bool);
+
+impl gpui_kit::Global for AutoSkip {}
+
+impl Default for AutoSkip {
+    fn default() -> Self {
+        Self(true)
+    }
+}
 
 /// Dimmed library backdrops behind Home, Movies and Series (Settings); on by default.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -176,8 +198,8 @@ impl Default for SubtitleStyle {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum VideoQuality {
     Fast,
-    #[default]
     Balanced,
+    #[default]
     High,
 }
 
@@ -368,6 +390,7 @@ fn defaults() -> Config {
         theme: None,
         hide_spoilers: HideSpoilers::default(),
         backdrops: ShowBackdrops::default(),
+        auto_skip: AutoSkip::default(),
         audio: AudioStyle::default(),
     }
 }
@@ -585,11 +608,11 @@ mod tests {
     }
 
     #[test]
-    fn config_without_video_quality_loads_as_balanced() {
+    fn config_without_video_quality_loads_as_high() {
         let mut json = serde_json::to_value(defaults()).unwrap();
         json.as_object_mut().unwrap().remove("video_quality");
         let config: Config = serde_json::from_value(json).unwrap();
-        assert_eq!(config.video_quality, VideoQuality::Balanced);
+        assert_eq!(config.video_quality, VideoQuality::High);
     }
 
     #[test]

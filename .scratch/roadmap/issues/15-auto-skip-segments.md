@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified). `auto_skipped` is a field of `Playback` (the per-load state), so `Playback::new` resets it. The switch is in the Seeking group. Ticket 17 changed its default to on.
 
 **Read first:** `src/player/playback.rs` (`fn active_segment`, `fn skip_segment`, `fn on_mpv` `TimePos` arm, the `segments` field), `src/config.rs` (`HideSpoilers` is the pattern: a newtype bool that is also an app global), `src/settings.rs` (how `hide_spoilers` is wired), `src/app.rs` (`AppView::new` sets globals; `fn open_settings` updates them).
 

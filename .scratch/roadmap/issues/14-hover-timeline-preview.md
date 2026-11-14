@@ -6,7 +6,7 @@
 
 **Blocked by:** 13 (both edit `timeline`; do them in order to avoid conflicts).
 
-**Status:** blocked
+**Status:** done (runtime unverified). `timeline` takes one callback, `on_hover(Option<f32>)`, with `None` on leave, instead of two; an eighth parameter would trip clippy's `too_many_arguments`. The pointer fraction comes from the track box's prepaint bounds, which match the slider's own. The preview is `components::video::scrub_preview`. `hover_time` is cleared when the controls hide, because no leave event follows.
 
 **Read first:** `src/player/controls/chrome.rs` (`fn bottom_chrome`, `fn trickplay_preview`), `src/components/video.rs` (`timeline`), `src/player/playback.rs` (`scrubbing`), gpui's `on_mouse_move` and `MouseMoveEvent` in `~/.cargo/registry/src/*/gpui-pre-0.3.9/src/`.
 

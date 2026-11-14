@@ -9,8 +9,8 @@ use crate::components::button::icon_button;
 use crate::components::layout::{grow, page_header};
 use crate::components::settings::{SettingField, SettingGroup, SettingItem, SettingPage, settings};
 use crate::config::{
-    AudioStyle, BITRATE_CAPS, Config, HideSpoilers, LanguagePref, SeekSteps, ShowBackdrops,
-    SubtitleStyle, VideoQuality,
+    AudioStyle, AutoSkip, BITRATE_CAPS, Config, HideSpoilers, LanguagePref, SeekSteps,
+    ShowBackdrops, SubtitleStyle, VideoQuality,
 };
 use crate::mpv;
 use crate::nav::Nav;
@@ -62,6 +62,7 @@ pub enum SettingsChanged {
     HideSpoilers(HideSpoilers),
     Backdrops(ShowBackdrops),
     Audio(AudioStyle),
+    AutoSkip(AutoSkip),
 }
 
 pub struct SettingsView {
@@ -75,8 +76,12 @@ pub struct SettingsView {
     hide_spoilers: Entity<HideSpoilers>,
     backdrops: Entity<ShowBackdrops>,
     audio: Entity<AudioStyle>,
+    auto_skip: Entity<AutoSkip>,
     mpv_conf: Entity<TextareaState>,
-    _observe: [Subscription; 10],
+    /// Reset was clicked once; a second click within a few seconds resets.
+    confirm_reset: bool,
+    _confirm_reset: Task<()>,
+    _observe: [Subscription; 11],
     _save_mpv_conf: Subscription,
 }
 
@@ -95,6 +100,7 @@ impl SettingsView {
         let hide_spoilers = cx.new(|_| config.hide_spoilers);
         let backdrops = cx.new(|_| config.backdrops);
         let audio = cx.new(|_| config.audio);
+        let auto_skip = cx.new(|_| config.auto_skip);
         let mpv_conf = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(6, 20)
@@ -140,6 +146,9 @@ impl SettingsView {
             cx.observe(&audio, |_, audio, cx| {
                 cx.emit(SettingsChanged::Audio(*audio.read(cx)))
             }),
+            cx.observe(&auto_skip, |_, skip, cx| {
+                cx.emit(SettingsChanged::AutoSkip(*skip.read(cx)))
+            }),
         ];
         Self {
             language,
@@ -152,7 +161,10 @@ impl SettingsView {
             hide_spoilers,
             backdrops,
             audio,
+            auto_skip,
             mpv_conf,
+            confirm_reset: false,
+            _confirm_reset: Task::ready(()),
             _observe,
             _save_mpv_conf,
         }
@@ -186,8 +198,85 @@ impl SettingsView {
         )
     }
 
+    /// Restores every setting on these pages to its default; observers save each one.
+    fn reset(&mut self, cx: &mut Context<Self>) {
+        fn set<T: 'static>(entity: &Entity<T>, value: T, cx: &mut Context<SettingsView>) {
+            entity.update(cx, |v, cx| {
+                *v = value;
+                cx.notify();
+            });
+        }
+        set(&self.language, LanguagePref::default(), cx);
+        set(&self.subtitles, SubtitleStyle::default(), cx);
+        set(&self.max_bitrate, None, cx);
+        set(&self.shaders, ShaderProfile::default(), cx);
+        set(&self.video_quality, VideoQuality::default(), cx);
+        set(&self.seek, SeekSteps::default(), cx);
+        set(&self.theme, theme::NAMES[0].into(), cx);
+        set(&self.hide_spoilers, HideSpoilers::default(), cx);
+        set(&self.backdrops, ShowBackdrops::default(), cx);
+        set(&self.audio, AudioStyle::default(), cx);
+        set(&self.auto_skip, AutoSkip::default(), cx);
+    }
+
+    /// First click arms the reset for a few seconds; a second click within them resets.
+    fn reset_clicked(&mut self, cx: &mut Context<Self>) {
+        if self.confirm_reset {
+            self.confirm_reset = false;
+            self._confirm_reset = Task::ready(());
+            self.reset(cx);
+        } else {
+            self.confirm_reset = true;
+            self._confirm_reset = cx.spawn(async move |this, cx| {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(4))
+                    .await;
+                this.update(cx, |this, cx| {
+                    this.confirm_reset = false;
+                    cx.notify();
+                })
+                .ok();
+            });
+        }
+        cx.notify();
+    }
+
+    fn general_page(&self, cx: &Context<Self>) -> SettingPage {
+        let label = if self.confirm_reset {
+            "Click again to reset"
+        } else {
+            "Reset"
+        };
+        let view = cx.entity().downgrade();
+        let reset = SettingItem::new(
+            "Reset all settings",
+            SettingField::action(label, move |cx| {
+                view.update(cx, |this, cx| this.reset_clicked(cx)).ok();
+            }),
+        )
+        .description(
+            "Restores everything on these pages. Your sign-in, window size and mpv.conf are kept.",
+        );
+        SettingPage::new("General").group(SettingGroup::new().items([reset]))
+    }
+
     fn seek_group(&self) -> SettingGroup {
+        let (read, write) = (self.auto_skip.clone(), self.auto_skip.clone());
+        let auto_skip = SettingItem::new(
+            "Skip intros and credits automatically",
+            SettingField::switch(
+                move |cx| read.read(cx).0,
+                move |on, cx| {
+                    write.update(cx, |value, cx| {
+                        *value = AutoSkip(on);
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description("Seeking back into a skipped intro plays it.");
         SettingGroup::new().title("Seeking").items([
+            auto_skip,
             self.seek_item("Short seek (\u{2190} \u{2192})", &[5, 10, 15, 30], |s| {
                 &mut s.short
             })
@@ -538,11 +627,11 @@ impl Render for SettingsView {
                 ),
                 "Settings",
             ))
-            .child(
-                grow().child(
-                    settings("settings").pages([self.playback_page(), self.appearance_page()]),
-                ),
-            )
+            .child(grow().child(settings("settings").pages([
+                self.playback_page(),
+                self.appearance_page(),
+                self.general_page(cx),
+            ])))
     }
 }
 

@@ -93,8 +93,8 @@ impl std::error::Error for SessionExpired {}
 /// Order of the Movies and Series pages. Ties fall back to name.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum Sort {
-    #[default]
     Name,
+    #[default]
     DateAdded,
     Year,
     Rating,

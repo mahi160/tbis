@@ -6,6 +6,7 @@ use futures::StreamExt as _;
 use futures::channel::mpsc::{self, UnboundedSender};
 use gpui_kit::*;
 
+use crate::config::AutoSkip;
 use crate::jellyfin::{Api, Item, Kind, PlaybackItem, Report, Segment, SegmentKind};
 use crate::mpv::{FileEvent, MpvEvent, PlayerEvent, Track, TrackKind};
 
@@ -107,6 +108,8 @@ pub(super) struct Playback {
     pub(super) scrubbing: Option<f64>,
     /// Time under the pointer while it hovers the timeline.
     pub(super) hover_time: Option<f64>,
+    /// `start` of the last segment skipped automatically, so seeking back into it plays it.
+    pub(super) auto_skipped: Option<f64>,
     /// Time-driven overlays last drawn; see `PlayerView::time_overlays`.
     pub(super) overlays: TimeOverlays,
     /// Playback info's file/track values, read once; cleared when the tracks change.
@@ -149,6 +152,7 @@ impl Playback {
             buffered_until: 0.,
             scrubbing: None,
             hover_time: None,
+            auto_skipped: None,
             overlays: TimeOverlays::default(),
             info_static: None,
             tracks: Vec::new(),
@@ -206,6 +210,14 @@ impl PlayerView {
         match event {
             FileEvent::TimePos(time) => {
                 if !self.update_time(time) {
+                    return;
+                }
+                if cx.global::<AutoSkip>().0
+                    && let Some(segment) = self.active_segment()
+                    && self.playback.auto_skipped != Some(segment.start)
+                {
+                    self.playback.auto_skipped = Some(segment.start);
+                    self.skip_segment(window, cx);
                     return;
                 }
                 let ahead = self

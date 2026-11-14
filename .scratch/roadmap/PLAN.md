@@ -62,15 +62,15 @@ House rules that apply to every ticket:
 | 11 | On-screen feedback for seek, speed and mute | haiku | done |
 | 12 | Click to pause, double-click fullscreen, wheel volume | haiku | done |
 | 13 | Buffered range on the timeline | sonnet | done |
-| 14 | Thumbnail preview while hovering the timeline | sonnet | ready |
-| 15 | Auto-skip intros and credits | haiku | ready |
+| 14 | Thumbnail preview while hovering the timeline | sonnet | done |
+| 15 | Auto-skip intros and credits | haiku | done |
 
 ### D. Settings
 
 | # | Ticket | Model | Status |
 | --- | --- | --- | --- |
-| 16 | Reset settings | haiku | ready |
-| 17 | Better defaults | haiku | blocked by owner decision |
+| 16 | Reset settings | haiku | done |
+| 17 | Better defaults | haiku | done |
 
 ### E. Performance
 
@@ -104,7 +104,7 @@ House rules that apply to every ticket:
 ## Owner decisions still open
 
 1. **Windows libmpv (ticket 08):** prebuilt package (full codecs, short CI, source by link) or keep the source build (strict source mirror, 1.4 GB archive). Recommended: prebuilt.
-2. **Defaults (ticket 17):** tick the rows you want in the ticket's table.
+2. **Defaults (ticket 17):** decided: all four rows applied.
 3. **Modern layout (ticket 31):** one row per Library under a hero, or Movies and Series tabs each split by Library. Recommended: one row per Library.
 
 ## Already decided

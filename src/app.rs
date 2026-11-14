@@ -171,6 +171,7 @@ impl AppView {
         }
         cx.set_global(config.seek);
         cx.set_global(config.hide_spoilers);
+        cx.set_global(config.auto_skip);
         let screen = match config.session.clone() {
             Some(session) => Self::main_screen(session, &config, window, cx),
             None => Self::login_screen(&config, window, cx),
@@ -611,6 +612,10 @@ impl AppView {
                     }
                 }
                 SettingsChanged::Audio(style) => this.config.audio = *style,
+                SettingsChanged::AutoSkip(skip) => {
+                    this.config.auto_skip = *skip;
+                    cx.set_global(*skip);
+                }
             }
             save_config(&this.config, "settings");
         });
