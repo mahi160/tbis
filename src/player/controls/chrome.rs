@@ -10,7 +10,8 @@ use crate::components::button::{round_ghost_button, round_icon, round_icon_butto
 use crate::components::layout::spacer;
 use crate::components::menu::{choice_menu, choice_menu_with_submenu};
 use crate::components::video::{
-    bottom_bar, hover_reveal, sprite_thumb, timeline, top_bar, video_meta, video_tag, video_title,
+    bottom_bar, hover_reveal, scrub_preview, sprite_thumb, timeline, top_bar, video_meta,
+    video_tag, video_title,
 };
 use crate::config::BITRATE_CAPS;
 use crate::design::{self, color, font, gap, overlay, text};
@@ -84,11 +85,18 @@ impl PlayerView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let mono = font::mono(cx);
-        let scrub_preview = self
+        let duration = self.playback.duration;
+        let preview = self
             .playback
             .scrubbing
-            .and_then(|seconds| self.trickplay_preview(seconds))
-            .map(|preview| ((time / self.playback.duration.max(1.)) as f32, preview));
+            .or(self.playback.hover_time)
+            .map(|seconds| {
+                let preview = scrub_preview(self.trickplay_preview(seconds), format_time(seconds));
+                (
+                    (seconds / duration.max(1.)) as f32,
+                    preview.into_any_element(),
+                )
+            });
 
         let timeline = timeline(
             format_time(time),
@@ -98,9 +106,19 @@ impl PlayerView {
                 .text_color(overlay::WHITE)
                 .disabled(self.playback.duration <= 0.),
             (self.playback.buffered_until / self.playback.duration.max(1.)) as f32,
-            scrub_preview,
-            format_time(self.playback.duration),
+            preview,
+            format_time(duration),
             mono.clone(),
+            cx.listener(|this, fraction: &Option<f32>, _, cx| {
+                let duration = this.playback.duration;
+                let hover_time = fraction
+                    .filter(|_| duration > 0.)
+                    .map(|f| f64::from(f) * duration);
+                if hover_time != this.playback.hover_time {
+                    this.playback.hover_time = hover_time;
+                    cx.notify();
+                }
+            }),
         );
 
         let volume_icon = if self.muted || self.volume <= 0. {

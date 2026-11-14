@@ -2,6 +2,10 @@
 //! Colors are the fixed `design::overlay` tints, not theme colors: they sit over
 //! mpv's frame, not the app's own background.
 
+use std::cell::Cell;
+use std::rc::Rc;
+
+use gpui_kit::base::ElementExt as _;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -246,7 +250,8 @@ pub fn info_panel(groups: &[InfoGroup], close: impl IntoElement) -> Div {
 }
 
 /// Elapsed time, `slider` over a `buffered` bar (fraction of the duration) with
-/// `preview` floating above it at `fraction`, total time.
+/// `preview` floating above it at `fraction`, total time. `on_hover` gets the
+/// pointer's fraction along the slider, and `None` when it leaves.
 pub fn timeline(
     elapsed: impl IntoElement,
     slider: impl IntoElement,
@@ -254,7 +259,11 @@ pub fn timeline(
     preview: Option<(f32, AnyElement)>,
     total: impl IntoElement,
     mono: SharedString,
+    on_hover: impl Fn(&Option<f32>, &mut Window, &mut App) + 'static,
 ) -> Div {
+    // the slider fills this box, so its bounds map the pointer the way the slider does
+    let bounds = Rc::new(Cell::new(Bounds::<Pixels>::default()));
+    let on_hover = Rc::new(on_hover);
     h_flex()
         .gap(gap::item())
         .font_family(mono)
@@ -263,8 +272,28 @@ pub fn timeline(
         .child(elapsed)
         .child(
             div()
+                .id("timeline-track")
                 .relative()
                 .flex_1()
+                .on_prepaint({
+                    let bounds = bounds.clone();
+                    move |b, _, _| bounds.set(b)
+                })
+                .on_mouse_move({
+                    let on_hover = on_hover.clone();
+                    move |event, window, cx| {
+                        let b = bounds.get();
+                        if b.size.width > px(0.) {
+                            let fraction = (event.position.x - b.left()) / b.size.width;
+                            on_hover(&Some(fraction.clamp(0., 1.)), window, cx);
+                        }
+                    }
+                })
+                .on_hover(move |hovered, window, cx| {
+                    if !*hovered {
+                        on_hover(&None, window, cx);
+                    }
+                })
                 // painted first so it sits under the slider's translucent track, which centres it too
                 .child(
                     div()
@@ -286,6 +315,25 @@ pub fn timeline(
                 })),
         )
         .child(total)
+}
+
+/// Scrub preview: the trickplay `thumb`, when there is one, over the `time` it shows.
+pub fn scrub_preview(thumb: Option<AnyElement>, time: impl IntoElement) -> Div {
+    v_flex()
+        // as wide as a thumb, so `timeline` centres it on the pointer either way
+        .w(size::trickplay_w())
+        .items_center()
+        .gap(gap::tight())
+        .children(thumb)
+        .child(
+            div()
+                .px(gap::tight())
+                .rounded(radius::base())
+                .bg(black(0.6))
+                .text_size(text::meta())
+                .text_color(overlay::WHITE)
+                .child(time),
+        )
 }
 
 /// `button` with `slider` unfolding beside it on hover, or while `open`.

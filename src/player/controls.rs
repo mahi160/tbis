@@ -727,6 +727,8 @@ impl PlayerView {
                 let busy = this.paused || this.menu_open || this.playback.scrubbing.is_some();
                 if !busy && this.playback.error.is_none() {
                     this.controls_visible = false;
+                    // the timeline goes with the controls, and no leave event follows
+                    this.playback.hover_time = None;
                     hide_cursor();
                     cx.notify();
                 }

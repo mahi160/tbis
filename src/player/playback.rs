@@ -105,6 +105,8 @@ pub(super) struct Playback {
     /// Stream position mpv has buffered up to, in seconds; read on each shown-time step.
     pub(super) buffered_until: f64,
     pub(super) scrubbing: Option<f64>,
+    /// Time under the pointer while it hovers the timeline.
+    pub(super) hover_time: Option<f64>,
     /// Time-driven overlays last drawn; see `PlayerView::time_overlays`.
     pub(super) overlays: TimeOverlays,
     /// Playback info's file/track values, read once; cleared when the tracks change.
@@ -146,6 +148,7 @@ impl Playback {
             duration: 0.,
             buffered_until: 0.,
             scrubbing: None,
+            hover_time: None,
             overlays: TimeOverlays::default(),
             info_static: None,
             tracks: Vec::new(),
