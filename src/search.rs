@@ -6,6 +6,7 @@ use gpui_kit::*;
 
 use crate::components::button::{VegaSize as _, ghost_button};
 use crate::components::episode::{episode_result, recent_query};
+use crate::components::image_cache::lru_images;
 use crate::components::layout::{card_grid, centered, header_row, poster_columns, scroll_page};
 use crate::components::section::section;
 use crate::components::status::{Status, empty_panel, inline_status};
@@ -20,6 +21,8 @@ const MIN_CHARS: usize = 2;
 const DEBOUNCE: Duration = Duration::from_millis(250);
 const PER_KIND: usize = 24;
 const RECENT_MAX: usize = 10;
+// three sections of up to 24 cards, with room to scroll back
+const IMAGES_KEPT: usize = 120;
 
 pub enum SearchEvent {
     /// A recent search was picked; the app puts it in the search field.
@@ -263,19 +266,25 @@ impl Render for SearchView {
             sections.push(self.episode_section(cx));
         }
 
-        scroll_page("search")
-            .gap(gap::group())
-            .children(inline_status(status, cx))
-            .when(no_results, |this| {
-                this.child(
-                    centered(empty_panel(
-                        format!("No matches for \u{201c}{}\u{201d}", self.query.trim()).into(),
-                        cx,
-                    ))
-                    .flex_1(),
-                )
-            })
-            .children(sections)
+        // result images freed when page stops rendering
+        image_cache(lru_images("search-images", IMAGES_KEPT))
+            .size_full()
+            .child(
+                scroll_page("search")
+                    .gap(gap::group())
+                    .children(inline_status(status, cx))
+                    .when(no_results, |this| {
+                        this.child(
+                            centered(empty_panel(
+                                format!("No matches for \u{201c}{}\u{201d}", self.query.trim())
+                                    .into(),
+                                cx,
+                            ))
+                            .flex_1(),
+                        )
+                    })
+                    .children(sections),
+            )
     }
 }
 

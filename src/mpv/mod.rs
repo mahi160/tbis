@@ -706,3 +706,23 @@ pub(crate) fn skip_frame(ctx: *mut mpv_render_context) {
     ];
     unsafe { mpv_render_context_render(ctx, params.as_mut_ptr()) };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Player passes the Quality setting as a `profile` option before init (so the
+    /// user's mpv.conf, loaded during init, still overrides it).
+    #[test]
+    fn profile_option_before_init_applies_the_profile() {
+        let handle = Handle(unsafe { mpv_create() });
+        assert!(!handle.0.is_null());
+        for (name, value) in [("config", "no"), ("profile", "fast")] {
+            check(handle.set_option(name, value).unwrap(), name).unwrap();
+        }
+        check(unsafe { mpv_initialize(handle.0) }, "mpv_initialize").unwrap();
+        let scale = get_string(handle, "scale");
+        unsafe { mpv_terminate_destroy(handle.0) };
+        assert_eq!(scale.as_deref(), Some("bilinear"));
+    }
+}

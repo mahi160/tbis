@@ -36,7 +36,7 @@ If hardware validation shows this bottom-target/interop design is a no-go, the f
 
 ## libmpv dependency and distribution
 
-libmpv is built from pinned sources (`scripts/windows-deps.json`, `scripts/build-windows-mpv.ps1`) with Vulkan disabled; the Windows backend described above is the only presentation path, so no `vulkan-1.dll` is shipped. `libmpv-2.dll` sits beside `tbis.exe` in the flat zip the updater expects, and distribution must satisfy [ADR-0004](0004-bundle-libmpv-and-license-as-gpl.md). The build recipe, pins, import gates and CI evidence live in [Windows builds and releases](../windows-build.md).
+libmpv is a pinned prebuilt package (`scripts/windows-deps.json`). It is built with Vulkan and hard-imports `vulkan-1.dll`, so a Vulkan loader ships beside it, but the Windows backend described above is still the only presentation path tbis uses. `libmpv-2.dll` sits beside `tbis.exe` in the flat zip the updater expects, and distribution must satisfy [ADR-0004](0004-bundle-libmpv-and-license-as-gpl.md). The build recipe, pins, import gates and CI evidence live in [Windows builds and releases](../windows-build.md).
 
 ## Acceptance evidence still required
 

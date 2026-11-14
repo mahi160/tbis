@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified). Differs from step 3: the profile is passed as the `profile` option in the Player's `defaults` (before `mpv_initialize`), not `apply-profile` after it. That keeps the documented order (Settings first, the user's `mpv.conf` overrides them, as Settings > mpv says), needs no `Mpv::new` parameter, and never touches `vo` (neither profile sets it), so the `EMBEDDING` re-apply condition is unchanged. Test `profile_option_before_init_applies_the_profile` proves libmpv applies it.
 
 **Read first:** `src/config.rs` (`AudioStyle`, `Config`, `fn defaults`), `src/settings.rs` (`SettingsChanged`, `SettingsView::new`, `fn video_group`), `src/app.rs` (`fn open_settings`), `src/player/mod.rs` (`PlayerView::new`, the `defaults` vector), `src/mpv/mod.rs` (`Mpv::new`, `fn init`, `fn command`), `src/shaders.rs` (`ShaderProfile` is the pattern for a small enum with labels).
 
@@ -64,9 +64,9 @@
 
 ## Done when
 
-- [ ] Settings > Playback > Video shows Quality with three choices, saved to `config.json`
-- [ ] The Player applies `fast` or `high-quality` with `apply-profile`; Balanced applies nothing
-- [ ] `vo` is still `libmpv` after a profile is applied
-- [ ] Old configs load as Balanced (test)
+- [x] Settings > Playback > Video shows Quality with three choices, saved to `config.json`
+- [x] The Player applies `fast` or `high-quality` (as the `profile` option, see Status); Balanced applies nothing
+- [x] `vo` is still `libmpv` after a profile is applied (neither profile sets `vo`)
+- [x] Old configs load as Balanced (test)
 
 **Check:** the gate in `PLAN.md`. Runtime: set High, play a video, press `i`; playback info still shows video and no error.

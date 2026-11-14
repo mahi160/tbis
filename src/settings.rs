@@ -9,8 +9,8 @@ use crate::components::button::icon_button;
 use crate::components::layout::{grow, page_header};
 use crate::components::settings::{SettingField, SettingGroup, SettingItem, SettingPage, settings};
 use crate::config::{
-    AudioStyle, BITRATE_CAPS, Config, HideSpoilers, LanguagePref, SeekSteps, ShowBackdrops,
-    SubtitleStyle,
+    AudioStyle, AutoSkip, BITRATE_CAPS, Config, HideSpoilers, HomeLayout, LanguagePref,
+    LibraryGrouping, SeekSteps, ShowBackdrops, SubtitleStyle, VideoQuality,
 };
 use crate::mpv;
 use crate::nav::Nav;
@@ -48,6 +48,8 @@ pub fn same_language(a: &str, b: &str) -> bool {
 }
 
 const NO_PREFERENCE: &str = "";
+/// Pause in typing before mpv.conf is written.
+const MPV_CONF_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
 const OFF: &str = "off";
 
 /// A setting changed; the app saves it.
@@ -56,11 +58,15 @@ pub enum SettingsChanged {
     Subtitles(SubtitleStyle),
     MaxBitrate(Option<u32>),
     Shaders(ShaderProfile),
+    VideoQuality(VideoQuality),
     Seek(SeekSteps),
     Theme(String),
     HideSpoilers(HideSpoilers),
     Backdrops(ShowBackdrops),
+    Layout(HomeLayout),
+    LibraryGrouping(LibraryGrouping),
     Audio(AudioStyle),
+    AutoSkip(AutoSkip),
 }
 
 pub struct SettingsView {
@@ -68,14 +74,39 @@ pub struct SettingsView {
     subtitles: Entity<SubtitleStyle>,
     max_bitrate: Entity<Option<u32>>,
     shaders: Entity<ShaderProfile>,
+    video_quality: Entity<VideoQuality>,
     seek: Entity<SeekSteps>,
     theme: Entity<SharedString>,
     hide_spoilers: Entity<HideSpoilers>,
     backdrops: Entity<ShowBackdrops>,
+    layout: Entity<HomeLayout>,
+    grouping: Entity<LibraryGrouping>,
     audio: Entity<AudioStyle>,
+    auto_skip: Entity<AutoSkip>,
     mpv_conf: Entity<TextareaState>,
-    _observe: [Subscription; 9],
+    /// Reset was clicked once; a second click within a few seconds resets.
+    confirm_reset: bool,
+    _confirm_reset: Task<()>,
+    _observe: [Subscription; 13],
     _save_mpv_conf: Subscription,
+    /// Text not yet written; saved on drop so leaving Settings mid-debounce keeps it.
+    mpv_conf_pending: Option<String>,
+    /// Debounced mpv.conf write; replacing it restarts the wait.
+    _write_mpv_conf: Task<()>,
+}
+
+impl Drop for SettingsView {
+    fn drop(&mut self) {
+        if let Some(text) = self.mpv_conf_pending.take() {
+            save_mpv_conf(&text);
+        }
+    }
+}
+
+fn save_mpv_conf(text: &str) {
+    if let Err(err) = mpv::save_user_config(text) {
+        crate::log::write(&format!("saving mpv.conf failed: {err}"));
+    }
 }
 
 impl EventEmitter<Nav> for SettingsView {}
@@ -87,21 +118,29 @@ impl SettingsView {
         let subtitles = cx.new(|_| config.subtitles.clone());
         let max_bitrate = cx.new(|_| config.max_bitrate_mbps);
         let shaders = cx.new(|_| config.shaders);
+        let video_quality = cx.new(|_| config.video_quality);
         let seek = cx.new(|_| config.seek);
         let theme = cx.new(|_| SharedString::from(theme::active(config)));
         let hide_spoilers = cx.new(|_| config.hide_spoilers);
         let backdrops = cx.new(|_| config.backdrops);
+        let layout = cx.new(|_| config.home_layout);
+        let grouping = cx.new(|_| config.library_grouping);
         let audio = cx.new(|_| config.audio);
+        let auto_skip = cx.new(|_| config.auto_skip);
         let mpv_conf = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(6, 20)
                 .default_value(mpv::user_config())
         });
-        let _save_mpv_conf = cx.subscribe(&mpv_conf, |_, state, event: &InputEvent, cx| {
-            if let InputEvent::Change = event
-                && let Err(err) = mpv::save_user_config(&state.read(cx).value())
-            {
-                crate::log::write(&format!("saving mpv.conf failed: {err}"));
+        let _save_mpv_conf = cx.subscribe(&mpv_conf, |this, state, event: &InputEvent, cx| {
+            if let InputEvent::Change = event {
+                let text = state.read(cx).value().to_string();
+                this.mpv_conf_pending = Some(text.clone());
+                this._write_mpv_conf = cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(MPV_CONF_DEBOUNCE).await;
+                    save_mpv_conf(&text);
+                    this.update(cx, |this, _| this.mpv_conf_pending = None).ok();
+                });
             }
         });
         let _observe = [
@@ -117,6 +156,9 @@ impl SettingsView {
             cx.observe(&shaders, |_, shaders, cx| {
                 cx.emit(SettingsChanged::Shaders(*shaders.read(cx)))
             }),
+            cx.observe(&video_quality, |_, quality, cx| {
+                cx.emit(SettingsChanged::VideoQuality(*quality.read(cx)))
+            }),
             cx.observe(&seek, |_, seek, cx| {
                 cx.emit(SettingsChanged::Seek(*seek.read(cx)))
             }),
@@ -131,8 +173,17 @@ impl SettingsView {
             cx.observe(&backdrops, |_, show, cx| {
                 cx.emit(SettingsChanged::Backdrops(*show.read(cx)))
             }),
+            cx.observe(&layout, |_, layout, cx| {
+                cx.emit(SettingsChanged::Layout(*layout.read(cx)))
+            }),
+            cx.observe(&grouping, |_, grouping, cx| {
+                cx.emit(SettingsChanged::LibraryGrouping(*grouping.read(cx)))
+            }),
             cx.observe(&audio, |_, audio, cx| {
                 cx.emit(SettingsChanged::Audio(*audio.read(cx)))
+            }),
+            cx.observe(&auto_skip, |_, skip, cx| {
+                cx.emit(SettingsChanged::AutoSkip(*skip.read(cx)))
             }),
         ];
         Self {
@@ -140,14 +191,22 @@ impl SettingsView {
             subtitles,
             max_bitrate,
             shaders,
+            video_quality,
             seek,
             theme,
             hide_spoilers,
             backdrops,
+            layout,
+            grouping,
             audio,
+            auto_skip,
             mpv_conf,
+            confirm_reset: false,
+            _confirm_reset: Task::ready(()),
             _observe,
             _save_mpv_conf,
+            mpv_conf_pending: None,
+            _write_mpv_conf: Task::ready(()),
         }
     }
 
@@ -179,8 +238,87 @@ impl SettingsView {
         )
     }
 
+    /// Restores every setting on these pages to its default; observers save each one.
+    fn reset(&mut self, cx: &mut Context<Self>) {
+        fn set<T: 'static>(entity: &Entity<T>, value: T, cx: &mut Context<SettingsView>) {
+            entity.update(cx, |v, cx| {
+                *v = value;
+                cx.notify();
+            });
+        }
+        set(&self.language, LanguagePref::default(), cx);
+        set(&self.subtitles, SubtitleStyle::default(), cx);
+        set(&self.max_bitrate, None, cx);
+        set(&self.shaders, ShaderProfile::default(), cx);
+        set(&self.video_quality, VideoQuality::default(), cx);
+        set(&self.seek, SeekSteps::default(), cx);
+        set(&self.theme, theme::NAMES[0].into(), cx);
+        set(&self.hide_spoilers, HideSpoilers::default(), cx);
+        set(&self.backdrops, ShowBackdrops::default(), cx);
+        set(&self.layout, HomeLayout::default(), cx);
+        set(&self.grouping, LibraryGrouping::default(), cx);
+        set(&self.audio, AudioStyle::default(), cx);
+        set(&self.auto_skip, AutoSkip::default(), cx);
+    }
+
+    /// First click arms the reset for a few seconds; a second click within them resets.
+    fn reset_clicked(&mut self, cx: &mut Context<Self>) {
+        if self.confirm_reset {
+            self.confirm_reset = false;
+            self._confirm_reset = Task::ready(());
+            self.reset(cx);
+        } else {
+            self.confirm_reset = true;
+            self._confirm_reset = cx.spawn(async move |this, cx| {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(4))
+                    .await;
+                this.update(cx, |this, cx| {
+                    this.confirm_reset = false;
+                    cx.notify();
+                })
+                .ok();
+            });
+        }
+        cx.notify();
+    }
+
+    fn general_page(&self, cx: &Context<Self>) -> SettingPage {
+        let label = if self.confirm_reset {
+            "Click again to reset"
+        } else {
+            "Reset"
+        };
+        let view = cx.entity().downgrade();
+        let reset = SettingItem::new(
+            "Reset all settings",
+            SettingField::action(label, move |cx| {
+                view.update(cx, |this, cx| this.reset_clicked(cx)).ok();
+            }),
+        )
+        .description(
+            "Restores everything on these pages. Your sign-in, window size and mpv.conf are kept.",
+        );
+        SettingPage::new("General").group(SettingGroup::new().items([reset]))
+    }
+
     fn seek_group(&self) -> SettingGroup {
+        let (read, write) = (self.auto_skip.clone(), self.auto_skip.clone());
+        let auto_skip = SettingItem::new(
+            "Skip intros and credits automatically",
+            SettingField::switch(
+                move |cx| read.read(cx).0,
+                move |on, cx| {
+                    write.update(cx, |value, cx| {
+                        *value = AutoSkip(on);
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description("Seeking back into a skipped intro plays it.");
         SettingGroup::new().title("Seeking").items([
+            auto_skip,
             self.seek_item("Short seek (\u{2190} \u{2192})", &[5, 10, 15, 30], |s| {
                 &mut s.short
             })
@@ -239,11 +377,76 @@ impl SettingsView {
             ),
         )
         .description("Show a dimmed backdrop from your library behind Home, Movies and Series.");
+        let (read, write) = (self.layout.clone(), self.layout.clone());
+        let layout = SettingItem::new(
+            "Layout",
+            SettingField::dropdown(
+                HomeLayout::ALL
+                    .iter()
+                    .map(|l| (SharedString::from(l.label()), SharedString::from(l.label())))
+                    .collect(),
+                move |cx| read.read(cx).label().into(),
+                move |value, cx| {
+                    write.update(cx, |layout, cx| {
+                        *layout = HomeLayout::ALL
+                            .into_iter()
+                            .find(|l| l.label() == value.as_ref())
+                            .unwrap_or_default();
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description("Modern puts a featured item on top of Home, then a row for each Library.");
+        let (read, write) = (self.grouping.clone(), self.grouping.clone());
+        let grouping = SettingItem::new(
+            "Libraries",
+            SettingField::dropdown(
+                LibraryGrouping::ALL
+                    .iter()
+                    .map(|g| (SharedString::from(g.label()), SharedString::from(g.label())))
+                    .collect(),
+                move |cx| read.read(cx).label().into(),
+                move |value, cx| {
+                    write.update(cx, |grouping, cx| {
+                        *grouping = LibraryGrouping::ALL
+                            .into_iter()
+                            .find(|g| g.label() == value.as_ref())
+                            .unwrap_or_default();
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description("Separate adds a tab for each Library on Movies and Series.");
         SettingPage::new("Appearance")
-            .group(SettingGroup::new().items([theme, backdrops, spoilers]))
+            .group(SettingGroup::new().items([theme, layout, grouping, backdrops, spoilers]))
     }
 
     fn video_group(&self) -> SettingGroup {
+        let (read, write) = (self.video_quality.clone(), self.video_quality.clone());
+        let quality = SettingItem::new(
+            "Quality",
+            SettingField::dropdown(
+                VideoQuality::ALL
+                    .iter()
+                    .map(|q| (SharedString::from(q.label()), SharedString::from(q.label())))
+                    .collect(),
+                move |cx| read.read(cx).label().into(),
+                move |value, cx| {
+                    write.update(cx, |quality, cx| {
+                        *quality = VideoQuality::ALL
+                            .into_iter()
+                            .find(|q| q.label() == value.as_ref())
+                            .unwrap_or_default();
+                        cx.notify();
+                    })
+                },
+            ),
+        )
+        .description(
+            "Fast saves power; High looks best on a capable GPU. Applies to the next video.",
+        );
         let (read, write) = (self.shaders.clone(), self.shaders.clone());
         let upscaling = SettingItem::new(
             "Upscaling",
@@ -268,7 +471,9 @@ impl SettingsView {
             "Anime4K sharpens and upscales animation; not meant for live action. \
              Quality needs a strong GPU. Press U in the Player to cycle.",
         );
-        SettingGroup::new().title("Video").items([upscaling])
+        SettingGroup::new()
+            .title("Video")
+            .items([quality, upscaling])
     }
 
     fn mpv_group(&self) -> SettingGroup {
@@ -506,11 +711,11 @@ impl Render for SettingsView {
                 ),
                 "Settings",
             ))
-            .child(
-                grow().child(
-                    settings("settings").pages([self.playback_page(), self.appearance_page()]),
-                ),
-            )
+            .child(grow().child(settings("settings").pages([
+                self.playback_page(),
+                self.appearance_page(),
+                self.general_page(cx),
+            ])))
     }
 }
 

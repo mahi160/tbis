@@ -6,7 +6,7 @@
 
 **Blocked by:** 28 (needs `logo_url`).
 
-**Status:** blocked
+**Status:** done. `Hero` is a `RenderOnce` struct with public fields; a seven-argument builder would trip Clippy's `too_many_arguments`. `overview` is optional because `Item::overview` is. When the logo image fails to load, the title shows instead. `size::hero_h` and `size::hero_logo_h` sit outside `units!` until ticket 31 uses them, so they can carry `#[allow(dead_code)]`. Placed temporarily on Home and screenshotted in three cases (logo, long title without a logo, no backdrop), then removed.
 
 **Read first:** `AGENTS.md` (every UI rule; the image-rounding rule matters here), `src/components/backdrop.rs` (top-of-page art with a gradient: the base to build on), `src/components/detail.rs` (`detail_header`, `meta_line`), `src/components/button.rs`, `src/components/typography.rs`, `src/design.rs` (`size`, `gap`, `text`, `overlay`).
 
@@ -21,8 +21,8 @@
 
 ## Done when
 
-- [ ] `hero.rs` builds only from `components/` and `design` tokens: no `px(...)` literal beyond 0 or 1, no hardcoded colour, no `Button::new`
-- [ ] It renders with a logo, without a logo, and without a backdrop
-- [ ] Long titles and overviews truncate instead of overflowing
+- [x] `hero.rs` builds only from `components/` and `design` tokens: no `px(...)` literal beyond 0 or 1, no hardcoded colour, no `Button::new`
+- [x] It renders with a logo, without a logo, and without a backdrop
+- [x] Long titles and overviews truncate instead of overflowing
 
 **Check:** the gate in `PLAN.md`. Until ticket 31 uses it, mark the public function `#[allow(dead_code)]` with the comment `// used by the Modern view (roadmap 31)`. To look at it, temporarily place it at the top of Home, take a screenshot, and remove it again.

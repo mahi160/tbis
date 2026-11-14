@@ -6,7 +6,7 @@
 
 **Blocked by:** 02, 03, 04, 05 (they make the log useful).
 
-**Status:** needs-human
+**Status:** needs-human. Tickets 02 to 05 shipped in v0.8.0; test `tbis-0.8.0-windows-x86_64.zip` (or newer). Not yet run: no Windows PC was available.
 
 ## Steps
 

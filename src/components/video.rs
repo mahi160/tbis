@@ -2,6 +2,10 @@
 //! Colors are the fixed `design::overlay` tints, not theme colors: they sit over
 //! mpv's frame, not the app's own background.
 
+use std::cell::Cell;
+use std::rc::Rc;
+
+use gpui_kit::base::ElementExt as _;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -10,9 +14,16 @@ use gpui_kit::*;
 use crate::design::overlay::{self, black, white};
 use crate::design::{gap, radius, shadow, size, sp, text};
 
+/// Bare layer filling the video, for mouse input on the video itself. Chrome built
+/// here blocks the mouse, so the layer only sees clicks that reach the picture.
+pub fn video_surface(id: &'static str) -> Stateful<Div> {
+    div().id(id).absolute().inset_0()
+}
+
 /// Top chrome: fades from black down to clear.
 pub fn top_bar() -> Div {
     h_flex()
+        .block_mouse_except_scroll()
         // fixed: clears the traffic lights
         .pt(sp(9.))
         .px(gap::group())
@@ -28,6 +39,7 @@ pub fn top_bar() -> Div {
 /// Bottom chrome: fades from black up to clear; content centered at max width.
 pub fn bottom_bar(content: impl IntoElement) -> Div {
     div()
+        .block_mouse_except_scroll()
         // fixed: room for the gradient to fade
         .pt(sp(14.))
         .px(gap::group())
@@ -164,6 +176,7 @@ pub fn pip_frame(
 /// Anchors `content` bottom-right, above the timeline.
 pub fn overlay_corner(content: impl IntoElement) -> Div {
     div()
+        .block_mouse_except_scroll()
         .absolute()
         .right(gap::group())
         // fixed: clears the bottom bar
@@ -174,6 +187,7 @@ pub fn overlay_corner(content: impl IntoElement) -> Div {
 /// Dark rounded floating card in `fill`.
 pub fn overlay_card(fill: Hsla) -> Div {
     v_flex()
+        .block_mouse_except_scroll()
         .p(gap::group())
         .rounded(radius::base())
         .text_color(overlay::WHITE)
@@ -235,14 +249,21 @@ pub fn info_panel(groups: &[InfoGroup], close: impl IntoElement) -> Div {
         }))
 }
 
-/// Elapsed time, `slider` with `preview` floating above it at `fraction`, total time.
+/// Elapsed time, `slider` over a `buffered` bar (fraction of the duration) with
+/// `preview` floating above it at `fraction`, total time. `on_hover` gets the
+/// pointer's fraction along the slider, and `None` when it leaves.
 pub fn timeline(
     elapsed: impl IntoElement,
     slider: impl IntoElement,
+    buffered: f32,
     preview: Option<(f32, AnyElement)>,
     total: impl IntoElement,
     mono: SharedString,
+    on_hover: impl Fn(&Option<f32>, &mut Window, &mut App) + 'static,
 ) -> Div {
+    // the slider fills this box, so its bounds map the pointer the way the slider does
+    let bounds = Rc::new(Cell::new(Bounds::<Pixels>::default()));
+    let on_hover = Rc::new(on_hover);
     h_flex()
         .gap(gap::item())
         .font_family(mono)
@@ -251,8 +272,38 @@ pub fn timeline(
         .child(elapsed)
         .child(
             div()
+                .id("timeline-track")
                 .relative()
                 .flex_1()
+                .on_prepaint({
+                    let bounds = bounds.clone();
+                    move |b, _, _| bounds.set(b)
+                })
+                .on_mouse_move({
+                    let on_hover = on_hover.clone();
+                    move |event, window, cx| {
+                        let b = bounds.get();
+                        if b.size.width > px(0.) {
+                            let fraction = (event.position.x - b.left()) / b.size.width;
+                            on_hover(&Some(fraction.clamp(0., 1.)), window, cx);
+                        }
+                    }
+                })
+                .on_hover(move |hovered, window, cx| {
+                    if !*hovered {
+                        on_hover(&None, window, cx);
+                    }
+                })
+                // painted first so it sits under the slider's translucent track, which centres it too
+                .child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top(relative(0.5))
+                        .h(px(1.))
+                        .w(relative(buffered.clamp(0., 1.)))
+                        .bg(white(0.35)),
+                )
                 .child(slider)
                 .children(preview.map(|(fraction, preview)| {
                     div()
@@ -264,6 +315,25 @@ pub fn timeline(
                 })),
         )
         .child(total)
+}
+
+/// Scrub preview: the trickplay `thumb`, when there is one, over the `time` it shows.
+pub fn scrub_preview(thumb: Option<AnyElement>, time: impl IntoElement) -> Div {
+    v_flex()
+        // as wide as a thumb, so `timeline` centres it on the pointer either way
+        .w(size::trickplay_w())
+        .items_center()
+        .gap(gap::tight())
+        .children(thumb)
+        .child(
+            div()
+                .px(gap::tight())
+                .rounded(radius::base())
+                .bg(black(0.6))
+                .text_size(text::meta())
+                .text_color(overlay::WHITE)
+                .child(time),
+        )
 }
 
 /// `button` with `slider` unfolding beside it on hover, or while `open`.

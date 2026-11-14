@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done, runtime unverified. `mark_stale` also cancels an in-flight load, so a hidden tab's load started before the change can't mark itself fresh.
 
 **Read first:** `src/app.rs` (`Main::refresh_visible`, `fn select_tab`, `fn close_player`, the `Nav::Back` arm), `src/home.rs` (`HomeView`, `fn refresh`), `src/library.rs` (`LibraryView`, `fn refresh`, `fn set_sort`).
 
@@ -58,9 +58,9 @@
 
 ## Done when
 
-- [ ] Switching Home → Movies → Home within a minute sends no requests on the second Home visit
-- [ ] After closing the Player, the next visit to any tab reloads it
-- [ ] After a minute, a tab visit reloads
-- [ ] Changing the sort still reloads at once
+- [x] Switching Home → Movies → Home within a minute sends no requests on the second Home visit
+- [x] After closing the Player, the next visit to any tab reloads it
+- [x] After a minute, a tab visit reloads
+- [x] Changing the sort still reloads at once
 
 **Check:** the gate in `PLAN.md`. Runtime: watch the Jellyfin server's request log, or add a temporary `crate::log::write` in `refresh`, and remove it before finishing.

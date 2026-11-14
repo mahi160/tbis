@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
 **Read first:** `src/player/controls.rs` (`fn adjust_delay`, `fn seek_step`, `fn step_speed`, `fn speed_reset`, `fn toggle_mute`, the nudge and frame functions, `fn render`), `src/player/mod.rs` (fields `sync_hud`, `_sync_hud`, const `VOLUME_HUD_AFTER`), `src/player/playback.rs` (where `sync_hud` is cleared).
 
@@ -46,6 +46,6 @@
 - [ ] `<`, `>` and Backspace show the new speed
 - [ ] `m` shows Muted or Unmuted
 - [ ] Subtitle and audio sync banners still work
-- [ ] A second key press within the display time replaces the banner text
+- [x] A second key press within the display time replaces the banner text
 
 **Check:** the gate in `PLAN.md`, then play a video and press each key.

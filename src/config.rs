@@ -95,6 +95,9 @@ pub struct Config {
     /// Upscaling shaders the Player starts with (Settings).
     #[serde(default)]
     pub shaders: ShaderProfile,
+    /// mpv rendering profile the Player starts with (Settings).
+    #[serde(default)]
+    pub video_quality: VideoQuality,
     /// Player seek distances (Settings).
     #[serde(default)]
     pub seek: SeekSteps,
@@ -111,6 +114,14 @@ pub struct Config {
     pub hide_spoilers: HideSpoilers,
     #[serde(default)]
     pub backdrops: ShowBackdrops,
+    /// Home layout (Settings).
+    #[serde(default)]
+    pub home_layout: HomeLayout,
+    /// Movies and Series as one grid, or with a tab per Library (Settings).
+    #[serde(default)]
+    pub library_grouping: LibraryGrouping,
+    #[serde(default)]
+    pub auto_skip: AutoSkip,
     /// Audio passthrough and loudness normalization (Settings), for the Player and PiP.
     #[serde(default)]
     pub audio: AudioStyle,
@@ -128,11 +139,31 @@ pub const BITRATE_CAPS: [(Option<u32>, &str); 6] = [
 
 /// Blur the stills and hide the descriptions of unwatched Episodes (Settings).
 /// Also an app global, so Episode lists read the live value.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct HideSpoilers(pub bool);
 
 impl gpui_kit::Global for HideSpoilers {}
+
+impl Default for HideSpoilers {
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
+/// Skip intros and credits without asking (Settings).
+/// Also an app global, so the Player reads the live value.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AutoSkip(pub bool);
+
+impl gpui_kit::Global for AutoSkip {}
+
+impl Default for AutoSkip {
+    fn default() -> Self {
+        Self(true)
+    }
+}
 
 /// Dimmed library backdrops behind Home, Movies and Series (Settings); on by default.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -169,6 +200,80 @@ impl Default for SubtitleStyle {
     }
 }
 
+/// mpv rendering profile the Player starts with (Settings).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum VideoQuality {
+    Fast,
+    Balanced,
+    #[default]
+    High,
+}
+
+impl VideoQuality {
+    pub const ALL: [Self; 3] = [Self::Fast, Self::Balanced, Self::High];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Fast => "Fast",
+            Self::Balanced => "Balanced",
+            Self::High => "High",
+        }
+    }
+
+    /// mpv built-in profile to apply; `None` keeps mpv's defaults.
+    pub fn mpv_profile(self) -> Option<&'static str> {
+        match self {
+            Self::Fast => Some("fast"),
+            Self::Balanced => None,
+            Self::High => Some("high-quality"),
+        }
+    }
+}
+
+/// How Home arranges its rows (Settings).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum HomeLayout {
+    /// A Hero, Continue Watching, Next Up, then one row per Library.
+    #[default]
+    Modern,
+    /// Continue Watching, Next Up, then Movies and Series rows merged from every Library.
+    // configs saved before the rename say "Default"
+    #[serde(alias = "Default")]
+    Simple,
+}
+
+impl HomeLayout {
+    pub const ALL: [Self; 2] = [Self::Modern, Self::Simple];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Modern => "Modern",
+            Self::Simple => "Simple",
+        }
+    }
+}
+
+/// How the Movies and Series pages show several Libraries of one kind (Settings).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum LibraryGrouping {
+    /// One grid merged from every Library.
+    #[default]
+    Merged,
+    /// Tabs: All, then one per Library.
+    Separate,
+}
+
+impl LibraryGrouping {
+    pub const ALL: [Self; 2] = [Self::Merged, Self::Separate];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Merged => "Merged",
+            Self::Separate => "Separate",
+        }
+    }
+}
+
 /// Bitstream passthrough to an AV receiver, and loudness normalization (Settings).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AudioStyle {
@@ -180,8 +285,8 @@ pub struct AudioStyle {
 
 impl AudioStyle {
     /// mpv options applying this style, shared by the Player and PiP.
-    pub fn mpv_options(&self) -> [(&'static str, String); 3] {
-        [
+    pub fn mpv_options(&self) -> Vec<(&'static str, String)> {
+        let mut options = vec![
             (
                 "audio-spdif",
                 if self.passthrough {
@@ -191,10 +296,6 @@ impl AudioStyle {
                 },
             ),
             (
-                "audio-exclusive",
-                if self.passthrough { "yes" } else { "no" }.to_string(),
-            ),
-            (
                 "af",
                 if self.loudness_norm {
                     "dynaudnorm".to_string()
@@ -202,7 +303,12 @@ impl AudioStyle {
                     String::new()
                 },
             ),
-        ]
+        ];
+        // only when on, so a user's own `audio-exclusive` in mpv.conf still applies
+        if self.passthrough {
+            options.push(("audio-exclusive", "yes".to_string()));
+        }
+        options
     }
 }
 
@@ -328,11 +434,15 @@ fn defaults() -> Config {
         subtitles: SubtitleStyle::default(),
         max_bitrate_mbps: None,
         shaders: ShaderProfile::Off,
+        video_quality: VideoQuality::default(),
         seek: SeekSteps::default(),
         recent_searches: Vec::new(),
         theme: None,
         hide_spoilers: HideSpoilers::default(),
         backdrops: ShowBackdrops::default(),
+        home_layout: HomeLayout::default(),
+        library_grouping: LibraryGrouping::default(),
+        auto_skip: AutoSkip::default(),
         audio: AudioStyle::default(),
     }
 }
@@ -392,7 +502,10 @@ fn save_to(config: &Config, path: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{WindowState, defaults, forget_session_at, load_from, save_to};
+    use super::{
+        AudioStyle, Config, HomeLayout, LibraryGrouping, VideoQuality, WindowState, defaults,
+        forget_session_at, load_from, save_to,
+    };
     use crate::jellyfin::Session;
     use std::fs;
     use std::path::PathBuf;
@@ -544,6 +657,58 @@ mod tests {
         assert_eq!(item.max_bitrate_mbps, None);
         assert_eq!(item.subtitle_delay, Some(-5.));
         assert!(!loaded.playback.contains_key("other"));
+    }
+
+    #[test]
+    fn config_without_video_quality_loads_as_high() {
+        let mut json = serde_json::to_value(defaults()).unwrap();
+        json.as_object_mut().unwrap().remove("video_quality");
+        let config: Config = serde_json::from_value(json).unwrap();
+        assert_eq!(config.video_quality, VideoQuality::High);
+    }
+
+    #[test]
+    fn config_without_home_layout_loads_as_modern() {
+        let mut json = serde_json::to_value(defaults()).unwrap();
+        json.as_object_mut().unwrap().remove("home_layout");
+        let config: Config = serde_json::from_value(json).unwrap();
+        assert_eq!(config.home_layout, HomeLayout::Modern);
+    }
+
+    #[test]
+    fn saved_default_home_layout_loads_as_simple() {
+        let mut json = serde_json::to_value(defaults()).unwrap();
+        json["home_layout"] = "Default".into();
+        let config: Config = serde_json::from_value(json).unwrap();
+        assert_eq!(config.home_layout, HomeLayout::Simple);
+    }
+
+    #[test]
+    fn config_without_library_grouping_loads_as_merged() {
+        let mut json = serde_json::to_value(defaults()).unwrap();
+        json.as_object_mut().unwrap().remove("library_grouping");
+        let config: Config = serde_json::from_value(json).unwrap();
+        assert_eq!(config.library_grouping, LibraryGrouping::Merged);
+    }
+
+    #[test]
+    fn audio_exclusive_is_set_only_with_passthrough() {
+        let exclusive = |passthrough| {
+            AudioStyle {
+                passthrough,
+                loudness_norm: false,
+            }
+            .mpv_options()
+            .into_iter()
+            .find(|(name, _)| *name == "audio-exclusive")
+            .map(|(_, value)| value)
+        };
+        assert_eq!(
+            exclusive(false),
+            None,
+            "leaves the user's mpv.conf in charge"
+        );
+        assert_eq!(exclusive(true).as_deref(), Some("yes"));
     }
 
     #[test]

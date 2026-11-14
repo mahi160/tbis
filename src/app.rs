@@ -107,8 +107,12 @@ impl Main {
         !self.search_input.read(cx).value().trim().is_empty()
     }
 
-    /// Reloads whatever is on screen so played state and progress are fresh.
+    /// Reloads whatever is on screen so played state and progress are fresh; marks every
+    /// tab stale so the next visit reloads it too.
     fn refresh_visible(&self, cx: &mut App) {
+        self.home.update(cx, |view, _| view.mark_stale());
+        self.movies.update(cx, |view, _| view.mark_stale());
+        self.series.update(cx, |view, _| view.mark_stale());
         if let Some(detail) = self.details.last() {
             detail.refresh(cx);
         } else {
@@ -117,6 +121,15 @@ impl Main {
                 Tab::Series => self.series.update(cx, |view, cx| view.refresh(cx)),
                 Tab::Home => self.home.update(cx, |view, cx| view.refresh(cx)),
             }
+        }
+    }
+
+    /// Tab visit: reloads the tab only when its data is stale.
+    fn refresh_tab_if_stale(&self, cx: &mut App) {
+        match self.tab {
+            Tab::Movies => self.movies.update(cx, |view, cx| view.refresh_if_stale(cx)),
+            Tab::Series => self.series.update(cx, |view, cx| view.refresh_if_stale(cx)),
+            Tab::Home => self.home.update(cx, |view, cx| view.refresh_if_stale(cx)),
         }
     }
 
@@ -159,8 +172,7 @@ pub struct AppView {
 }
 
 impl AppView {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let config = config::load();
+    pub fn new(config: Config, window: &mut Window, cx: &mut Context<Self>) -> Self {
         if let Some(err) = config::load_error(&config) {
             window.push_notification(
                 Notification::error(format!(
@@ -171,6 +183,7 @@ impl AppView {
         }
         cx.set_global(config.seek);
         cx.set_global(config.hide_spoilers);
+        cx.set_global(config.auto_skip);
         let screen = match config.session.clone() {
             Some(session) => Self::main_screen(session, &config, window, cx),
             None => Self::login_screen(&config, window, cx),
@@ -360,12 +373,15 @@ impl AppView {
             }
         });
         let home = cx.new(|cx| {
-            let mut home = HomeView::new(api.clone());
+            let mut home = HomeView::new(api.clone(), config.home_layout);
             home.refresh(cx);
             home
         });
-        let movies = cx.new(|_| LibraryView::new(Kind::Movie, api.clone(), config.movies_sort));
-        let series = cx.new(|_| LibraryView::new(Kind::Series, api.clone(), config.series_sort));
+        let grouping = config.library_grouping;
+        let movies =
+            cx.new(|_| LibraryView::new(Kind::Movie, api.clone(), config.movies_sort, grouping));
+        let series =
+            cx.new(|_| LibraryView::new(Kind::Series, api.clone(), config.series_sort, grouping));
         let local = [movies.clone(), series.clone()];
         let recent = config.recent_searches.clone();
         let search = cx.new(|_| SearchView::new(api.clone(), local, recent));
@@ -480,7 +496,7 @@ impl AppView {
         main.sync_backdrops(self.config.backdrops.0, cx);
         main.details.clear();
         Self::clear_search(main, window, cx);
-        main.refresh_visible(cx);
+        main.refresh_tab_if_stale(cx);
         cx.notify();
     }
 
@@ -594,6 +610,7 @@ impl AppView {
                 SettingsChanged::Subtitles(style) => this.config.subtitles = style.clone(),
                 SettingsChanged::MaxBitrate(cap) => this.config.max_bitrate_mbps = *cap,
                 SettingsChanged::Shaders(profile) => this.config.shaders = *profile,
+                SettingsChanged::VideoQuality(quality) => this.config.video_quality = *quality,
                 SettingsChanged::Seek(steps) => {
                     this.config.seek = *steps;
                     cx.set_global(*steps);
@@ -609,7 +626,26 @@ impl AppView {
                         main.sync_backdrops(show.0, cx);
                     }
                 }
+                SettingsChanged::Layout(layout) => {
+                    this.config.home_layout = *layout;
+                    if let Screen::Main(main) = &this.screen {
+                        main.home
+                            .update(cx, |view, cx| view.set_layout(*layout, cx));
+                    }
+                }
+                SettingsChanged::LibraryGrouping(grouping) => {
+                    this.config.library_grouping = *grouping;
+                    if let Screen::Main(main) = &this.screen {
+                        for view in [&main.movies, &main.series] {
+                            view.update(cx, |view, cx| view.set_grouping(*grouping, cx));
+                        }
+                    }
+                }
                 SettingsChanged::Audio(style) => this.config.audio = *style,
+                SettingsChanged::AutoSkip(skip) => {
+                    this.config.auto_skip = *skip;
+                    cx.set_global(*skip);
+                }
             }
             save_config(&this.config, "settings");
         });

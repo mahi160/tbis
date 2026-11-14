@@ -13,7 +13,7 @@ use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::button::select_button;
+use super::button::{outline_button, select_button};
 use super::input::{code_area, search_box};
 use super::list::{ItemSize, item};
 use super::menu::choice_menu;
@@ -34,6 +34,8 @@ pub enum SettingField {
     Switch(Get<bool>, Set<bool>),
     /// Multi-line config text, shown full width under the label.
     Code(Entity<TextareaState>),
+    /// A button with `label` that calls `run`.
+    Action(SharedString, Rc<dyn Fn(&mut App)>),
 }
 
 impl SettingField {
@@ -54,6 +56,10 @@ impl SettingField {
 
     pub fn code(state: Entity<TextareaState>) -> Self {
         Self::Code(state)
+    }
+
+    pub fn action(label: impl Into<SharedString>, run: impl Fn(&mut App) + 'static) -> Self {
+        Self::Action(label.into(), Rc::new(run))
     }
 
     fn render(&self, id: SharedString, label: SharedString, cx: &App) -> AnyElement {
@@ -86,6 +92,12 @@ impl SettingField {
                     .into_any_element()
             }
             Self::Code(state) => code_area(state, cx).into_any_element(),
+            Self::Action(label, run) => {
+                let run = run.clone();
+                outline_button(id, label.clone(), cx)
+                    .on_click(move |_, _, cx| run(cx))
+                    .into_any_element()
+            }
         }
     }
 }

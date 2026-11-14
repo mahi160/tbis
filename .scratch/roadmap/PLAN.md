@@ -46,66 +46,67 @@ House rules that apply to every ticket:
 | 05 | Log the Windows GPU at Player start | sonnet | done |
 | 06 | Run tbis on a real Windows PC and record the log | human | needs-human |
 | 07 | Spike: mpv draws into a child window on Windows | opus + human | blocked by 06 |
-| 08 | Windows libmpv from a prebuilt package | opus | blocked by owner decision |
+| 08 | Windows libmpv from a prebuilt package | opus | code landed; Windows CI and mirror run pending |
 
 ### B. mpv quality
 
 | # | Ticket | Model | Status |
 | --- | --- | --- | --- |
-| 09 | Video quality setting (Fast / Balanced / High) | haiku | ready |
-| 10 | Exclusive audio only with passthrough | haiku | ready |
+| 09 | Video quality setting (Fast / Balanced / High) | haiku | done |
+| 10 | Exclusive audio only with passthrough | haiku | done |
 
 ### C. Player
 
 | # | Ticket | Model | Status |
 | --- | --- | --- | --- |
-| 11 | On-screen feedback for seek, speed and mute | haiku | ready |
-| 12 | Click to pause, double-click fullscreen, wheel volume | haiku | ready |
-| 13 | Buffered range on the timeline | sonnet | ready |
-| 14 | Thumbnail preview while hovering the timeline | sonnet | blocked by 13 |
-| 15 | Auto-skip intros and credits | haiku | ready |
+| 11 | On-screen feedback for seek, speed and mute | haiku | done |
+| 12 | Click to pause, double-click fullscreen, wheel volume | haiku | done |
+| 13 | Buffered range on the timeline | sonnet | done |
+| 14 | Thumbnail preview while hovering the timeline | sonnet | done |
+| 15 | Auto-skip intros and credits | haiku | done |
 
 ### D. Settings
 
 | # | Ticket | Model | Status |
 | --- | --- | --- | --- |
-| 16 | Reset settings | haiku | ready |
-| 17 | Better defaults | haiku | blocked by owner decision |
+| 16 | Reset settings | haiku | done |
+| 17 | Better defaults | haiku | done |
 
 ### E. Performance
 
 | # | Ticket | Model | Status |
 | --- | --- | --- | --- |
-| 18 | Tabs reload only when stale | haiku | ready |
-| 19 | Home decodes off the UI thread | haiku | ready |
-| 20 | Bounded image memory on Home and Search | haiku | ready |
-| 21 | Sharper wide art on Retina | haiku | ready |
-| 22 | Debounce mpv.conf saves | haiku | ready |
-| 23 | Load config once at launch | haiku | ready |
+| 18 | Tabs reload only when stale | haiku | done |
+| 19 | Home decodes off the UI thread | haiku | done |
+| 20 | Bounded image memory on Home and Search | haiku | done |
+| 21 | Sharper wide art on Retina | haiku | done |
+| 22 | Debounce mpv.conf saves | haiku | done |
+| 23 | Load config once at launch | haiku | done |
 
 ### F. Safety and tidiness
 
 | # | Ticket | Model | Status |
 | --- | --- | --- | --- |
-| 24 | Log dropped mpv errors in the Player | haiku | ready |
-| 25 | Warn about unencrypted remote servers | haiku | ready |
-| 26 | Split `jellyfin.rs` into modules | sonnet | ready |
+| 24 | Log dropped mpv errors in the Player | haiku | done |
+| 25 | Warn about unencrypted remote servers | haiku | done |
+| 26 | Split `jellyfin.rs` into modules | sonnet | done |
 | 27 | Signed releases | human | needs-human |
 
 ### G. Modern view (parked until the owner picks the layout)
 
 | # | Ticket | Model | Status |
 | --- | --- | --- | --- |
-| 28 | Jellyfin: Libraries and per-Library queries | sonnet | ready |
-| 29 | Reusable paged row component | haiku | ready |
-| 30 | Hero component | sonnet | blocked by 28 |
-| 31 | Layout setting and Modern Home | sonnet | blocked by 28, 29, 30 and owner decision |
+| 28 | Jellyfin: Libraries and per-Library queries | sonnet | done |
+| 29 | Reusable paged row component | haiku | done |
+| 30 | Hero component | sonnet | done |
+| 31 | Layout setting and Modern Home | sonnet | done, partly runtime unverified |
+| 32 | Per-Library sub-tabs on Movies and Series | sonnet | done, partly runtime unverified |
 
 ## Owner decisions still open
 
-1. **Windows libmpv (ticket 08):** prebuilt package (full codecs, short CI, source by link) or keep the source build (strict source mirror, 1.4 GB archive). Recommended: prebuilt.
-2. **Defaults (ticket 17):** tick the rows you want in the ticket's table.
-3. **Modern layout (ticket 31):** one row per Library under a hero, or Movies and Series tabs each split by Library. Recommended: one row per Library.
+1. **Windows libmpv (ticket 08):** decided: prebuilt shinchiro package, mirrored, source offered by link, as jellyfin-mpv-shim does.
+2. **Defaults (ticket 17):** decided: all four rows applied.
+3. **Modern layout (ticket 31):** decided: one row per Library under a hero; the hero is the first Continue Watching item, else the newest item of the first Library. The owner also wants per-Library sub-tabs on the Movies and Series pages; that is ticket 32.
 
 ## Already decided
 

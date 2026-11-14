@@ -1,7 +1,7 @@
 //! Design tokens: the single source UI code reads for every visual value. Each theme in
 //! `assets/themes/tbis.json` sets only colors and font families; everything else is
 //! the constant [`tokens`], the same for every theme. The system is small on purpose:
-//! three type sizes (`text`), one corner radius (`radius`), three gaps (`gap`), and
+//! three type sizes (`text`, plus two for the hero only), one corner radius (`radius`), three gaps (`gap`), and
 //! component heights. `theme::apply` derives gpui-kit's own font size and radii from
 //! it. Only this file reads `cx.theme()` for visuals.
 //!
@@ -41,6 +41,10 @@ pub struct TextScale {
     pub body: f32,
     /// Page and section headings.
     pub title: f32,
+    /// Hero only: its meta line and overview, read from across the room.
+    pub lead: f32,
+    /// Hero only: the title when an item has no logo.
+    pub display: f32,
 }
 
 /// The three gaps, px.
@@ -70,6 +74,8 @@ pub struct ButtonRecipe {
     pub sm: f32,
     pub default: f32,
     pub lg: f32,
+    /// Hero actions.
+    pub xl: f32,
     pub icon_xs: f32,
     pub icon: f32,
 }
@@ -101,6 +107,8 @@ const TOKENS: Design = Design {
         meta: 11.,
         body: 13.,
         title: 20.,
+        lead: 16.,
+        display: 36.,
     },
     radius: 8.,
     gap: Gaps {
@@ -115,6 +123,7 @@ const TOKENS: Design = Design {
         sm: 7.,
         default: 8.,
         lg: 9.,
+        xl: 11.,
         icon_xs: 6.,
         icon: 8.,
     },
@@ -229,6 +238,16 @@ pub mod text {
         px(tokens().text.title)
     }
 
+    /// Hero only: meta line and overview.
+    pub fn lead() -> Pixels {
+        px(tokens().text.lead)
+    }
+
+    /// Hero only: the title when there is no logo.
+    pub fn display() -> Pixels {
+        px(tokens().text.display)
+    }
+
     /// One line's height at `size` (Tailwind's `text-xs` leading, 16/12).
     pub fn line(size: Pixels) -> Pixels {
         size * (4. / 3.)
@@ -287,7 +306,27 @@ pub mod size {
         header_still_w = 80.,
         header_still_h = 45.,
         chart_h = 45.,
+        // the hero never gets shorter than this, however narrow the window
+        hero_min_h = 100.,
+        // past this the hero stops growing and centers, so big windows don't crop the art
+        hero_max_w = 360.,
+        // a hero's title logo; its width follows the image
+        hero_logo_h = 24.,
+        hero_logo_max_w = 100.,
+        // carousel dots: inactive square, active pill width
+        dot = 2.,
+        dot_active_w = 10.,
     );
+
+    /// Hero width over height: cinema-wide, so the rows below stay in view.
+    pub const HERO_ASPECT: f32 = 2.4;
+
+    /// The current hero slide's share of the window width; the rest shows the
+    /// neighbouring slides, cut off at each edge.
+    pub const HERO_SLIDE_W: f32 = 0.84;
+
+    /// A peeking hero slide's size next to the current one.
+    pub const HERO_PEEK_SCALE: f32 = 0.82;
 
     // text containers: scale with body type (like Tailwind's rem-based max-w-*); a unit
     // is 4px at a 14px body
@@ -303,6 +342,7 @@ pub mod size {
         prose_max_w = 140.,
         dialog_w = 112., // vega max-w-md
         up_next_w = 80.,
+        hero_text_w = 160.,
     );
     /// Scrub-preview width; the Player scales sprite tiles to it.
     pub fn trickplay_w() -> Pixels {

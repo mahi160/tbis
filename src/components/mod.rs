@@ -11,6 +11,7 @@ pub mod chart;
 pub mod detail;
 pub mod dialog;
 pub mod episode;
+pub mod hero;
 pub mod image_cache;
 pub mod input;
 pub mod layout;
@@ -19,6 +20,7 @@ pub mod logo;
 pub mod menu;
 pub mod page_backdrop;
 pub mod panel;
+pub mod row;
 pub mod section;
 pub mod settings;
 pub mod shortcuts;
@@ -31,3 +33,5 @@ pub mod typography;
 pub mod video;
 
 pub type OnClick = Box<dyn Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut gpui_kit::App)>;
+/// Pointer entered (`true`) or left an element.
+pub type OnHover = Box<dyn Fn(&bool, &mut gpui_kit::Window, &mut gpui_kit::App)>;

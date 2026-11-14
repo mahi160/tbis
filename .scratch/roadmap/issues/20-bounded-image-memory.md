@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done; Home checked in a fresh debug build, Search runtime unverified
 
 **Read first:** `src/components/image_cache.rs` (all), `src/library.rs` (`fn render`, the `image_cache(lru_images(...))` wrapper and `POSTERS_KEPT`), `src/home.rs` (`fn render`), `src/search.rs` (`fn render`).
 
@@ -19,8 +19,8 @@
 
 ## Done when
 
-- [ ] Home and Search are wrapped in an `lru_images` cache
-- [ ] Both pages look and scroll exactly as before
-- [ ] Scrolling back to an evicted card reloads its image
+- [x] Home and Search are wrapped in an `lru_images` cache
+- [x] Both pages look and scroll exactly as before
+- [x] Scrolling back to an evicted card reloads its image
 
 **Check:** the gate in `PLAN.md`, then open Home and Search and compare the layout with the current build. Follow the build-freshness rule in `AGENTS.md` before trusting what you see.

@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified)
 
 **Read first:** `src/config.rs` (`AudioStyle::mpv_options` and its tests), `src/player/mod.rs` (where `config.audio.mpv_options()` is chained), `src/player/pip.rs` (any other caller: `rg -n "mpv_options" src`).
 
@@ -19,7 +19,7 @@
 
 ## Done when
 
-- [ ] `audio-exclusive` is absent when passthrough is off
-- [ ] Test covers both cases
+- [x] `audio-exclusive` is absent when passthrough is off
+- [x] Test covers both cases
 
 **Check:** the gate in `PLAN.md`.

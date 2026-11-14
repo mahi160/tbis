@@ -6,11 +6,13 @@ use futures::StreamExt as _;
 use futures::channel::mpsc::{self, UnboundedSender};
 use gpui_kit::*;
 
+use crate::config::AutoSkip;
 use crate::jellyfin::{Api, Item, Kind, PlaybackItem, Report, Segment, SegmentKind};
 use crate::mpv::{FileEvent, MpvEvent, PlayerEvent, Track, TrackKind};
 
 use super::PlayerView;
 use super::controls::StaticInfo;
+use super::logged;
 
 /// Seconds left in an Episode when the next one is offered.
 const UP_NEXT_AT: f64 = 30.;
@@ -102,7 +104,13 @@ pub(super) struct Playback {
     /// Time last drawn; throttles redraws to `REDRAW_STEP`.
     pub(super) shown_time: f64,
     pub(super) duration: f64,
+    /// Stream position mpv has buffered up to, in seconds; read on each shown-time step.
+    pub(super) buffered_until: f64,
     pub(super) scrubbing: Option<f64>,
+    /// Time under the pointer while it hovers the timeline.
+    pub(super) hover_time: Option<f64>,
+    /// `start` of the last segment skipped automatically, so seeking back into it plays it.
+    pub(super) auto_skipped: Option<f64>,
     /// Time-driven overlays last drawn; see `PlayerView::time_overlays`.
     pub(super) overlays: TimeOverlays,
     /// Playback info's file/track values, read once; cleared when the tracks change.
@@ -142,7 +150,10 @@ impl Playback {
             time: 0.,
             shown_time: 0.,
             duration: 0.,
+            buffered_until: 0.,
             scrubbing: None,
+            hover_time: None,
+            auto_skipped: None,
             overlays: TimeOverlays::default(),
             info_static: None,
             tracks: Vec::new(),
@@ -202,6 +213,20 @@ impl PlayerView {
                 if !self.update_time(time) {
                     return;
                 }
+                if cx.global::<AutoSkip>().0
+                    && let Some(segment) = self.active_segment()
+                    && self.playback.auto_skipped != Some(segment.start)
+                {
+                    self.playback.auto_skipped = Some(segment.start);
+                    self.skip_segment(window, cx);
+                    return;
+                }
+                let ahead = self
+                    .active_mpv()
+                    .and_then(|mpv| mpv.property("demuxer-cache-duration"))
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(0.);
+                self.playback.buffered_until = time + ahead;
                 self.sync_seek_bar(window, cx);
                 self.sync_now_playing(window, cx);
                 // with the controls hidden only the skip button and up-next card show time
@@ -360,7 +385,7 @@ impl PlayerView {
             return;
         }
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.seek(segment.end);
+            logged("seek", mpv.seek(segment.end));
         }
         self.refocus(window, cx);
     }
@@ -401,8 +426,8 @@ impl PlayerView {
         self.end_current();
         if let Some(mpv) = &self.mpv {
             // stop old file during fetch; pause would carry over
-            let _ = mpv.stop();
-            let _ = mpv.set_pause(false);
+            logged("stop", mpv.stop());
+            logged("set_pause", mpv.set_pause(false));
         }
         self.paused = false;
         self.playback = Playback::new(&next, &self.api, cx);
@@ -442,7 +467,7 @@ impl PlayerView {
         // Stopped also ends the server's transcode for the old stream
         self.end_current();
         if let Some(mpv) = &self.mpv {
-            let _ = mpv.stop();
+            logged("stop", mpv.stop());
         }
         self.playback = Playback::new(&item, &self.api, cx);
         self.load(item.id, at, cx);
@@ -472,7 +497,7 @@ impl PlayerView {
             .unwrap_or_default();
         self.speed = prefs.speed.unwrap_or(1.);
         self.audio_delay = 0.;
-        self.sync_hud = None;
+        self.hud = None;
         self.max_bitrate_mbps = if prefs.bitrate_set {
             prefs.max_bitrate_mbps
         } else {
@@ -495,7 +520,7 @@ impl PlayerView {
 
     pub(super) fn select_track(&mut self, kind: TrackKind, id: Option<i64>) {
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.select_track(kind, id);
+            logged("select_track", mpv.select_track(kind, id));
         }
         self.remember_track(kind, id);
     }
@@ -503,7 +528,10 @@ impl PlayerView {
     /// Not remembered: track memory only covers the primary subtitle.
     pub(super) fn select_secondary_subtitle(&mut self, id: Option<i64>) {
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.select_secondary_subtitle(id);
+            logged(
+                "select_secondary_subtitle",
+                mpv.select_secondary_subtitle(id),
+            );
         }
     }
 
@@ -600,13 +628,13 @@ impl PlayerView {
         if let Some(mpv) = self.active_mpv()
             && let Some(id) = audio
         {
-            let _ = mpv.select_track(TrackKind::Audio, Some(id));
+            logged("select_track", mpv.select_track(TrackKind::Audio, Some(id)));
         }
 
         if let Some(r) = remembered {
             if r.subtitle_off {
                 if let Some(mpv) = self.active_mpv() {
-                    let _ = mpv.select_track(TrackKind::Subtitle, None);
+                    logged("select_track", mpv.select_track(TrackKind::Subtitle, None));
                 }
                 return;
             }
@@ -615,7 +643,10 @@ impl PlayerView {
                 .filter(|id| self.has_track(TrackKind::Subtitle, *id))
             {
                 if let Some(mpv) = self.active_mpv() {
-                    let _ = mpv.select_track(TrackKind::Subtitle, Some(id));
+                    logged(
+                        "select_track",
+                        mpv.select_track(TrackKind::Subtitle, Some(id)),
+                    );
                 }
                 return;
             }
@@ -624,7 +655,10 @@ impl PlayerView {
             && let Some(id) = self.track_by_lang(TrackKind::Subtitle, subtitle_lang.as_deref())
             && let Some(mpv) = self.active_mpv()
         {
-            let _ = mpv.select_track(TrackKind::Subtitle, Some(id));
+            logged(
+                "select_track",
+                mpv.select_track(TrackKind::Subtitle, Some(id)),
+            );
         }
     }
 
@@ -738,7 +772,7 @@ impl PlayerView {
             (current as i32 + direction).clamp(0, item.chapters.len() as i32 - 1) as usize
         };
         if let Some(mpv) = self.active_mpv() {
-            let _ = mpv.seek(item.chapters[target].start_seconds());
+            logged("seek", mpv.seek(item.chapters[target].start_seconds()));
         }
     }
 }

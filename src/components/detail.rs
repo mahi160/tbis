@@ -67,13 +67,7 @@ pub fn meta_line(item: &Item, length: Option<String>, cx: &App) -> Option<AnyEle
 
 /// Pill row: age rating first, then resolution/HDR/audio format badges; `None` when both are missing.
 pub fn media_tags(item: &Item, cx: &App) -> Option<AnyElement> {
-    let pills: Vec<String> = item
-        .official_rating
-        .iter()
-        .filter(|r| !r.is_empty())
-        .cloned()
-        .chain(item.media_tags().into_iter().map(String::from))
-        .collect();
+    let pills = tag_labels(item);
     (!pills.is_empty()).then(|| {
         h_flex()
             .gap(gap::tight())
@@ -81,6 +75,16 @@ pub fn media_tags(item: &Item, cx: &App) -> Option<AnyElement> {
             .children(pills.into_iter().map(|t| tag::pill(t, cx)))
             .into_any_element()
     })
+}
+
+/// Age rating first, then resolution/HDR/audio format labels.
+pub fn tag_labels(item: &Item) -> Vec<String> {
+    item.official_rating
+        .iter()
+        .filter(|r| !r.is_empty())
+        .cloned()
+        .chain(item.media_tags().into_iter().map(String::from))
+        .collect()
 }
 
 pub fn genres_line(item: &Item, cx: &App) -> Option<AnyElement> {

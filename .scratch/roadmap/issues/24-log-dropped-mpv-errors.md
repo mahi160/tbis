@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Read first:** `src/player/mod.rs`, `src/player/controls.rs`, `src/player/playback.rs`, `src/player/pip.rs`, `src/player/controls/chrome.rs` (every `let _ =`: `rg -n "let _ = " src/player`), `src/log.rs` (`write`).
 
@@ -29,7 +29,7 @@
 
 ## Done when
 
-- [ ] No discarded mpv `Result` remains under `src/player/`
-- [ ] Behaviour is unchanged when calls succeed
+- [x] No discarded mpv `Result` remains under `src/player/`
+- [x] Behaviour is unchanged when calls succeed
 
 **Check:** the gate in `PLAN.md`.

@@ -6,7 +6,7 @@
 
 **Blocked by:** 09 and 15 when they are done (their new entities must be reset too; include them if present).
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified). The reset also covers `video_quality` (09) and `auto_skip` (15), using a small local `set` helper in place of the repeated `update` closures.
 
 **Read first:** `src/settings.rs` (all of `SettingsView::new`, `fn appearance_page`, `fn render`), `src/components/settings.rs` (`SettingField`, `fn render`), `src/config.rs` (the `Default` impls), `src/theme.rs` (`NAMES`; the first is the default), `src/components/button.rs` (`outline_button`).
 

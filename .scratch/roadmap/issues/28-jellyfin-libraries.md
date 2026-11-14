@@ -6,7 +6,13 @@
 
 **Blocked by:** None. (Layout-independent, so it can be done while the Modern layout decision is open.)
 
-**Status:** ready-for-agent
+**Status:** done. `cargo test`: 80 tests before, 82 after. Unlike `latest_unplayed`, `latest_in` doesn't filter out played items, because the ticket asks for the newest items. It requests `Primary,Backdrop,Logo` tags through a new `items_with`; `items` keeps its poster-only query.
+
+### Confirmed shapes (dev server, Jellyfin 10.10)
+
+- `GET /UserViews?userId={id}` returns `Items`, each with `Id`, `Name`, `CollectionType`, `Type`. Trimmed: `{"Name":"Collections","CollectionType":"boxsets"}`, `{"Name":"New","CollectionType":null}`, `{"Name":"Live TV","CollectionType":"livetv"}`, `{"Name":"Movies","CollectionType":"movies","Type":"UserView"}`, `{"Name":"TV Shows","CollectionType":"tvshows","Type":"UserView"}`. The type is `tvshows`, not `series`.
+- `GET /Items?userId={id}&IncludeItemTypes=Movie&Recursive=true&EnableImageTypes=Primary,Logo&ImageTypeLimit=1&ParentId={Movies id}&Limit=2&SortBy=DateCreated,SortName&SortOrder=Descending,Ascending` returns that Library's items, e.g. `{"Name":"Heart of the Beast","ImageTags":{"Primary":"ae67…","Logo":"23d8…"}}`. The Logo tag only appears when `Logo` is in `EnableImageTypes`.
+- `GET /Items/{id}/Images/Logo?maxWidth=800&quality=90&tag={ImageTags.Logo}` returns `200 image/png`, with no auth needed.
 
 **Read first:** `CONTEXT.md` (the word is **Library**), `src/jellyfin.rs` or `src/jellyfin/` after ticket 26 (`Api::items`, `Api::latest_unplayed`, `Api::backdrop_url`, `Item`, the test module that decodes sample JSON), and the Jellyfin API reference for the endpoints below.
 
@@ -34,8 +40,8 @@
 
 ## Done when
 
-- [ ] The three confirmed request and response shapes are recorded in this ticket
-- [ ] `libraries`, `latest_in` and `logo_url` exist with tests
-- [ ] No existing call changed behaviour
+- [x] The three confirmed request and response shapes are recorded in this ticket
+- [x] `libraries`, `latest_in` and `logo_url` exist with tests
+- [x] No existing call changed behaviour
 
 **Check:** the gate in `PLAN.md`. The new functions are unused until ticket 31; add `#[allow(dead_code)]` with the comment `// used by the Modern view (roadmap 31)` so Clippy passes, and remove it in ticket 31.

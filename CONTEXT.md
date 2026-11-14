@@ -5,7 +5,7 @@ A desktop Jellyfin client for browsing a user's Movies and Series and playing th
 ## Library
 
 **Library**:
-A Jellyfin media folder on the server. The app always merges every Library, so the user never picks one.
+A Jellyfin media folder on the server. The Default Home layout merges every Library; the Modern layout shows one row per Movie or Series Library. With the Libraries setting on Separate, Movies and Series get a tab per Library (after All) to narrow the grid to one; the pick lasts until the app quits.
 _Avoid_: Folder, collection
 
 **Movie**:
@@ -19,6 +19,10 @@ _Avoid_: Show, TV show
 A single playable part of a Series.
 
 ## Home
+
+**Hero**:
+The carousel at the top of the Modern Home layout: the five newest Movies the user hasn't started, from all Libraries. Each slide shows the Movie's logo or title, meta, overview, and Play and More info buttons. The previous and next films peek in at the edges. It advances on its own and pauses while the pointer is on it; dots below or a peek pick a slide.
+_Avoid_: Banner, spotlight
 
 **Continue Watching**:
 A Home row of movies and episodes the user has started but not finished, with the most recently watched first.

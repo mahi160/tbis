@@ -77,7 +77,8 @@ fn main() {
         .run(|cx| {
             gpui_kit::init(cx);
             fonts::embed(cx).expect("failed to embed fonts");
-            theme::init(config::load().theme.as_deref(), cx);
+            let config = config::load();
+            theme::init(config.theme.as_deref(), cx);
 
             cx.bind_keys([
                 // secondary: cmd on macOS, ctrl elsewhere
@@ -100,7 +101,7 @@ fn main() {
 
             cx.spawn(async move |cx| {
                 let min = design::window::MIN;
-                let saved = config::load().window;
+                let saved = config.window;
                 let window_bounds = cx.update(|cx| {
                     let displays: Vec<_> = cx.displays().iter().map(|d| d.bounds()).collect();
                     saved
@@ -126,7 +127,7 @@ fn main() {
                 let main = cx
                     .open_window(options, |window, cx| {
                         platform::window::prepare(window);
-                        let view = cx.new(|cx| app::AppView::new(window, cx));
+                        let view = cx.new(|cx| app::AppView::new(config, window, cx));
                         cx.new(|cx| Root::new(view, window, cx))
                     })
                     .expect("failed to open window");

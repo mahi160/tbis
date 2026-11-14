@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done (runtime unverified). `timeline` has one caller (`bottom_chrome`); PiP uses a bare `Slider`. The reset comes from `Playback::new` on every load. The bar is 1 px, centred on the slider's 6 px track, and drawn under it.
 
 **Read first:** `src/components/video.rs` (`pub fn timeline`), `src/player/controls/chrome.rs` (`fn bottom_chrome`), `src/player/controls.rs` (`fn playback_info`, which reads `demuxer-cache-duration` through a `num(...)` helper), `src/player/playback.rs` (`fn update_time`, `fn on_mpv`), `src/design.rs` (`overlay`, `radius`, `sp`).
 

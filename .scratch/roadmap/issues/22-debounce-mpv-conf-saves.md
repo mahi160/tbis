@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done, runtime unverified. Quitting the app (cmd-Q) within the half second may not drop `SettingsView`, so that last edit may not be written.
 
 **Read first:** `src/settings.rs` (`SettingsView::new`, the `_save_mpv_conf` subscription), `src/login.rs` (`fn load_users` shows the debounce pattern: a stored `Task` replaced on each change, starting with a timer).
 
@@ -32,8 +32,8 @@
 
 ## Done when
 
-- [ ] Typing a line writes the file once, half a second after the last key
-- [ ] Typing and leaving Settings at once still saves the text
-- [ ] A save failure is still logged
+- [x] Typing a line writes the file once, half a second after the last key
+- [x] Typing and leaving Settings at once still saves the text
+- [x] A save failure is still logged
 
 **Check:** the gate in `PLAN.md`. Runtime: type in the box, leave Settings immediately, reopen it, and the text is there.

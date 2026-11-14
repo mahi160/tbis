@@ -4,18 +4,40 @@ Invoke-Native git @('-C', $Repo, 'diff', '--quiet', 'HEAD', '--')
 $untracked = Invoke-Native git @('-C', $Repo, 'ls-files', '--others', '--exclude-standard', '--', 'src', 'assets', 'scripts', '.cargo', 'Cargo.toml', 'Cargo.lock', 'build.rs')
 if ($untracked) { throw 'Commit source inputs before packaging' }
 if ([IO.Path]::GetFullPath($env:MPV_DLL) -ne [IO.Path]::GetFullPath("$Deps/mpv/libmpv-2.dll")) {
-    throw 'Bundle requires the locally source-built libmpv'
+    throw 'Bundle requires the libmpv from scripts/setup-windows-deps.ps1'
 }
-$source = Get-WindowsSources
 Invoke-Native cargo @('build', '--profile', 'dist', '--locked')
 $dist = Join-Path $Repo 'target/windows-dist'
 if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
 New-Item -ItemType Directory -Force "$dist/licenses", "$dist/components" | Out-Null
-Copy-Item "$Repo/target/dist/tbis.exe", $env:MPV_DLL, "$Repo/LICENSE" $dist
-Copy-Item "$source/licenses/*" "$dist/licenses" -Recurse
-Copy-Item "$source/inventory.json", "$PSScriptRoot/windows-deps.json", "$Repo/Cargo.lock" "$dist/components"
-$inventory = Get-Content "$source/inventory.json" -Raw | ConvertFrom-Json
-$inventory.components | ForEach-Object { "$($_.name) $($_.version)" } | Set-Content "$dist/bundled-components.txt"
+Copy-Item "$Repo/target/dist/tbis.exe", $env:MPV_DLL, "$Deps/mpv/vulkan-1.dll", "$Repo/LICENSE" $dist
+Copy-Item "$Deps/licenses/*" "$dist/licenses" -Recurse
+Copy-Item "$PSScriptRoot/windows-deps.json", "$Repo/Cargo.lock" "$dist/components"
+$libmpv = $Pins.libmpv
+$vulkan = $Pins.vulkanLoader
+$revision = Invoke-Native git @('-C', $Repo, 'rev-parse', 'HEAD')
+@(
+    "mpv $($libmpv.mpv) (shinchiro/mpv-winbuild-cmake $($libmpv.release))",
+    "Vulkan-Loader $($vulkan.tag)",
+    'Rust dependencies: exact versions in components/Cargo.lock'
+) | Set-Content "$dist/bundled-components.txt"
+# GPL source offer (ADR-0004): where the source of every bundled binary is published
+@(
+    "tbis $revision",
+    "  https://github.com/mahi160/tbis/tree/$revision",
+    '',
+    "libmpv-2.dll: shinchiro/mpv-winbuild-cmake release $($libmpv.release), $($libmpv.file)",
+    "  sha256 $($libmpv.sha256)",
+    "  package: $($libmpv.upstream)",
+    "  mirror: $($libmpv.mirror)",
+    "  mpv source: https://github.com/mpv-player/mpv/tree/$($libmpv.mpvCommit)",
+    "  build recipe (FFmpeg and every other library, with their source URLs): $($libmpv.buildRecipe)",
+    "  build log: $($libmpv.workflowRun)",
+    '',
+    "vulkan-1.dll: built by scripts/setup-windows-deps.ps1 from",
+    "  https://github.com/KhronosGroup/Vulkan-Loader/archive/refs/tags/$($vulkan.tag).tar.gz (sha256 $($vulkan.loaderSha256))",
+    "  https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/$($vulkan.tag).tar.gz (sha256 $($vulkan.headersSha256))"
+) | Set-Content "$dist/components/sources.txt"
 
 Assert-WindowsImports @(Get-ChildItem $dist -File | Where-Object { $_.Extension -in @('.exe', '.dll') })
 $env:PATH = "$dist;$env:PATH"
@@ -44,16 +66,9 @@ if (Test-Path "$dist/tbis.log") { throw 'tbis self-test wrote tbis.log into the 
 
 $version = (Select-String '^version = "([^"]+)"' "$Repo/Cargo.toml" | Select-Object -First 1).Matches[0].Groups[1].Value
 $zip = "$Repo/target/tbis-$version-windows-x86_64.zip"
-$sources = "$Deps/release-source/sources"
-if (Test-Path $sources) { Remove-Item -Recurse -Force $sources }
-New-Item -ItemType Directory -Force "$sources/tbis" | Out-Null
-Invoke-Native git @('-C', $Repo, 'archive', '--format=tar', '-o', "$Deps/tbis.tar", 'HEAD')
-Invoke-Native tar @('-xf', "$Deps/tbis.tar", '-C', "$sources/tbis")
-Push-Location "$sources/tbis"
-try {
-    Invoke-Native cargo @('vendor', '--locked', '--versioned-dirs', 'vendor') | Add-Content '.cargo/config.toml'
-} finally { Pop-Location }
-$vendor = "$sources/tbis/vendor"
+# vendored only to collect the Rust crates' license notices
+$vendor = "$Deps/vendor"
+Invoke-Native cargo @('vendor', '--locked', '--versioned-dirs', '--manifest-path', "$Repo/Cargo.toml", $vendor) | Out-Null
 foreach ($notice in (Get-ChildItem $vendor -Recurse -File | Where-Object {
     $_.Name -match '^(LICENSE|COPYING|NOTICE|COPYRIGHT)' -or $_.DirectoryName -match '[/\\]LICENSES?([/\\]|$)'
 })) {
@@ -61,8 +76,4 @@ foreach ($notice in (Get-ChildItem $vendor -Recurse -File | Where-Object {
     New-Item -ItemType Directory -Force (Split-Path $destination) | Out-Null
     Copy-Item $notice.FullName $destination
 }
-'Rust dependencies: exact versions in components/Cargo.lock; sources in windows-sources.tar' | Add-Content "$dist/bundled-components.txt"
-Copy-Item $source "$sources/dependencies" -Recurse
-Invoke-Native git @('-C', $Repo, 'rev-parse', 'HEAD') | Set-Content "$sources/tbis-revision.txt"
-Invoke-Native python @("$PSScriptRoot/windows_sources.py", 'archive', '--root', $sources, '--output', "$Repo/target/tbis-$version-windows-sources.tar", '--prefix', 'sources')
 Compress-Archive -Path "$dist/*" -DestinationPath $zip -Force

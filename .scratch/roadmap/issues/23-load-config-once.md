@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done; saved theme and window size restored in a fresh debug build, broken-config notification runtime unverified
 
 **Read first:** `src/main.rs` (the two `config::load()` calls and the window-opening code between them), `src/app.rs` (`AppView::new`), `src/config.rs` (`pub fn load`).
 
@@ -19,8 +19,8 @@
 
 ## Done when
 
-- [ ] One `config::load()` call at launch
-- [ ] Theme, window size and session restore behave as before
-- [ ] The "Could not load saved configuration" notification still appears for a broken file
+- [x] One `config::load()` call at launch
+- [x] Theme, window size and session restore behave as before
+- [x] The "Could not load saved configuration" notification still appears for a broken file
 
 **Check:** the gate in `PLAN.md`. Runtime: launch, confirm the saved theme and window size are restored. Then put invalid JSON in the dev `config.json`, launch, confirm the notification, and restore the file.

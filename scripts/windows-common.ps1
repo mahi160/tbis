@@ -30,6 +30,21 @@ function Assert-WindowsImports {
     }
 }
 
-function Get-WindowsSources {
-    Invoke-Native python @("$PSScriptRoot/windows_sources.py", 'verify', '--repo', $Repo, '--deps', $Deps)
+# Downloads the first URL that answers to $Path and fails unless its SHA-256 matches.
+function Get-Pinned {
+    param([string[]]$Urls, [string]$Sha256, [string]$Path)
+    foreach ($url in $Urls) {
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $Path -UseBasicParsing
+            break
+        } catch {
+            Write-Warning "Download failed: $url"
+        }
+    }
+    if (-not (Test-Path $Path)) { throw "No pinned URL answered: $($Urls -join ', ')" }
+    $actual = (Get-FileHash -Algorithm SHA256 $Path).Hash.ToLowerInvariant()
+    if ($actual -ne $Sha256) {
+        Remove-Item $Path
+        throw "$Path hashed $actual, expected $Sha256"
+    }
 }

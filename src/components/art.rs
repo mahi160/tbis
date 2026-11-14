@@ -176,9 +176,12 @@ pub fn progress_bar(id: impl Into<ElementId>, percent: f64, cx: &App) -> Progres
         .w_auto()
 }
 
-/// Image filling its parent; the tbis mark on a muted tile when missing.
+/// Image filling its `relative` parent; the tbis mark on a muted tile when missing.
 /// Corner radius has to sit on the image itself: a wrapping div's
 /// `overflow_hidden` clips to a plain rectangle, not to its rounded shape.
+/// Absolute so the box, not the picture's own aspect ratio (which gpui's `img`
+/// adopts), sets the height; otherwise art taller than its box spills past the
+/// rounded bottom corners.
 pub fn image(url: Option<String>, cx: &App) -> AnyElement {
     let (muted, muted_fg, radius) = (
         color::muted(cx),
@@ -198,6 +201,8 @@ pub fn image(url: Option<String>, cx: &App) -> AnyElement {
     };
     match url {
         Some(url) => img(url)
+            .absolute()
+            .inset_0()
             .size_full()
             .rounded(radius)
             .object_fit(ObjectFit::Cover)
@@ -213,6 +218,7 @@ pub fn thumb(url: Option<String>, width: Pixels, height: Pixels, cx: &App) -> Di
         .w(width)
         .h(height)
         .flex_shrink_0()
+        .relative()
         .rounded(radius::base())
         .overflow_hidden()
         .child(image(url, cx))

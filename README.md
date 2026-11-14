@@ -116,13 +116,13 @@ sh scripts/bundle.sh        # build a self-contained target/tbis.app
 On Windows, run this in PowerShell 7 from an x64 Visual Studio developer environment. See [Windows builds and releases](docs/windows-build.md) for prerequisites:
 
 ```powershell
-./scripts/setup-windows-deps.ps1  # builds libmpv, sets MPV_LIB_DIR and adds its DLL to PATH
+./scripts/setup-windows-deps.ps1  # fetches pinned libmpv, sets MPV_LIB_DIR and adds its DLL to PATH
 cargo run --release --locked
 ```
 
 ## Releases
 
-Pushing to the `prod` branch (or deliberately dispatching Release on `prod`) builds both platforms and publishes one release only after both application bundles and GPL source archives succeed through GitHub Actions (`.github/workflows/release.yml`). The macOS and Windows builds use the same prepared version and Git revision. The version is bumped from the commit messages since the last release:
+Pushing to the `prod` branch (or deliberately dispatching Release on `prod`) builds both platforms and publishes one release only after both application bundles and the macOS GPL source archive succeed through GitHub Actions (`.github/workflows/release.yml`). The macOS and Windows builds use the same prepared version and Git revision. The version is bumped from the commit messages since the last release:
 
 - a breaking change (`feat!:` or `BREAKING CHANGE`) bumps the major version
 - any `feat:` commit bumps the minor version
@@ -132,4 +132,4 @@ The first release has no earlier tag to bump from, so it uses the version in `Ca
 
 ## License
 
-tbis is licensed under the [GNU General Public License v3.0 or later](LICENSE). The app bundles GPL builds of mpv and FFmpeg (see [ADR-0004](docs/adr/0004-bundle-libmpv-and-license-as-gpl.md)). Releases include corresponding source archives for the shipped platforms. License files are in `tbis.app/Contents/Resources/licenses` on macOS and `licenses/` beside `tbis.exe` on Windows. The Windows build and provenance pipeline is documented in [Windows builds and releases](docs/windows-build.md).
+tbis is licensed under the [GNU General Public License v3.0 or later](LICENSE). The app bundles GPL builds of mpv and FFmpeg (see [ADR-0004](docs/adr/0004-bundle-libmpv-and-license-as-gpl.md)). macOS releases include a corresponding source archive; the Windows zip names where its sources are published in `components/sources.txt`. License files are in `tbis.app/Contents/Resources/licenses` on macOS and `licenses/` beside `tbis.exe` on Windows. The Windows build and provenance pipeline is documented in [Windows builds and releases](docs/windows-build.md).

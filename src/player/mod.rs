@@ -148,7 +148,8 @@ pub struct PlayerView {
     controls_visible: bool,
     /// Volume slider forced open by VolumeUp/VolumeDown, independent of mute-button hover.
     volume_hud: bool,
-    sync_hud: Option<SharedString>,
+    /// Short banner after a key (seek, speed, mute, sync); see `flash`.
+    hud: Option<SharedString>,
     menu_open: bool,
     track_prefs: TrackPrefs,
     /// Settings' preferred languages (read-only here).
@@ -168,7 +169,7 @@ pub struct PlayerView {
     _info: Task<()>,
     _hide: Task<()>,
     _volume_hud: Task<()>,
-    _sync_hud: Task<()>,
+    _hud: Task<()>,
     _tasks: Vec<Task<()>>,
     _subscriptions: [Subscription; 2],
 }
@@ -199,7 +200,7 @@ impl PlayerView {
             cx.subscribe_in(&volume_slider, window, |this, _, event, window, cx| {
                 let (SliderEvent::Change(value) | SliderEvent::Release(value)) = event;
                 if let Some(mpv) = this.active_mpv() {
-                    let _ = mpv.set_volume(value.end() as f64);
+                    logged("set_volume", mpv.set_volume(value.end() as f64));
                 }
                 this.show_controls(window, cx);
             }),
@@ -213,11 +214,18 @@ impl PlayerView {
             .mpv_options()
             .into_iter()
             .chain(config.audio.mpv_options())
+            // as an option, not `apply-profile`, so the user's mpv.conf still overrides it
+            .chain(
+                config
+                    .video_quality
+                    .mpv_profile()
+                    .map(|profile| ("profile", profile.to_string())),
+            )
             .collect();
         let (mpv, mpv_error) = match Mpv::new(window, &api.auth_header(), &defaults, events_tx) {
             Ok(mpv) => {
-                let _ = mpv.set_volume(volume);
-                let _ = mpv.set_mute(muted);
+                logged("set_volume", mpv.set_volume(volume));
+                logged("set_mute", mpv.set_mute(muted));
                 (Some(mpv), None)
             }
             Err(err) => {
@@ -295,7 +303,7 @@ impl PlayerView {
             focus,
             controls_visible: true,
             volume_hud: false,
-            sync_hud: None,
+            hud: None,
             menu_open: false,
             track_prefs: config.track_prefs.clone(),
             language: config.language.clone(),
@@ -309,7 +317,7 @@ impl PlayerView {
             _info: Task::ready(()),
             _hide: Task::ready(()),
             _volume_hud: Task::ready(()),
-            _sync_hud: Task::ready(()),
+            _hud: Task::ready(()),
             _tasks: tasks,
             _subscriptions,
         };
@@ -441,6 +449,13 @@ impl PlayerView {
     /// Track memory to persist on quit, mirroring what `Closed` carries on a normal close.
     pub fn track_prefs(&self) -> TrackPrefs {
         self.track_prefs.clone()
+    }
+}
+
+/// Logs a failed mpv call the Player can carry on without.
+pub(super) fn logged<T, E: std::fmt::Display>(what: &str, result: Result<T, E>) {
+    if let Err(err) = result {
+        crate::log::write(&format!("mpv: {what} failed: {err}"));
     }
 }
 
