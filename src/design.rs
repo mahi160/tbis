@@ -325,6 +325,9 @@ pub mod size {
     /// neighbouring slides, cut off at each edge.
     pub const HERO_SLIDE_W: f32 = 0.84;
 
+    /// A peeking hero slide's size next to the current one.
+    pub const HERO_PEEK_SCALE: f32 = 0.82;
+
     // text containers: scale with body type (like Tailwind's rem-based max-w-*); a unit
     // is 4px at a 14px body
     macro_rules! type_units {

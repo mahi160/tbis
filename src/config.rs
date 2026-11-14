@@ -233,20 +233,22 @@ impl VideoQuality {
 /// How Home arranges its rows (Settings).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum HomeLayout {
-    /// Continue Watching, Next Up, then Movies and Series rows merged from every Library.
-    #[default]
-    Default,
     /// A Hero, Continue Watching, Next Up, then one row per Library.
+    #[default]
     Modern,
+    /// Continue Watching, Next Up, then Movies and Series rows merged from every Library.
+    // configs saved before the rename say "Default"
+    #[serde(alias = "Default")]
+    Simple,
 }
 
 impl HomeLayout {
-    pub const ALL: [Self; 2] = [Self::Default, Self::Modern];
+    pub const ALL: [Self; 2] = [Self::Modern, Self::Simple];
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Default => "Default",
             Self::Modern => "Modern",
+            Self::Simple => "Simple",
         }
     }
 }
@@ -666,11 +668,19 @@ mod tests {
     }
 
     #[test]
-    fn config_without_home_layout_loads_as_default() {
+    fn config_without_home_layout_loads_as_modern() {
         let mut json = serde_json::to_value(defaults()).unwrap();
         json.as_object_mut().unwrap().remove("home_layout");
         let config: Config = serde_json::from_value(json).unwrap();
-        assert_eq!(config.home_layout, HomeLayout::Default);
+        assert_eq!(config.home_layout, HomeLayout::Modern);
+    }
+
+    #[test]
+    fn saved_default_home_layout_loads_as_simple() {
+        let mut json = serde_json::to_value(defaults()).unwrap();
+        json["home_layout"] = "Default".into();
+        let config: Config = serde_json::from_value(json).unwrap();
+        assert_eq!(config.home_layout, HomeLayout::Simple);
     }
 
     #[test]

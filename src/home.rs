@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use crate::components::button::{GhostState as _, VegaSize as _, icon_button};
 use crate::components::detail::tag_labels;
-use crate::components::hero::{Hero, HeroCarousel, Peek};
+use crate::components::hero::{Hero, HeroCarousel, Peek, SIDES};
 use crate::components::image_cache::lru_images;
 use crate::components::layout::rows_page;
 use crate::components::row::paged_row;
@@ -21,8 +21,8 @@ const PER_ROW: usize = 24;
 // four rows of up to 24 cards, with room to scroll back
 const IMAGES_KEPT: usize = 120;
 const PAGE_ANIMATION: Duration = Duration::from_millis(350);
-/// Films in the Modern hero carousel.
-const HERO_SLIDES: usize = 5;
+/// Films and Series in the Modern hero carousel, at most.
+const HERO_SLIDES: usize = 8;
 /// How long a hero slide shows before the next, unless the pointer is on it.
 const HERO_DWELL: Duration = Duration::from_secs(8);
 
@@ -34,7 +34,7 @@ struct Rows {
     series: Vec<Item>,
     /// Modern layout only: each Movie and Series Library with its newest items.
     libraries: Vec<(Library, Vec<Item>)>,
-    /// Modern layout only: the hero's films, in full.
+    /// Modern layout only: the hero's films and Series, in full.
     featured: Vec<Item>,
 }
 
@@ -44,7 +44,7 @@ impl Rows {
         self.continue_watching.is_empty()
             && self.next_up.is_empty()
             && match layout {
-                HomeLayout::Default => self.movies.is_empty() && self.series.is_empty(),
+                HomeLayout::Simple => self.movies.is_empty() && self.series.is_empty(),
                 HomeLayout::Modern => {
                     self.featured.is_empty()
                         && self.libraries.iter().all(|(_, items)| items.is_empty())
@@ -53,12 +53,13 @@ impl Rows {
     }
 }
 
-/// Which hero slide shows, and the one fading out under it.
+/// Which hero slide shows, and which way the strip last moved to it.
 #[derive(Default)]
 struct Carousel {
     active: usize,
-    previous: Option<usize>,
-    /// Keys the fade; bumped per slide change.
+    /// 1 forward, -1 back, 0 shown in place (first load).
+    direction: i32,
+    /// Keys the slide animation; bumped per slide change.
     generation: usize,
     /// Keys the active dot's fill; bumped per countdown restart.
     cycle: usize,
@@ -66,8 +67,8 @@ struct Carousel {
     hovered: bool,
 }
 
-/// Default: Continue Watching, Next Up, Movies row, Series row, all Libraries merged.
-/// Modern: hero carousel of the newest unwatched films, Continue Watching, Next Up,
+/// Simple: Continue Watching, Next Up, Movies row, Series row, all Libraries merged.
+/// Modern: hero carousel of the newest unwatched films and Series, Continue Watching, Next Up,
 /// then one row per Library.
 pub struct HomeView {
     api: Api,
@@ -114,12 +115,14 @@ impl HomeView {
         }
     }
 
-    /// Fades to hero slide `ix`.
+    /// Slides to hero slide `ix`, the short way round.
     fn show_slide(&mut self, ix: usize, cx: &mut Context<Self>) {
-        if ix == self.hero.active || ix >= self.rows.featured.len() {
+        let count = self.rows.featured.len();
+        if ix == self.hero.active || ix >= count {
             return;
         }
-        self.hero.previous = Some(self.hero.active);
+        let ahead = (ix + count - self.hero.active) % count;
+        self.hero.direction = if ahead * 2 <= count { 1 } else { -1 };
         self.hero.active = ix;
         self.hero.generation += 1;
         cx.notify();
@@ -191,18 +194,15 @@ impl HomeView {
                     let (resume, next_up, movies, series, libraries) = futures::join!(
                         api.resume(PER_ROW),
                         api.next_up_all(PER_ROW * 2),
-                        // Default's Movies row; Modern's hero picks from the same films
+                        // Simple's Movies and Series rows; Modern's hero picks from the same
                         api.latest_unplayed(
                             Kind::Movie,
                             if modern { HERO_SLIDES * 2 } else { PER_ROW * 2 }
                         ),
-                        async {
-                            if modern {
-                                Ok(Vec::new())
-                            } else {
-                                api.latest_unplayed(Kind::Series, PER_ROW).await
-                            }
-                        },
+                        api.latest_unplayed(
+                            Kind::Series,
+                            if modern { HERO_SLIDES } else { PER_ROW }
+                        ),
                         async {
                             if modern {
                                 library_rows(&api).await
@@ -211,8 +211,8 @@ impl HomeView {
                             }
                         },
                     );
-                    let featured = match &movies {
-                        Ok(movies) if modern => featured(&api, movies).await,
+                    let featured = match (&movies, &series) {
+                        (Ok(movies), Ok(series)) if modern => featured(&api, movies, series).await,
                         _ => Vec::new(),
                     };
                     (resume, next_up, movies, series, libraries, featured)
@@ -246,7 +246,7 @@ impl HomeView {
                         if this.hero.active >= this.rows.featured.len() {
                             this.hero.active = 0;
                         }
-                        this.hero.previous = None;
+                        this.hero.direction = 0;
                         this.countdown(cx);
                         this.error = None;
                         this.loaded_at = Some(Instant::now());
@@ -352,7 +352,7 @@ impl HomeView {
         }
     }
 
-    /// The Modern hero: the active film's slide over the one fading out, with dots.
+    /// The Modern hero: the active film's slide between its neighbours, with dots.
     fn hero_carousel(&self, cx: &mut Context<Self>) -> Option<HeroCarousel> {
         let films = &self.rows.featured;
         let slide = |film: &Item, cx: &mut Context<Self>| Hero {
@@ -361,7 +361,10 @@ impl HomeView {
             title: film.name.clone().into(),
             facts: [
                 film.production_year.map(|year| year.to_string()),
-                film.run_time_ticks.map(runtime_label),
+                // a Series' runtime is one Episode's
+                film.run_time_ticks
+                    .filter(|_| film.kind != Kind::Series)
+                    .map(runtime_label),
             ]
             .into_iter()
             .flatten()
@@ -374,11 +377,6 @@ impl HomeView {
             on_more: Self::open_on_click(film, cx),
         };
         let active = films.get(self.hero.active)?;
-        let previous = self
-            .hero
-            .previous
-            .and_then(|ix| films.get(ix))
-            .map(|film| slide(film, cx));
         let dots = films
             .iter()
             .enumerate()
@@ -399,18 +397,17 @@ impl HomeView {
                 this.countdown(cx);
             })),
         };
-        let peeks = (count > 1).then(|| {
-            let ix = self.hero.active;
-            [
-                peek((ix + count - 1) % count, cx),
-                peek((ix + 1) % count, cx),
-            ]
+        let sides = (count > 1).then(|| {
+            SIDES.map(|offset| {
+                let ix = (self.hero.active as i32 + offset).rem_euclid(count as i32);
+                peek(ix as usize, cx)
+            })
         });
         let on_hover = cx.listener(|this, hovered: &bool, _, cx| this.hero_hovered(*hovered, cx));
         Some(HeroCarousel {
             slide: slide(active, cx),
-            previous,
-            peeks,
+            sides,
+            direction: self.hero.direction,
             active: self.hero.active,
             generation: self.hero.generation,
             cycle: self.hero.cycle,
@@ -520,7 +517,7 @@ impl Render for HomeView {
             ),
         ];
         let hero = match self.layout {
-            HomeLayout::Default => {
+            HomeLayout::Simple => {
                 rows.push((
                     "Movies".into(),
                     "row-movies".into(),
@@ -600,13 +597,29 @@ async fn library_rows(api: &Api) -> anyhow::Result<Vec<(Library, Vec<Item>)>> {
     Ok(libraries.into_iter().zip(rows).collect())
 }
 
-/// The hero's films: the newest unstarted ones, each fetched in full, since list items
-/// carry no logo tag, overview, age rating or streams. A failed lookup keeps the list item.
-async fn featured(api: &Api, newest: &[Item]) -> Vec<Item> {
-    let films = newest
+/// The hero's slides: the newest unstarted films and Series, alternating while both last,
+/// each fetched in full, since list items carry no logo tag, overview, age rating or
+/// streams. A failed lookup keeps the list item.
+async fn featured(api: &Api, movies: &[Item], series: &[Item]) -> Vec<Item> {
+    let items = interleave(movies, series)
+        .into_iter()
+        .map(|item| async move { api.item(&item.id).await.unwrap_or(item) });
+    futures::future::join_all(items).await
+}
+
+/// Up to `HERO_SLIDES` unstarted films and Series, alternating; the longer list fills the rest.
+fn interleave(movies: &[Item], series: &[Item]) -> Vec<Item> {
+    let mut movies = movies
         .iter()
         .filter(|film| film.user_data.playback_position_ticks == 0)
-        .take(HERO_SLIDES)
-        .map(|film| async move { api.item(&film.id).await.unwrap_or_else(|_| film.clone()) });
-    futures::future::join_all(films).await
+        .peekable();
+    let mut series = series.iter().peekable();
+    let mut picked = Vec::with_capacity(HERO_SLIDES);
+    while picked.len() < HERO_SLIDES && (movies.peek().is_some() || series.peek().is_some()) {
+        picked.extend(movies.next().cloned());
+        if picked.len() < HERO_SLIDES {
+            picked.extend(series.next().cloned());
+        }
+    }
+    picked
 }

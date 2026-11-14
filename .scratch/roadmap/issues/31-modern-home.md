@@ -16,12 +16,12 @@
 
 **Owner follow-up:** the single-item Hero became a carousel.
 - **Content:** the five newest unstarted Movies, each fetched in full with `api.item`. It no longer uses Continue Watching or Library items.
-- **Motion:** it auto-advances every 8 s with a crossfade, pauses while the pointer is on it, and has dots below.
+- **Motion:** it auto-advances every 8 s, pauses while the pointer is on it, and has dots below. A change slides the whole strip one step, the short way round, over 600 ms: the arriving film grows from peek size, brightens and fades its text in, and the leaving one shrinks and dims. With reduced motion on, the slide changes in place.
 - **Size:** the hero is cinema-wide (2.4:1) and centred once the window is wider than its cap, with a minimum height for narrow windows.
 - **Type and buttons:** two type sizes are added for the hero only (`text::lead`, `text::display`), plus an `xl` button size and `glass_button` for More info.
 - **Look:** it follows the research (Apple Top Shelf, Netflix, Stremio): one meta line with age rating and format pills, a two-line overview, solid Play beside a translucent More info, and soft left and bottom scrims. The meta line has no middle-dot separators, and the rating uses the shared star.
 - **Corners:** every painted layer (art and scrims) is rounded itself, because gpui's `overflow_hidden` clips to a rectangle, not to rounded corners. The real cause of the square bottom corners: gpui's `img` takes the picture's own aspect ratio (16:9), so in the 2.4:1 card the art came out taller than the card and was cut off square. `art::image` is now absolute-fill, so every image takes its box's height; `art::thumb` became `relative` for it.
-- **Peeks:** the current slide takes 84% of the width (capped). The previous and next films' art shows dimmed and cut off at each edge, with a tooltip, and clicking one shows it.
+- **Peeks:** the current slide takes 84% of the width (capped). The previous and next films' art shows at 82% size, dimmed and cut off at each edge, with a tooltip, and clicking one shows it. Slides are placed in pixels from the window width (as `poster_columns` does), so position, size and dimming can move together. Two more films sit off screen to slide in.
 - **Countdown:** the active dot is a pill that fills over the 8 s wait. It shows full while the pointer pauses the carousel, and leaving restarts the full wait. Each dot's tooltip shows its film's title.
 - **Checked on screen:** dark and light themes, windows at 900, 1200 and 2000 pt wide, auto-advance, clicking a dot, and More info opening the detail page.
 - `Hero` now adds its own page gutter, so it lines up with the rows.
