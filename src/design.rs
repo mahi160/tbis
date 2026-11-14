@@ -308,6 +308,16 @@ pub mod size {
     pub fn trickplay_w() -> Pixels {
         sp(40.)
     }
+    // move both into `units!` once the hero is used (roadmap 31)
+    #[allow(dead_code)] // used by the Modern view (roadmap 31)
+    pub fn hero_h() -> Pixels {
+        sp(110.)
+    }
+    /// Height of a hero's title logo; its width follows the image.
+    #[allow(dead_code)] // used by the Modern view (roadmap 31)
+    pub fn hero_logo_h() -> Pixels {
+        sp(20.)
+    }
 }
 
 /// Window geometry (OS window, not themed).

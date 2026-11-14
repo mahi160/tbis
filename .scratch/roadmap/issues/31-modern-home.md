@@ -6,7 +6,7 @@
 
 **Blocked by:** 28, 29, 30, and owner decision 3 in `PLAN.md`. The layout below is the recommended one; confirm it before starting.
 
-**Status:** blocked
+**Status:** ready-for-agent. The owner confirmed the layout below and the hero pick in step 4.
 
 **Read first:** `CONTEXT.md`, `AGENTS.md`, `src/home.rs` (all), `src/app.rs` (`Main`, `main_screen`, `fn open_settings`), `src/config.rs`, `src/settings.rs` (`fn appearance_page`), `src/components/hero.rs`, `src/components/row.rs`.
 
