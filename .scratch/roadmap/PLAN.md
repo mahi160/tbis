@@ -96,8 +96,8 @@ House rules that apply to every ticket:
 
 | # | Ticket | Model | Status |
 | --- | --- | --- | --- |
-| 28 | Jellyfin: Libraries and per-Library queries | sonnet | ready |
-| 29 | Reusable paged row component | haiku | ready |
+| 28 | Jellyfin: Libraries and per-Library queries | sonnet | done |
+| 29 | Reusable paged row component | haiku | done, runtime unverified |
 | 30 | Hero component | sonnet | blocked by 28 |
 | 31 | Layout setting and Modern Home | sonnet | blocked by 28, 29, 30 and owner decision |
 

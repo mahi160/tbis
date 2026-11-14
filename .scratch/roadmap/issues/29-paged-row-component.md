@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** ready-for-agent
+**Status:** done, runtime unverified (Home was not compared on screen). The element tree and every token call are unchanged; only the page buttons are now passed in as `AnyElement`.
 
 **Read first:** `AGENTS.md` (UI rules), `src/home.rs` (`fn row`, `fn page`, `fn page_button`, `fn advance_paging`, `fn render`), `src/components/layout.rs` (`scroll_row`, `header_row`), `src/components/mod.rs`.
 
@@ -33,8 +33,8 @@
 
 ## Done when
 
-- [ ] `src/components/row.rs` exists and `home.rs` uses it
+- [x] `src/components/row.rs` exists and `home.rs` uses it
 - [ ] Home looks and pages exactly as before (arrows, spacing, scroll)
-- [ ] `home.rs` builds no row layout inline
+- [x] `home.rs` builds no row layout inline
 
 **Check:** the gate in `PLAN.md`, then compare Home against the current build. Follow the build-freshness rule in `AGENTS.md`.

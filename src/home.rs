@@ -1,15 +1,16 @@
+use gpui_kit::component::IconName;
 use gpui_kit::component::button::Button;
-use gpui_kit::component::{IconName, h_flex, v_flex};
 use gpui_kit::*;
 use std::time::{Duration, Instant};
 
 use crate::components::button::{GhostState as _, VegaSize as _, icon_button};
 use crate::components::image_cache::lru_images;
-use crate::components::layout::{header_row, rows_page, scroll_row};
+use crate::components::layout::rows_page;
+use crate::components::row::paged_row;
 use crate::components::status::{Placeholder, Status, error_banner, full_status};
 use crate::components::{OnClick, card, typography};
 use crate::config::HideSpoilers;
-use crate::design::{gap, page, size};
+use crate::design::{page, size};
 use crate::jellyfin::{Api, Item, Kind, blurred};
 use crate::nav::Nav;
 
@@ -245,35 +246,32 @@ impl HomeView {
         let (offset, max) = (scroll.offset().x, scroll.max_offset().x);
         // max is 0 until first layout; keep right arrow live then (click is a clamped no-op)
         let at_end = max > px(0.) && offset <= -max;
+        let previous = Self::page_button(
+            format!("{id}-prev"),
+            IconName::ChevronLeft,
+            row,
+            false,
+            offset >= px(0.),
+            cx,
+        );
+        let next = Self::page_button(
+            format!("{id}-next"),
+            IconName::ChevronRight,
+            row,
+            true,
+            at_end,
+            cx,
+        );
         Some(
-            v_flex()
-                .gap(gap::item())
-                .child(
-                    header_row(
-                        typography::title(title),
-                        h_flex()
-                            .gap(gap::tight())
-                            .child(Self::page_button(
-                                format!("{id}-prev"),
-                                IconName::ChevronLeft,
-                                row,
-                                false,
-                                offset >= px(0.),
-                                cx,
-                            ))
-                            .child(Self::page_button(
-                                format!("{id}-next"),
-                                IconName::ChevronRight,
-                                row,
-                                true,
-                                at_end,
-                                cx,
-                            )),
-                    )
-                    .px(page()),
-                )
-                .child(scroll_row(id, &scroll, cards))
-                .into_any_element(),
+            paged_row(
+                id,
+                typography::title(title),
+                &scroll,
+                cards,
+                previous.into_any_element(),
+                next.into_any_element(),
+            )
+            .into_any_element(),
         )
     }
 }
