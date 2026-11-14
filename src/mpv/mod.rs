@@ -491,7 +491,8 @@ impl Handle {
             check(rc, NO_OSC.0)?;
         }
         unsafe {
-            mpv_request_log_messages(self.0, c"warn".as_ptr());
+            // info: decoder, hwdec and audio-output choices, needed to diagnose a failed start
+            mpv_request_log_messages(self.0, c"info".as_ptr());
             check(mpv_initialize(self.0), "mpv_initialize")?;
         }
         // mpv.conf loads during initialize, over the options above; take these back
