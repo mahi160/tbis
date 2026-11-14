@@ -6,8 +6,8 @@ use gpui_kit::http_client::{AsyncBody, HttpClient, Method, Request, Response};
 use serde::{Deserialize, de::DeserializeOwned};
 
 use super::types::{
-    ExternalSubtitle, Item, Kind, PlaybackItem, Report, Segment, SegmentKind, Session, Sort,
-    Stream, TrickplayInfo, seconds_to_ticks, ticks_to_seconds,
+    ExternalSubtitle, Item, Kind, Library, PlaybackItem, Report, Segment, SegmentKind, Session,
+    Sort, Stream, TrickplayInfo, seconds_to_ticks, ticks_to_seconds,
 };
 use super::{HttpStatus, SessionExpired, auth_header, read_json, send};
 
@@ -16,6 +16,9 @@ const WIDE_IMAGES: &str = "EnableImageTypes=Primary,Thumb,Backdrop&ImageTypeLimi
 
 /// Tags needed by `Api::poster_url`, shared by every plain item listing.
 const POSTER_IMAGES: &str = "EnableImageTypes=Primary&ImageTypeLimit=1";
+
+/// Tags needed by `Api::backdrop_url` and `Api::logo_url`, for the Modern view's hero.
+const HERO_IMAGES: &str = "EnableImageTypes=Primary,Backdrop,Logo&ImageTypeLimit=1";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -108,6 +111,43 @@ struct ItemsResult {
     items: Vec<Item>,
 }
 
+/// `/UserViews` entry: a Library, Live TV, Collections, a playlist folder, ...
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct UserView {
+    id: String,
+    name: String,
+    collection_type: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct UserViewsResult {
+    items: Vec<UserView>,
+}
+
+impl UserViewsResult {
+    /// Movie and Series Libraries only, in server order.
+    #[allow(dead_code)] // used by the Modern view (roadmap 31)
+    fn libraries(self) -> Vec<Library> {
+        self.items
+            .into_iter()
+            .filter_map(|view| {
+                let kind = match view.collection_type.as_deref()? {
+                    "movies" => Kind::Movie,
+                    "tvshows" => Kind::Series,
+                    _ => return None,
+                };
+                Some(Library {
+                    id: view.id,
+                    name: view.name,
+                    kind,
+                })
+            })
+            .collect()
+    }
+}
+
 /// Signed-in client; every request carries the session token.
 #[derive(Clone)]
 pub struct Api {
@@ -182,8 +222,13 @@ impl Api {
 
     /// `Items?...&{extra}`, with the `Fields`/image params every item listing shares.
     async fn items(&self, kind: Kind, extra: &str) -> Result<Vec<Item>> {
+        self.items_with(kind, POSTER_IMAGES, extra).await
+    }
+
+    /// `items` asking for the image tags `images` names instead of the poster's.
+    async fn items_with(&self, kind: Kind, images: &str, extra: &str) -> Result<Vec<Item>> {
         let query = format!(
-            "/Items?userId={}&IncludeItemTypes={}&Recursive=true&Fields=ProductionYear&{POSTER_IMAGES}&{extra}",
+            "/Items?userId={}&IncludeItemTypes={}&Recursive=true&Fields=ProductionYear&{images}&{extra}",
             self.session.user_id,
             kind.as_str(),
         );
@@ -503,6 +548,28 @@ impl Api {
         .await
     }
 
+    /// Movie and Series Libraries, in server order.
+    #[allow(dead_code)] // used by the Modern view (roadmap 31)
+    pub async fn libraries(&self) -> Result<Vec<Library>> {
+        let path = format!("/UserViews?userId={}", self.session.user_id);
+        Ok(self.get::<UserViewsResult>(&path).await?.libraries())
+    }
+
+    /// Newest items of one Library, with the tags the hero's backdrop and logo need.
+    #[allow(dead_code)] // used by the Modern view (roadmap 31)
+    pub async fn latest_in(&self, library: &Library, limit: usize) -> Result<Vec<Item>> {
+        self.items_with(
+            library.kind,
+            HERO_IMAGES,
+            &format!(
+                "ParentId={}&Limit={limit}&{}",
+                library.id,
+                Sort::DateAdded.query(library.kind)
+            ),
+        )
+        .await
+    }
+
     /// Server-side search across all Libraries, one type at a time.
     pub async fn search(&self, term: &str, kind: Kind, limit: usize) -> Result<Vec<Item>> {
         let term: String = url::form_urlencoded::byte_serialize(term.as_bytes()).collect();
@@ -513,13 +580,39 @@ impl Api {
 
 #[cfg(test)]
 mod tests {
-    use super::Api;
+    use super::{Api, UserViewsResult};
     use crate::jellyfin::tests::fake_server;
     use crate::jellyfin::{
-        Item, Person, PlaybackItem, Segment, SegmentKind, Session, SessionExpired, TrickplayInfo,
+        Item, Kind, Library, Person, PlaybackItem, Segment, SegmentKind, Session, SessionExpired,
+        TrickplayInfo,
     };
     use gpui_kit::http_client::Method;
     use std::sync::Arc;
+
+    #[test]
+    fn libraries_keep_movies_and_series_in_server_order() {
+        // trimmed from a real /UserViews response
+        let views: UserViewsResult = serde_json::from_value(serde_json::json!({"Items": [
+            {"Id": "c", "Name": "Collections", "CollectionType": "boxsets"},
+            {"Id": "n", "Name": "New", "CollectionType": null},
+            {"Id": "tv", "Name": "TV Shows", "CollectionType": "tvshows"},
+            {"Id": "l", "Name": "Live TV", "CollectionType": "livetv"},
+            {"Id": "m", "Name": "Movies", "CollectionType": "movies"},
+        ]}))
+        .unwrap();
+        let library = |id: &str, name: &str, kind| Library {
+            id: id.into(),
+            name: name.into(),
+            kind,
+        };
+        assert_eq!(
+            views.libraries(),
+            [
+                library("tv", "TV Shows", Kind::Series),
+                library("m", "Movies", Kind::Movie),
+            ]
+        );
+    }
 
     #[test]
     fn unauthorized_signals_session_expired() {

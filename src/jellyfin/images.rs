@@ -92,6 +92,16 @@ impl Api {
         ))
     }
 
+    /// Title logo (transparent title art) for the hero.
+    #[allow(dead_code)] // used by the Modern view (roadmap 31)
+    pub fn logo_url(&self, item: &Item) -> Option<String> {
+        let tag = item.image_tags.get("Logo")?;
+        Some(format!(
+            "{}/Items/{}/Images/Logo?maxWidth=800&quality=90&tag={tag}",
+            self.server, item.id
+        ))
+    }
+
     pub fn person_image_url(&self, person: &Person) -> Option<String> {
         let tag = person.primary_image_tag.as_ref()?;
         Some(format!(
@@ -117,6 +127,37 @@ pub fn blurred(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::blurred;
+    use crate::jellyfin::{Api, Item, Session};
+    use std::sync::Arc;
+
+    #[test]
+    fn logo_url_needs_a_logo_tag() {
+        let (tx, _rx) = futures::channel::mpsc::unbounded();
+        let session = Session {
+            server: "http://s".into(),
+            user_id: "u1".into(),
+            user_name: "mahi".into(),
+            token: "tok".into(),
+        };
+        let http = Arc::new(reqwest_client::ReqwestClient::new());
+        let api = Api::new(http, session, "http://s".into(), "dev".into(), tx);
+        let item = |tags| -> Item {
+            serde_json::from_value(
+                serde_json::json!({"Id": "i", "Name": "Movie", "ImageTags": tags}),
+            )
+            .unwrap()
+        };
+
+        assert_eq!(
+            api.logo_url(&item(serde_json::json!({"Primary": "p"}))),
+            None
+        );
+        assert_eq!(
+            api.logo_url(&item(serde_json::json!({"Logo": "l"})))
+                .as_deref(),
+            Some("http://s/Items/i/Images/Logo?maxWidth=800&quality=90&tag=l")
+        );
+    }
 
     #[::core::prelude::v1::test]
     fn blurred_adds_server_blur_to_image_url() {

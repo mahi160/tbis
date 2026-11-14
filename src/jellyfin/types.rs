@@ -275,6 +275,15 @@ impl Kind {
     }
 }
 
+/// A Jellyfin media folder that holds Movies or Series.
+#[allow(dead_code)] // used by the Modern view (roadmap 31)
+#[derive(Clone, Debug, PartialEq)]
+pub struct Library {
+    pub id: String,
+    pub name: String,
+    pub kind: Kind,
+}
+
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct UserData {
