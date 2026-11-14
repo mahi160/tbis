@@ -53,7 +53,7 @@ House rules that apply to every ticket:
 | # | Ticket | Model | Status |
 | --- | --- | --- | --- |
 | 09 | Video quality setting (Fast / Balanced / High) | haiku | done |
-| 10 | Exclusive audio only with passthrough | haiku | ready |
+| 10 | Exclusive audio only with passthrough | haiku | done |
 
 ### C. Player
 

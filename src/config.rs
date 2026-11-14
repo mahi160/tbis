@@ -428,7 +428,8 @@ fn save_to(config: &Config, path: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Config, VideoQuality, WindowState, defaults, forget_session_at, load_from, save_to,
+        AudioStyle, Config, VideoQuality, WindowState, defaults, forget_session_at, load_from,
+        save_to,
     };
     use crate::jellyfin::Session;
     use std::fs;
@@ -594,7 +595,7 @@ mod tests {
     #[test]
     fn audio_exclusive_is_set_only_with_passthrough() {
         let exclusive = |passthrough| {
-            super::AudioStyle {
+            AudioStyle {
                 passthrough,
                 loudness_norm: false,
             }
