@@ -23,6 +23,7 @@ impl ImageCacheProvider for LruProvider {
             .with_global_id(self.id.clone(), |id, window| {
                 window.with_element_state::<Entity<LruImages>, _>(id, |cache, _| {
                     let cache = cache.unwrap_or_else(|| cx.new(|cx| LruImages::new(max, cx)));
+                    cache.update(cx, |cache, _| cache.pass_start = cache.clock);
                     (cache.clone(), cache)
                 })
             })
@@ -34,6 +35,8 @@ pub struct LruImages {
     max: usize,
     /// Bumped on every load; an entry's stamp is when it was last drawn.
     clock: u64,
+    /// `clock` when the current layout or paint pass began.
+    pass_start: u64,
     images: HashMap<u64, (ImageCacheItem, u64)>,
 }
 
@@ -50,6 +53,7 @@ impl LruImages {
         Self {
             max,
             clock: 0,
+            pass_start: 0,
             images: HashMap::new(),
         }
     }
@@ -73,6 +77,9 @@ impl ImageCache for LruImages {
                 .images
                 .iter()
                 .min_by_key(|(_, (_, used))| *used)
+                // one pass drawing more than `max` images would otherwise evict and
+                // refetch all of them every frame, exhausting the OS's local ports
+                .filter(|(_, (_, used))| *used <= self.pass_start)
                 .map(|(key, _)| *key)
             && let Some((item, _)) = self.images.remove(&oldest)
             && let Some(Ok(image)) = item.get()
