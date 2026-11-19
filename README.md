@@ -29,7 +29,7 @@ You only need to do this once. The app bundles everything it needs, including mp
 1. Download `tbis-*-windows-x86_64.zip` from [Releases](https://github.com/mahi160/tbis/releases).
 2. Extract the whole zip into a folder you can write to, and run `tbis.exe`.
 
-The `*-sources.tar` files on the release page are the source code the GPL licence requires; you don't need them to run the app. Playback on Windows is still being verified; when a video fails, the log is at `%APPDATA%\tbis\tbis.log`. See [Windows builds and releases](docs/windows-build.md) for installation details and status.
+The `*-sources.tar` files contain the macOS build's GPL sources; Windows includes its source offer in `components/sources.txt`. You don't need these to run the app. Windows playback has been reported working; broader GPU and codec coverage remains unverified. When a video fails, the log is at `%APPDATA%\tbis\tbis.log`. See [Windows builds and releases](docs/windows-build.md) for installation details and status.
 
 ## Updates
 

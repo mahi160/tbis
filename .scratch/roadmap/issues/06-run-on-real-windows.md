@@ -1,12 +1,12 @@
 # 06 — Run tbis on a real Windows PC and record the log
 
-**What to build:** Nothing. Windows playback has never been confirmed on hardware (`docs/windows.md`). After tickets 02 to 05 ship in a release, run it and record exactly what happens. Every later Windows decision depends on this.
+**What to build:** Nothing. The owner reports working Windows playback; record the tested version, hardware, codecs and logs to establish its coverage (`docs/windows.md`).
 
 **Model:** human
 
 **Blocked by:** 02, 03, 04, 05 (they make the log useful).
 
-**Status:** needs-human. Tickets 02 to 05 shipped in v0.8.0; test `tbis-0.8.0-windows-x86_64.zip` (or newer). Not yet run: no Windows PC was available.
+**Status:** playback reported working by the owner; detailed acceptance evidence pending. App version, GPU/driver, codec coverage and logs were not supplied. Do not infer that all codecs or GPU families pass.
 
 ## Steps
 
@@ -28,4 +28,4 @@
 
 ## Results
 
-(empty)
+The owner confirmed: “the windows is working!” No version, hardware details, codec list, logs or screenshots accompanied this report.

@@ -27,7 +27,7 @@ pub struct TrackChoice {
 /// own fields, to the whole app). `subtitles_enabled: None` means "never picked at this
 /// scope" -- distinct from `Some(false)`, an explicit off, so it falls through to a
 /// wider scope instead of wrongly suppressing that scope's own subtitles.
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct LanguagePref {
     #[serde(default)]
     pub audio_lang: Option<String>,

@@ -71,6 +71,22 @@ impl StaticInfo {
 }
 const SPEEDS: [f64; 7] = [0.5, 0.75, 1., 1.25, 1.5, 1.75, 2.];
 
+const WHEEL_PX_PER_STEP: f32 = 40.;
+
+/// Accumulates trackpad travel; a reversal starts a fresh volume step.
+fn wheel_step(carry: &mut f32, dy: f32) -> i32 {
+    if dy * *carry < 0. {
+        *carry = 0.;
+    }
+    *carry += dy;
+    if carry.abs() < WHEEL_PX_PER_STEP {
+        return 0;
+    }
+    let direction = if *carry > 0. { 1 } else { -1 };
+    *carry = 0.;
+    direction
+}
+
 impl PlayerView {
     pub(super) fn sync_seek_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.playback.scrubbing.is_none() && self.playback.duration > 0. {
@@ -109,12 +125,8 @@ impl PlayerView {
         self.show_controls(window, cx);
     }
 
-    fn toggle_pause(&mut self, _: &TogglePause, window: &mut Window, cx: &mut Context<Self>) {
-        self.pause_toggle(window, cx);
-    }
-
     fn pause_toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(mpv) = self.active_mpv() {
+        if let Some(mpv) = self.mpv.as_ref() {
             logged("set_pause", mpv.set_pause(!self.paused));
         }
         self.refocus(window, cx);
@@ -140,7 +152,7 @@ impl PlayerView {
     pub(super) fn seek_by_step(&self, forward: bool, long: bool, cx: &App) {
         let steps = cx.global::<SeekSteps>();
         let seconds = f64::from(if long { steps.long } else { steps.short });
-        if let Some(mpv) = self.active_mpv() {
+        if let Some(mpv) = self.mpv.as_ref() {
             logged(
                 "seek_by",
                 mpv.seek_by(if forward { seconds } else { -seconds }),
@@ -148,29 +160,8 @@ impl PlayerView {
         }
     }
 
-    fn seek_back(&mut self, _: &SeekBack, window: &mut Window, cx: &mut Context<Self>) {
-        self.seek_step(false, false, window, cx);
-    }
-
-    fn seek_forward(&mut self, _: &SeekForward, window: &mut Window, cx: &mut Context<Self>) {
-        self.seek_step(true, false, window, cx);
-    }
-
-    fn seek_back_long(&mut self, _: &SeekBackLong, window: &mut Window, cx: &mut Context<Self>) {
-        self.seek_step(false, true, window, cx);
-    }
-
-    fn seek_forward_long(
-        &mut self,
-        _: &SeekForwardLong,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.seek_step(true, true, window, cx);
-    }
-
     fn seek_back_nudge(&mut self, _: &SeekBackNudge, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(mpv) = self.active_mpv() {
+        if let Some(mpv) = self.mpv.as_ref() {
             logged("seek_by", mpv.seek_by(-5.));
         }
         self.show_controls(window, cx);
@@ -182,28 +173,28 @@ impl PlayerView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(mpv) = self.active_mpv() {
+        if let Some(mpv) = self.mpv.as_ref() {
             logged("seek_by", mpv.seek_by(5.));
         }
         self.show_controls(window, cx);
     }
 
     fn frame_back(&mut self, _: &FrameBack, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(mpv) = self.active_mpv() {
+        if let Some(mpv) = self.mpv.as_ref() {
             logged("frame_step", mpv.frame_step(false));
         }
         self.show_controls(window, cx);
     }
 
     fn frame_forward(&mut self, _: &FrameForward, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(mpv) = self.active_mpv() {
+        if let Some(mpv) = self.mpv.as_ref() {
             logged("frame_step", mpv.frame_step(true));
         }
         self.show_controls(window, cx);
     }
 
     fn toggle_mute(&mut self, _: &ToggleMute, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(mpv) = self.active_mpv() {
+        if let Some(mpv) = self.mpv.as_ref() {
             logged("set_mute", mpv.set_mute(!self.muted));
         }
         let message = if self.muted { "Unmuted" } else { "Muted" };
@@ -211,18 +202,9 @@ impl PlayerView {
         self.refocus(window, cx);
     }
 
-    /// Actual `self.volume` update comes back through `PlayerEvent::Volume`, same as the
-    /// volume slider's own drag handler.
-    fn volume_up(&mut self, _: &VolumeUp, window: &mut Window, cx: &mut Context<Self>) {
-        self.nudge_volume(true, window, cx);
-    }
-
-    fn volume_down(&mut self, _: &VolumeDown, window: &mut Window, cx: &mut Context<Self>) {
-        self.nudge_volume(false, window, cx);
-    }
-
+    /// Actual volume updates come back through `PlayerEvent::Volume`, as with slider drags.
     fn nudge_volume(&mut self, up: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(mpv) = self.active_mpv() {
+        if let Some(mpv) = self.mpv.as_ref() {
             let volume = if up {
                 (self.volume + VOLUME_STEP).min(100.)
             } else {
@@ -264,37 +246,6 @@ impl PlayerView {
         self.show_controls(window, cx);
     }
 
-    fn sub_delay_later(&mut self, _: &SubDelayLater, window: &mut Window, cx: &mut Context<Self>) {
-        self.adjust_delay(true, SUB_DELAY_STEP, window, cx);
-    }
-
-    fn sub_delay_earlier(
-        &mut self,
-        _: &SubDelayEarlier,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.adjust_delay(true, -SUB_DELAY_STEP, window, cx);
-    }
-
-    fn audio_delay_later(
-        &mut self,
-        _: &AudioDelayLater,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.adjust_delay(false, AUDIO_DELAY_STEP, window, cx);
-    }
-
-    fn audio_delay_earlier(
-        &mut self,
-        _: &AudioDelayEarlier,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.adjust_delay(false, -AUDIO_DELAY_STEP, window, cx);
-    }
-
     fn adjust_delay(
         &mut self,
         subtitle: bool,
@@ -302,7 +253,7 @@ impl PlayerView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(mpv) = self.active_mpv() else {
+        let Some(mpv) = self.mpv.as_ref() else {
             return;
         };
         let result = if subtitle {
@@ -352,14 +303,6 @@ impl PlayerView {
         cx.notify();
     }
 
-    fn speed_up(&mut self, _: &SpeedUp, window: &mut Window, cx: &mut Context<Self>) {
-        self.step_speed(1, window, cx);
-    }
-
-    fn speed_down(&mut self, _: &SpeedDown, window: &mut Window, cx: &mut Context<Self>) {
-        self.step_speed(-1, window, cx);
-    }
-
     fn speed_reset(&mut self, _: &SpeedReset, window: &mut Window, cx: &mut Context<Self>) {
         self.set_speed(1.);
         self.flash(format!("{}\u{d7}", self.speed), window, cx);
@@ -373,15 +316,6 @@ impl PlayerView {
         self.set_speed(SPEEDS[next]);
         self.flash(format!("{}\u{d7}", self.speed), window, cx);
         self.show_controls(window, cx);
-    }
-
-    fn toggle_fullscreen(
-        &mut self,
-        _: &ToggleFullscreen,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.fullscreen_toggle(window, cx);
     }
 
     fn fullscreen_toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -407,18 +341,18 @@ impl PlayerView {
     ) {
         match command {
             RemoteCommand::Play | RemoteCommand::Pause => {
-                if let Some(mpv) = self.active_mpv() {
+                if let Some(mpv) = self.mpv.as_ref() {
                     logged(
                         "set_pause",
                         mpv.set_pause(matches!(command, RemoteCommand::Pause)),
                     );
                 }
             }
-            RemoteCommand::Toggle => self.toggle_pause(&TogglePause, window, cx),
-            RemoteCommand::SkipForward => self.seek_forward(&SeekForward, window, cx),
-            RemoteCommand::SkipBackward => self.seek_back(&SeekBack, window, cx),
+            RemoteCommand::Toggle => self.pause_toggle(window, cx),
+            RemoteCommand::SkipForward => self.seek_step(true, false, window, cx),
+            RemoteCommand::SkipBackward => self.seek_step(false, false, window, cx),
             RemoteCommand::Seek(seconds) => {
-                if let Some(mpv) = self.active_mpv() {
+                if let Some(mpv) = self.mpv.as_ref() {
                     logged("seek", mpv.seek(seconds));
                 }
             }
@@ -522,7 +456,7 @@ impl PlayerView {
 
     /// Saves the current frame to `~/Pictures/tbis`, named after the item and position.
     fn screenshot(&mut self, _: &Screenshot, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(mpv) = self.active_mpv() else {
+        let Some(mpv) = self.mpv.as_ref() else {
             return;
         };
         let name = match &self.playback.subtitle {
@@ -531,7 +465,9 @@ impl PlayerView {
         };
         // position as h-mm-ss: `:` and `/` are not filename-safe on macOS
         let at = format_time(self.playback.time).replace(':', "-");
-        let file = format!("{name} {at}.png").replace(['/', ':'], "-");
+        // Windows disallows these characters; `/` and `:` also break macOS names.
+        let file =
+            format!("{name} {at}.png").replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
         let dir = dirs::picture_dir().unwrap_or_default().join("tbis");
         let result = std::fs::create_dir_all(&dir)
             .map_err(|err| err.to_string())
@@ -580,7 +516,7 @@ impl PlayerView {
                 fixed
             }
         };
-        let mpv = self.active_mpv();
+        let mpv = self.mpv.as_ref();
         let get = |name: &str| {
             mpv.and_then(|mpv| mpv.property(name))
                 .filter(|v| !v.is_empty())
@@ -636,7 +572,7 @@ impl PlayerView {
 
     /// Playback info values that only change with the file or the selected tracks.
     fn static_info(&self) -> StaticInfo {
-        let mpv = self.active_mpv();
+        let mpv = self.mpv.as_ref();
         let get = |name: &str| {
             mpv.and_then(|mpv| mpv.property(name))
                 .filter(|v| !v.is_empty())
@@ -684,15 +620,6 @@ impl PlayerView {
         }
     }
 
-    fn skip_segment_action(
-        &mut self,
-        _: &SkipSegment,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.skip_segment(window, cx);
-    }
-
     fn play_next_now(&mut self, _: &PlayNext, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(next) = self.up_next().cloned() {
             self.playback.finished = true; // Play now / Enter counts the current Episode watched
@@ -731,6 +658,11 @@ impl PlayerView {
             crate::platform::cursor::show();
         }
         self.controls_visible = true;
+        self.arm_hide(window, cx);
+        cx.notify();
+    }
+
+    fn arm_hide(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self._hide = cx.spawn_in(window, async move |this, cx| {
             cx.background_executor().timer(HIDE_CONTROLS_AFTER).await;
             this.update(cx, |this, cx| {
@@ -745,7 +677,6 @@ impl PlayerView {
             })
             .ok();
         });
-        cx.notify();
     }
 }
 
@@ -769,13 +700,6 @@ impl Render for PlayerView {
             .then(|| (self.top_chrome(cx), self.bottom_chrome(time, window, cx)));
 
         let error = self.playback.error.clone().map(|error| {
-            let title = if error.starts_with("Cannot start player") {
-                "The player could not start"
-            } else if error.starts_with("Cannot load item") {
-                "This item could not be loaded"
-            } else {
-                "Playback stopped"
-            };
             let back = button("error-back", "Go back")
                 .on_click(cx.listener(|this, _, window, cx| this.close(window, cx)))
                 .into_any_element();
@@ -787,7 +711,9 @@ impl Render for PlayerView {
             } else {
                 vec![back]
             };
-            overlay_banner(error_panel(title, error, actions, Tone::Video, cx).p(gap::group()))
+            overlay_banner(
+                error_panel(error.title, error.detail, actions, Tone::Video, cx).p(gap::group()),
+            )
         });
 
         let pip_notice = self
@@ -868,10 +794,16 @@ impl Render for PlayerView {
                     }
                 }))
                 .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, window, cx| {
-                    let dy = event.delta.pixel_delta(px(1.)).y;
-                    // horizontal-only scrolls carry no vertical delta
-                    if dy != px(0.) {
-                        this.nudge_volume(dy > px(0.), window, cx);
+                    let direction = match event.delta {
+                        ScrollDelta::Lines(lines) if lines.y > 0. => 1,
+                        ScrollDelta::Lines(lines) if lines.y < 0. => -1,
+                        ScrollDelta::Lines(_) => 0,
+                        ScrollDelta::Pixels(pixels) => {
+                            wheel_step(&mut this.wheel, pixels.y.as_f32())
+                        }
+                    };
+                    if direction != 0 {
+                        this.nudge_volume(direction > 0, window, cx);
                     }
                 }))
         });
@@ -880,34 +812,64 @@ impl Render for PlayerView {
             .id("player")
             .key_context(CONTEXT)
             .track_focus(&self.focus)
-            .on_action(cx.listener(Self::toggle_pause))
-            .on_action(cx.listener(Self::seek_back))
-            .on_action(cx.listener(Self::seek_forward))
-            .on_action(cx.listener(Self::seek_back_long))
-            .on_action(cx.listener(Self::seek_forward_long))
+            .on_action(
+                cx.listener(|this, _: &TogglePause, window, cx| this.pause_toggle(window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &SeekBack, window, cx| {
+                this.seek_step(false, false, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &SeekForward, window, cx| {
+                this.seek_step(true, false, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &SeekBackLong, window, cx| {
+                this.seek_step(false, true, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &SeekForwardLong, window, cx| {
+                this.seek_step(true, true, window, cx)
+            }))
             .on_action(cx.listener(Self::seek_back_nudge))
             .on_action(cx.listener(Self::seek_forward_nudge))
             .on_action(cx.listener(Self::frame_back))
             .on_action(cx.listener(Self::frame_forward))
             .on_action(cx.listener(Self::toggle_mute))
-            .on_action(cx.listener(Self::toggle_fullscreen))
+            .on_action(cx.listener(|this, _: &ToggleFullscreen, window, cx| {
+                this.fullscreen_toggle(window, cx)
+            }))
             .on_action(cx.listener(Self::escape))
             .on_action(cx.listener(Self::play_next_now))
-            .on_action(cx.listener(Self::volume_up))
-            .on_action(cx.listener(Self::volume_down))
+            .on_action(
+                cx.listener(|this, _: &VolumeUp, window, cx| this.nudge_volume(true, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &VolumeDown, window, cx| {
+                    this.nudge_volume(false, window, cx)
+                }),
+            )
             .on_action(cx.listener(Self::cycle_audio))
             .on_action(cx.listener(Self::cycle_subtitle))
             .on_action(cx.listener(Self::toggle_subtitle_action))
-            .on_action(cx.listener(Self::speed_up))
-            .on_action(cx.listener(Self::speed_down))
+            .on_action(cx.listener(|this, _: &SpeedUp, window, cx| this.step_speed(1, window, cx)))
+            .on_action(
+                cx.listener(|this, _: &SpeedDown, window, cx| this.step_speed(-1, window, cx)),
+            )
             .on_action(cx.listener(Self::speed_reset))
             .on_action(cx.listener(Self::chapter_prev))
             .on_action(cx.listener(Self::chapter_next))
-            .on_action(cx.listener(Self::sub_delay_later))
-            .on_action(cx.listener(Self::sub_delay_earlier))
-            .on_action(cx.listener(Self::audio_delay_later))
-            .on_action(cx.listener(Self::audio_delay_earlier))
-            .on_action(cx.listener(Self::skip_segment_action))
+            .on_action(cx.listener(|this, _: &SubDelayLater, window, cx| {
+                this.adjust_delay(true, SUB_DELAY_STEP, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &SubDelayEarlier, window, cx| {
+                this.adjust_delay(true, -SUB_DELAY_STEP, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &AudioDelayLater, window, cx| {
+                this.adjust_delay(false, AUDIO_DELAY_STEP, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &AudioDelayEarlier, window, cx| {
+                this.adjust_delay(false, -AUDIO_DELAY_STEP, window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &SkipSegment, window, cx| this.skip_segment(window, cx)),
+            )
             .on_action(cx.listener(Self::previous_episode))
             .on_action(cx.listener(Self::next_episode))
             .on_action(cx.listener(Self::toggle_playback_info))
@@ -923,7 +885,10 @@ impl Render for PlayerView {
             // video is in PiP; window is see-through, so cover it
             .when(self.pip.is_some(), |this| this.bg(overlay::black(1.)))
             .on_mouse_move(cx.listener(|this, _, window, cx| {
-                if !this.controls_visible {
+                if this.controls_visible {
+                    // Only the wait changes; pointer movement does not need a redraw.
+                    this.arm_hide(window, cx);
+                } else {
                     this.show_controls(window, cx);
                 }
             }))
@@ -937,5 +902,25 @@ impl Render for PlayerView {
             .children(up_next)
             .children(skip)
             .when_some(chrome, |this, (top, bottom)| this.child(top).child(bottom))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wheel_step;
+
+    #[test]
+    fn a_trackpad_swipe_steps_once_per_forty_pixels() {
+        let mut carry = 0.;
+        let steps: i32 = (0..20).map(|_| wheel_step(&mut carry, 4.)).sum();
+        assert_eq!(steps, 2);
+    }
+
+    #[test]
+    fn reversing_direction_starts_over() {
+        let mut carry = 0.;
+        assert_eq!(wheel_step(&mut carry, 39.), 0);
+        assert_eq!(wheel_step(&mut carry, -39.), 0);
+        assert_eq!(wheel_step(&mut carry, -1.), -1);
     }
 }

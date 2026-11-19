@@ -1,17 +1,10 @@
-use gpui_kit::component::dialog::DialogButtonProps;
 use gpui_kit::component::input::{InputEvent, InputState};
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
-use gpui_kit::component::{IconName, Root, TitleBar, WindowExt as _};
+use gpui_kit::component::{Root, WindowExt as _};
 use gpui_kit::*;
 
 use crate::backdrops::Backdrops;
-use crate::components::button::{avatar_button, surface_icon_button};
-use crate::components::dialog::{release_notes, vega_dialog};
-use crate::components::input::search_input;
 use crate::components::layout::{grow, screen};
-use crate::components::tabs::tabs;
-use crate::components::title_bar::{app_title_bar, title_bar};
 use crate::config::{self, Config, WindowState};
 use crate::design;
 use crate::home::HomeView;
@@ -23,10 +16,11 @@ use crate::nav::Nav;
 use crate::player::{Closed, PlayerView};
 use crate::search::{SearchEvent, SearchView};
 use crate::series::SeriesView;
-use crate::settings::{SettingsChanged, SettingsView};
+use crate::settings::{Settings, SettingsChanged, SettingsView};
 use crate::shortcuts::{self, ShowShortcuts};
 use crate::stats::StatsPage;
-use crate::update;
+mod title_bar;
+mod updates;
 
 actions!(
     tbis,
@@ -241,97 +235,6 @@ impl AppView {
         };
         this.check_for_updates(false, window, cx);
         this
-    }
-
-    /// Looks for a newer release; `manual` (menu) also reports "up to date" and errors.
-    pub fn check_for_updates(&mut self, manual: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if update::installed().is_none() {
-            if manual {
-                let note =
-                    Notification::info("Automatic updates are unavailable for this installation.");
-                window.push_notification(note, cx);
-            }
-            return;
-        }
-        let http = cx.http_client();
-        self._update = cx.spawn_in(window, async move |this, cx| {
-            let result = update::check(http).await;
-            this.update_in(cx, |this, window, cx| match result {
-                Ok(Some(update)) => this.offer_update(update, window, cx),
-                Ok(None) if manual => {
-                    let note = format!("tbis {} is the latest version.", update::CURRENT);
-                    window.push_notification(Notification::success(note), cx);
-                }
-                Ok(None) => {}
-                Err(err) if manual => {
-                    let note = Notification::error(format!("Update check failed: {err}"));
-                    window.push_notification(note, cx);
-                }
-                // automatic check: offline or rate-limited is no reason to interrupt
-                Err(err) => crate::log::write(&format!("update check failed: {err}")),
-            })
-            .ok();
-        });
-    }
-
-    fn offer_update(
-        &mut self,
-        update: update::Update,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let this = cx.entity().downgrade();
-        window.open_alert_dialog(cx, move |alert, _, cx| {
-            let (this, update) = (this.clone(), update.clone());
-            vega_dialog(alert)
-                .title(format!("tbis {} is available", update.version))
-                .description(format!(
-                    "You have {}. tbis restarts to finish updating.",
-                    update::CURRENT
-                ))
-                .child(release_notes(
-                    update.notes.clone().into(),
-                    update.page.clone().into(),
-                    cx,
-                ))
-                .button_props(
-                    DialogButtonProps::default()
-                        .ok_text("Install and Restart")
-                        .cancel_text("Later"),
-                )
-                .show_cancel(true)
-                .on_ok(move |_, window, cx| {
-                    let update = update.clone();
-                    this.update(cx, |this, cx| this.install_update(update, window, cx))
-                        .ok();
-                    true
-                })
-        });
-    }
-
-    fn install_update(
-        &mut self,
-        update: update::Update,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let note = Notification::info(format!("Downloading tbis {}\u{2026}", update.version));
-        window.push_notification(note, cx);
-        let http = cx.http_client();
-        self._update = cx.spawn_in(window, async move |this, cx| {
-            let result = cx
-                .background_spawn(async move { update::install(http, &update).await })
-                .await
-                .and_then(|()| update::relaunch());
-            this.update_in(cx, |_, window, cx| match result {
-                Ok(()) => cx.quit(),
-                Err(err) => {
-                    let note = Notification::error(format!("Update failed: {err}"));
-                    window.push_notification(note, cx);
-                }
-            })
-            .ok();
-        });
     }
 
     fn login_screen(config: &Config, window: &mut Window, cx: &mut Context<Self>) -> Screen {
@@ -605,46 +508,24 @@ impl AppView {
     fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let view = cx.new(|cx| SettingsView::new(&self.config, window, cx));
         let changed = cx.subscribe(&view, |this, _, changed: &SettingsChanged, cx| {
-            match changed {
-                SettingsChanged::Language(language) => this.config.language = language.clone(),
-                SettingsChanged::Subtitles(style) => this.config.subtitles = style.clone(),
-                SettingsChanged::MaxBitrate(cap) => this.config.max_bitrate_mbps = *cap,
-                SettingsChanged::Shaders(profile) => this.config.shaders = *profile,
-                SettingsChanged::VideoQuality(quality) => this.config.video_quality = *quality,
-                SettingsChanged::Seek(steps) => {
-                    this.config.seek = *steps;
-                    cx.set_global(*steps);
+            let new = &changed.0;
+            let old = Settings::from_config(&this.config);
+            new.write_to(&mut this.config);
+            cx.set_global(new.seek);
+            cx.set_global(new.hide_spoilers);
+            cx.set_global(new.auto_skip);
+            if let Screen::Main(main) = &this.screen {
+                if new.backdrops != old.backdrops {
+                    main.sync_backdrops(new.backdrops.0, cx);
                 }
-                SettingsChanged::Theme(name) => this.config.theme = Some(name.clone()),
-                SettingsChanged::HideSpoilers(hide) => {
-                    this.config.hide_spoilers = *hide;
-                    cx.set_global(*hide);
+                if new.home_layout != old.home_layout {
+                    main.home
+                        .update(cx, |view, cx| view.set_layout(new.home_layout, cx));
                 }
-                SettingsChanged::Backdrops(show) => {
-                    this.config.backdrops = *show;
-                    if let Screen::Main(main) = &this.screen {
-                        main.sync_backdrops(show.0, cx);
+                if new.library_grouping != old.library_grouping {
+                    for view in [&main.movies, &main.series] {
+                        view.update(cx, |view, cx| view.set_grouping(new.library_grouping, cx));
                     }
-                }
-                SettingsChanged::Layout(layout) => {
-                    this.config.home_layout = *layout;
-                    if let Screen::Main(main) = &this.screen {
-                        main.home
-                            .update(cx, |view, cx| view.set_layout(*layout, cx));
-                    }
-                }
-                SettingsChanged::LibraryGrouping(grouping) => {
-                    this.config.library_grouping = *grouping;
-                    if let Screen::Main(main) = &this.screen {
-                        for view in [&main.movies, &main.series] {
-                            view.update(cx, |view, cx| view.set_grouping(*grouping, cx));
-                        }
-                    }
-                }
-                SettingsChanged::Audio(style) => this.config.audio = *style,
-                SettingsChanged::AutoSkip(skip) => {
-                    this.config.auto_skip = *skip;
-                    cx.set_global(*skip);
                 }
             }
             save_config(&this.config, "settings");
@@ -756,86 +637,6 @@ impl AppView {
             window.push_notification(Notification::error(message), cx);
         }
         cx.notify();
-    }
-
-    fn render_title_bar(&self, cx: &mut Context<Self>) -> TitleBar {
-        let Screen::Main(main) = &self.screen else {
-            return title_bar(cx);
-        };
-        // Search, Settings and Watch stats belong to no tab; Movie/Series details stay under theirs
-        let off_tab = main.searching(cx)
-            || (main.search_open && main.search.read(cx).has_recent())
-            || main.details.last().is_some_and(|d| {
-                let page = d.view.entity_type();
-                page == std::any::TypeId::of::<SettingsView>()
-                    || page == std::any::TypeId::of::<StatsPage>()
-            });
-        let selected = TABS
-            .iter()
-            .position(|(t, _)| *t == main.tab)
-            .filter(|_| !off_tab);
-        let this = cx.entity().downgrade();
-
-        let user_name = main.session.user_name.clone();
-
-        let search = if main.search_open || main.searching(cx) {
-            search_input(&main.search_input, cx).into_any_element()
-        } else {
-            surface_icon_button("search", IconName::Search, "Search", cx)
-                .tooltip_with_action("Search", &FocusSearch, None)
-                .on_click(
-                    cx.listener(|this, _, window, cx| this.focus_search(&FocusSearch, window, cx)),
-                )
-                .into_any_element()
-        };
-
-        let nav = tabs(
-            "nav",
-            TABS.map(|(_, label)| label),
-            selected.unwrap_or(usize::MAX),
-            cx.listener(|this, index: &usize, window, cx| this.select_tab(*index, window, cx)),
-        );
-        let user_menu = avatar_button("user-menu", user_name.clone(), cx)
-            .tooltip("Account")
-            .dropdown_menu(move |menu, _, _| {
-                let this = this.clone();
-                let settings = this.clone();
-                let stats = this.clone();
-                let updates = this.clone();
-                menu.label(user_name.clone())
-                    .separator()
-                    .item(
-                        PopupMenuItem::new("Settings").on_click(move |_, window, cx| {
-                            settings
-                                .update(cx, |this, cx| this.open_settings(window, cx))
-                                .ok();
-                        }),
-                    )
-                    .item(
-                        PopupMenuItem::new("Watch stats").on_click(move |_, window, cx| {
-                            stats
-                                .update(cx, |this, cx| this.open_stats(window, cx))
-                                .ok();
-                        }),
-                    )
-                    .item(PopupMenuItem::new("Check for Updates\u{2026}").on_click(
-                        move |_, window, cx| {
-                            updates
-                                .update(cx, |this, cx| this.check_for_updates(true, window, cx))
-                                .ok();
-                        },
-                    ))
-                    .item(
-                        PopupMenuItem::new("Keyboard shortcuts")
-                            .on_click(|_, window, cx| shortcuts::open(window, cx)),
-                    )
-                    .item(
-                        PopupMenuItem::new("Log out").on_click(move |_, window, cx| {
-                            this.update(cx, |this, cx| this.log_out(window, cx)).ok();
-                        }),
-                    )
-            });
-        app_title_bar(nav, [search, user_menu.into_any_element()], cx)
     }
 }
 

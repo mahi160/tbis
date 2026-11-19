@@ -55,6 +55,8 @@ impl Surface {
         let layer = CAMetalLayer::new();
         layer.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
         layer.setFramebufferOnly(false); // blit target, not render target
+        // Match the UI's sRGB tagging instead of sending raw values to P3 displays.
+        super::window::tag_srgb(&layer);
         view.setLayer(Some(&layer));
         let mut this = Self { view };
         this.move_to(window)?;

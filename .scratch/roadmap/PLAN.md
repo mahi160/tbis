@@ -44,9 +44,9 @@ House rules that apply to every ticket:
 | 03 | mpv logs at `info` | haiku | done |
 | 04 | Error panel shows the cause and offers Retry | haiku | done |
 | 05 | Log the Windows GPU at Player start | sonnet | done |
-| 06 | Run tbis on a real Windows PC and record the log | human | needs-human |
-| 07 | Spike: mpv draws into a child window on Windows | opus + human | blocked by 06 |
-| 08 | Windows libmpv from a prebuilt package | opus | code landed; Windows CI and mirror run pending |
+| 06 | Run tbis on a real Windows PC and record the log | human | owner reports working; detailed evidence pending |
+| 07 | Spike: mpv draws into a child window on Windows | opus + human | deferred; no current interop failure or HDR request |
+| 08 | Windows libmpv from a prebuilt package | opus | code landed; current Windows CI, mirror and codec matrix unverified |
 
 ### B. mpv quality
 
@@ -90,7 +90,7 @@ House rules that apply to every ticket:
 | 24 | Log dropped mpv errors in the Player | haiku | done |
 | 25 | Warn about unencrypted remote servers | haiku | done |
 | 26 | Split `jellyfin.rs` into modules | sonnet | done |
-| 27 | Signed releases | human | needs-human |
+| 27 | Signed releases | human | Ed25519 chosen; owner key setup pending |
 
 ### G. Modern view (parked until the owner picks the layout)
 
@@ -102,6 +102,43 @@ House rules that apply to every ticket:
 | 31 | Layout setting and Modern Home | sonnet | done, partly runtime unverified |
 | 32 | Per-Library sub-tabs on Movies and Series | sonnet | done, partly runtime unverified |
 
+### H. Player feel (from the code review; work each section in order)
+
+| # | Ticket | Model | Status |
+| --- | --- | --- | --- |
+| 33 | Controls stay up while the pointer moves | haiku | done, runtime unverified |
+| 34 | Wheel volume steps by distance, not by event | haiku | done, runtime unverified |
+| 35 | Player loads segments and the next Episode first, together | haiku | done, runtime unverified |
+| 36 | Player error carries its own title | haiku | done, runtime unverified |
+| 37 | Screenshot names are valid on Windows | haiku | done, runtime unverified |
+
+### I. Reliability
+
+| # | Ticket | Model | Status |
+| --- | --- | --- | --- |
+| 38 | Stop the server's transcode even when the Stopped report fails | haiku | done, runtime unverified |
+| 39 | HTTP requests give up on a stalled server | haiku + human | implemented; HTTP/HTTPS acceptance pending |
+| 40 | The build follows libmpv after `brew upgrade mpv` | haiku | done, runtime unverified |
+| 41 | A failed restart is not reported as a failed update | haiku | done, runtime unverified |
+| 42 | Log a failed Library list | haiku | done, runtime unverified |
+| 43 | Tag the macOS video layer sRGB | haiku + human | implemented; P3 comparison pending |
+
+### J. Performance
+
+| # | Ticket | Model | Status |
+| --- | --- | --- | --- |
+| 44 | One time throttle, not two | haiku | done, runtime unverified |
+| 45 | Sharper posters on Retina | haiku | done, runtime unverified |
+
+### K. Tidiness (no behaviour change)
+
+| # | Ticket | Model | Status |
+| --- | --- | --- | --- |
+| 46 | Inline the Player's action wrappers | haiku | done, runtime unverified |
+| 47 | Remove pass-through helpers | haiku | done, runtime unverified |
+| 48 | One Settings value instead of thirteen events | sonnet | done, runtime unverified |
+| 49 | Move the update flow and the title bar out of `app.rs` | haiku | done, runtime unverified |
+
 ## Owner decisions still open
 
 1. **Windows libmpv (ticket 08):** decided: prebuilt shinchiro package, mirrored, source offered by link, as jellyfin-mpv-shim does.
@@ -112,11 +149,11 @@ House rules that apply to every ticket:
 
 - Embedded Tailscale is removed on every platform and will be planned again separately. A server on a tailnet works today when the Tailscale app is running: type its tailnet address as the server address.
 - The access token stays in `config.json` (mode 0600 on Unix).
-- The 1.4 GB release asset is `tbis-<version>-windows-sources.tar`, the GPL source archive. The app is `tbis-<version>-windows-x86_64.zip` (about 27 MB).
+- Older Windows releases included a large GPL source archive. Current Windows packaging uses prebuilt libmpv and includes `components/sources.txt`; the application download is `tbis-<version>-windows-x86_64.zip`.
 
 ## Facts worth knowing before you start
 
-- macOS and Wayland draw video through mpv's render API (`src/mpv/render.rs`, `src/platform/*/video*`). Windows does the same through WGL and DX interop, and that path has never been confirmed on real hardware (`docs/windows.md`).
+- macOS and Wayland draw video through mpv's render API (`src/mpv/render.rs`, `src/platform/*/video*`). Windows does the same through WGL and DX interop; the owner reports working playback, with detailed hardware and codec coverage still unrecorded (`docs/windows.md`).
 - gpui's Windows renderer creates its composition target with `topmost = true` (`gpui-pre-windows-0.3.8/src/directx_renderer.rs`, `CreateTargetForHwnd(hwnd, true)`), which is what makes ticket 07 plausible.
 - A time update re-rendering only a child entity does not help: gpui marks every ancestor dirty (`.scratch/perf-pip-changelog/issues/01-timeline-only-redraw.md`).
 - Local mpv is 0.41 (`mpv --profile=help` lists `fast` and `high-quality`); Windows pins 0.42 (`scripts/windows-deps.json`).

@@ -6,7 +6,7 @@
 
 **Blocked by:** The owner creating and storing the keys.
 
-**Status:** needs-human
+**Status:** needs-human. The owner selected free self-managed Ed25519 signatures for both platforms. `.scratch/setup-update-signing.sh` generates a private key outside the repository, asks before uploading it as `TBIS_UPDATE_SIGNING_KEY`, and writes only the public key to `assets/update-public-key.hex`. Key setup is not yet confirmed; release signing and updater verification must wait for the trusted public key. No private key is requested in chat. `bash -n` passes. ShellCheck passes with SC1087 and SC2329 excluded; those diagnostics originate in the unchanged wizard-template library, not its setup stages. The wizard has not been run by the agent.
 
 **Read first:** `src/update.rs`, `src/update/bundle.rs`, `src/platform/macos/update.rs`, `.github/workflows/release.yml`, `.scratch/p3-gaps/issues/05-distribution-bundled-libmpv-and-updates.md`.
 
