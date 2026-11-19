@@ -4,7 +4,7 @@
 
 The Windows target is x86_64 Windows 10/11 with MSVC. libmpv comes from a pinned, checksummed prebuilt package; CI does not compile mpv or FFmpeg.
 
-The switch to the prebuilt package has not had a native Windows CI run yet; the next `windows.yml` run on `feat/windows` is the evidence for the current scripts. Windows UI, login, network playback, GPU interoperability and SMTC/power/cursor behavior on a human PC remain **unverified**; see [Windows validation status](windows.md) for the GPU matrix. A successful self-test is not a playback test.
+The owner reports working Windows playback, but the tested version and hardware have not been recorded. The prebuilt-package path has no recorded native Windows CI result: the latest standalone Windows run (`42976947593`) failed in the old source-built dependencies step, before this switch. The mirror workflow has no recorded runs. Detailed UI, login, network playback, GPU interoperability and SMTC/power/cursor checks remain **unverified**; see [Windows validation status](windows.md) for the GPU matrix. A successful self-test is not a playback test.
 
 To try a build, download `windows-release` from **Artifacts** of a successful `windows.yml` run. Extract the artifact container first, then extract the **entire** inner `tbis-<version>-windows-x86_64.zip` into a writable folder and run `tbis.exe`. Keep `libmpv-2.dll`, `vulkan-1.dll`, `LICENSE`, `licenses/`, `components/` and `bundled-components.txt` beside it; do not run from inside the zip or copy only the executable. The application is not Windows-code-signed; review Windows download warnings before running it. GPU drivers remain a system prerequisite.
 

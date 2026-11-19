@@ -8,7 +8,7 @@ It can work because gpui's composition target is created with `topmost = true` (
 
 **Blocked by:** 06 (run it only when the log shows the interop path is the problem, or when the owner wants HDR on Windows).
 
-**Status:** blocked
+**Status:** deferred. The owner reports working Windows playback; there is no supplied interop-failure evidence or request for Windows HDR. Keep the working renderer. Revisit only if one of those triggers occurs.
 
 **Read first:** `docs/adr/0007-windows-video-surface.md`, `docs/adr/0001-mpv-native-layer-under-gpui.md`, `src/platform/windows/video.rs`, `src/mpv/mod.rs` (`EMBEDDING`, `Mpv::new`, `Handle::init`), `src/mpv/render.rs`.
 

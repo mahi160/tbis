@@ -1,6 +1,6 @@
 # Windows validation status
 
-The Windows video architecture is [proposed in ADR-0007](adr/0007-windows-video-surface.md), not accepted. Ticket 01 Windows smoke testing remains unrun. Actual native Windows UI/app-window, login, network playback, GPU interoperability, SMTC/power/cursor behavior on a human PC and screenshots remain **unverified**, as does the GPU matrix; the CI self-test is GPU-free.
+The owner reports that Windows playback is working. The tested app version, GPU, driver and codecs have not been recorded, so this confirms a working playback report, not the acceptance matrix below. Detailed UI, login, network playback, GPU interoperability, SMTC/power/cursor checks and screenshots remain **unverified**. The Windows video architecture remains [proposed in ADR-0007](adr/0007-windows-video-surface.md) until those results are recorded; the CI self-test is GPU-free.
 
 Build steps, toolchain and CI status are in [Windows builds and releases](windows-build.md). Application release cross-building from macOS remains blocked by gpui's Windows-host-only HLSL generation (`shaders_bytes.rs` is not produced there).
 

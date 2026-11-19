@@ -6,7 +6,7 @@
 
 **Blocked by:** None.
 
-**Status:** done, runtime unverified. Quitting the app (cmd-Q) within the half second may not drop `SettingsView`, so that last edit may not be written.
+**Status:** done (runtime unverified). Formatting and Clippy pass; the final test batch has 94 passing tests. Pending mpv.conf edits now flush both when Settings drops and from its app-quit observer, so cmd-Q does not depend on entity destruction.
 
 **Read first:** `src/settings.rs` (`SettingsView::new`, the `_save_mpv_conf` subscription), `src/login.rs` (`fn load_users` shows the debounce pattern: a stored `Task` replaced on each change, starting with a timer).
 
