@@ -112,7 +112,7 @@ impl Api {
     pub fn poster_url(&self, item: &Item) -> Option<String> {
         let tag = item.image_tags.get("Primary")?;
         Some(format!(
-            "{}/Items/{}/Images/Primary?fillWidth=320&quality=90&tag={tag}",
+            "{}/Items/{}/Images/Primary?fillWidth=400&quality=90&tag={tag}",
             self.server, item.id
         ))
     }

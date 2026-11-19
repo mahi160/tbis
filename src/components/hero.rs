@@ -14,7 +14,7 @@ use super::tag::{overlay_pill, star_rating};
 use super::{OnClick, OnHover};
 use crate::design::overlay::{self, black};
 use crate::design::size::{HERO_ASPECT, HERO_PEEK_SCALE, HERO_SLIDE_W};
-use crate::design::{color, gap, page, radius, size, text};
+use crate::design::{color, gap, opacity, page, radius, size, text};
 
 const SLIDE: Duration = Duration::from_millis(600);
 /// How dark a peeking slide's art is; it brightens on the way to the center.
@@ -275,7 +275,7 @@ impl RenderOnce for HeroCarousel {
 
         let (lit, unlit) = (
             color::foreground(cx),
-            color::muted_foreground(cx).opacity(0.5),
+            color::muted_foreground(cx).opacity(opacity::HALF),
         );
         let dwell = self.dwell.filter(|_| !cx.reduce_motion());
         let cycle = self.cycle;

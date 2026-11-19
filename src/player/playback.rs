@@ -16,8 +16,6 @@ use super::logged;
 
 /// Seconds left in an Episode when the next one is offered.
 const UP_NEXT_AT: f64 = 30.;
-/// Redraws throttle to this step; below the mpv event throttle so slow speeds stay smooth.
-const REDRAW_STEP: f64 = 0.1;
 /// Seconds before a segment's end at which its skip button hides.
 const SEGMENT_END_MARGIN: f64 = 0.5;
 
@@ -77,6 +75,16 @@ pub(super) enum Queued {
     Played(Arc<PlaybackItem>),
 }
 
+#[derive(Clone)]
+pub(super) struct PlayerError {
+    pub(super) title: &'static str,
+    pub(super) detail: SharedString,
+}
+
+pub(super) const START_FAILED: &str = "The player could not start";
+pub(super) const LOAD_FAILED: &str = "This item could not be loaded";
+pub(super) const STOPPED: &str = "Playback stopped";
+
 /// Everything tied to the Episode/Movie currently loaded; replaced whole by
 /// `Playback::new` on Autoplay so no field can be missed on reset (former bug:
 /// `play_next` cleared 14 fields by hand and skipped `error`).
@@ -101,10 +109,8 @@ pub(super) struct Playback {
     subtitle_readiness: SubtitleReadiness,
     pub(super) finished: bool,
     pub(super) time: f64,
-    /// Time last drawn; throttles redraws to `REDRAW_STEP`.
-    pub(super) shown_time: f64,
     pub(super) duration: f64,
-    /// Stream position mpv has buffered up to, in seconds; read on each shown-time step.
+    /// Stream position mpv has buffered up to, in seconds; read on each time update.
     pub(super) buffered_until: f64,
     pub(super) scrubbing: Option<f64>,
     /// Time under the pointer while it hovers the timeline.
@@ -116,7 +122,7 @@ pub(super) struct Playback {
     /// Playback info's file/track values, read once; cleared when the tracks change.
     pub(super) info_static: Option<StaticInfo>,
     pub(super) tracks: Vec<Track>,
-    pub(super) error: Option<SharedString>,
+    pub(super) error: Option<PlayerError>,
     /// Intro/credits ranges; empty until fetched or on servers without media segments.
     pub(super) segments: Vec<Segment>,
     /// Now Playing artwork: Episode thumb or poster, fetched after load.
@@ -148,7 +154,6 @@ impl Playback {
             subtitle_readiness: SubtitleReadiness::default(),
             finished: false,
             time: 0.,
-            shown_time: 0.,
             duration: 0.,
             buffered_until: 0.,
             scrubbing: None,
@@ -180,21 +185,13 @@ impl PlayerView {
         }
     }
 
-    /// Time bookkeeping for mpv's position stream. Returns whether
-    /// the `REDRAW_STEP` threshold was crossed, i.e. whether the UI should redraw.
-    fn update_time(&mut self, time: f64) -> bool {
-        self.playback.time = time;
-        if (time - self.playback.shown_time).abs() < REDRAW_STEP {
-            return false;
-        }
-        self.playback.shown_time = time;
-        true
-    }
-
-    /// Shows `message` in the error panel and records it in the log.
-    pub(super) fn fail(&mut self, message: String) {
+    /// Shows `message` under `title` and records it in the log.
+    pub(super) fn fail(&mut self, title: &'static str, message: String) {
         crate::log::write(&format!("player error: {message}"));
-        self.playback.error = Some(message.into());
+        self.playback.error = Some(PlayerError {
+            title,
+            detail: message.into(),
+        });
     }
 
     pub(super) fn on_mpv(&mut self, event: MpvEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -210,9 +207,7 @@ impl PlayerView {
         };
         match event {
             FileEvent::TimePos(time) => {
-                if !self.update_time(time) {
-                    return;
-                }
+                self.playback.time = time;
                 if cx.global::<AutoSkip>().0
                     && let Some(segment) = self.active_segment()
                     && self.playback.auto_skipped != Some(segment.start)
@@ -222,7 +217,8 @@ impl PlayerView {
                     return;
                 }
                 let ahead = self
-                    .active_mpv()
+                    .mpv
+                    .as_ref()
                     .and_then(|mpv| mpv.property("demuxer-cache-duration"))
                     .and_then(|v| v.parse::<f64>().ok())
                     .unwrap_or(0.);
@@ -318,7 +314,7 @@ impl PlayerView {
                 return;
             }
             FileEvent::EndFile(Ok(false)) => {}
-            FileEvent::EndFile(Err(err)) => self.fail(format!("Playback failed: {err}")),
+            FileEvent::EndFile(Err(err)) => self.fail(STOPPED, format!("Playback failed: {err}")),
         }
         cx.notify();
     }
@@ -335,7 +331,7 @@ impl PlayerView {
             }
             PlayerEvent::Mute(muted) => self.muted = muted,
             PlayerEvent::RenderFailed(err) => {
-                self.fail(format!("Playback failed: {err}"));
+                self.fail(STOPPED, format!("Playback failed: {err}"));
                 // video is gone for good; mpv would otherwise play on, unseen
                 self.mpv = None;
                 self.drop_pip(cx);
@@ -384,7 +380,7 @@ impl PlayerView {
             self.play_next(next, window, cx);
             return;
         }
-        if let Some(mpv) = self.active_mpv() {
+        if let Some(mpv) = self.mpv.as_ref() {
             logged("seek", mpv.seek(segment.end));
         }
         self.refocus(window, cx);
@@ -506,7 +502,7 @@ impl PlayerView {
     }
 
     pub(super) fn set_speed(&mut self, speed: f64) {
-        if let Some(mpv) = self.active_mpv()
+        if let Some(mpv) = self.mpv.as_ref()
             && mpv.set_speed(speed).is_ok()
         {
             self.speed = speed;
@@ -519,7 +515,7 @@ impl PlayerView {
     }
 
     pub(super) fn select_track(&mut self, kind: TrackKind, id: Option<i64>) {
-        if let Some(mpv) = self.active_mpv() {
+        if let Some(mpv) = self.mpv.as_ref() {
             logged("select_track", mpv.select_track(kind, id));
         }
         self.remember_track(kind, id);
@@ -527,7 +523,7 @@ impl PlayerView {
 
     /// Not remembered: track memory only covers the primary subtitle.
     pub(super) fn select_secondary_subtitle(&mut self, id: Option<i64>) {
-        if let Some(mpv) = self.active_mpv() {
+        if let Some(mpv) = self.mpv.as_ref() {
             logged(
                 "select_secondary_subtitle",
                 mpv.select_secondary_subtitle(id),
@@ -625,7 +621,7 @@ impl PlayerView {
             .and_then(|r| r.audio)
             .filter(|id| self.has_track(TrackKind::Audio, *id))
             .or_else(|| self.track_by_lang(TrackKind::Audio, audio_lang.as_deref()));
-        if let Some(mpv) = self.active_mpv()
+        if let Some(mpv) = self.mpv.as_ref()
             && let Some(id) = audio
         {
             logged("select_track", mpv.select_track(TrackKind::Audio, Some(id)));
@@ -633,7 +629,7 @@ impl PlayerView {
 
         if let Some(r) = remembered {
             if r.subtitle_off {
-                if let Some(mpv) = self.active_mpv() {
+                if let Some(mpv) = self.mpv.as_ref() {
                     logged("select_track", mpv.select_track(TrackKind::Subtitle, None));
                 }
                 return;
@@ -642,7 +638,7 @@ impl PlayerView {
                 .subtitle
                 .filter(|id| self.has_track(TrackKind::Subtitle, *id))
             {
-                if let Some(mpv) = self.active_mpv() {
+                if let Some(mpv) = self.mpv.as_ref() {
                     logged(
                         "select_track",
                         mpv.select_track(TrackKind::Subtitle, Some(id)),
@@ -653,7 +649,7 @@ impl PlayerView {
         }
         if subtitles_enabled
             && let Some(id) = self.track_by_lang(TrackKind::Subtitle, subtitle_lang.as_deref())
-            && let Some(mpv) = self.active_mpv()
+            && let Some(mpv) = self.mpv.as_ref()
         {
             logged(
                 "select_track",
@@ -771,7 +767,7 @@ impl PlayerView {
         } else {
             (current as i32 + direction).clamp(0, item.chapters.len() as i32 - 1) as usize
         };
-        if let Some(mpv) = self.active_mpv() {
+        if let Some(mpv) = self.mpv.as_ref() {
             logged("seek", mpv.seek(item.chapters[target].start_seconds()));
         }
     }

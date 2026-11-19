@@ -435,7 +435,7 @@ impl PlaybackItem {
     }
 
     /// Widest available trickplay sprite sheet for the media source mpv is playing.
-    pub(super) fn trickplay(&self) -> Option<TrickplayInfo> {
+    pub fn trickplay(&self) -> Option<TrickplayInfo> {
         self.trickplay
             .get(self.media_source_id())?
             .values()

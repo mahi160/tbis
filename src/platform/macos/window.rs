@@ -40,6 +40,12 @@ pub fn hide_title_buttons(window: &Window) {
     }
 }
 
+/// Tags a layer so macOS color-matches its sRGB content to the display.
+pub fn tag_srgb(layer: &CAMetalLayer) {
+    let srgb = CGColorSpace::with_name(Some(unsafe { kCGColorSpaceSRGB }));
+    layer.setColorspace(srgb.as_deref());
+}
+
 /// gpui's Metal layer carries no colorspace, so macOS sends its sRGB values to the
 /// display raw and wide-gamut (P3) screens oversaturate every color and poster.
 /// Tagging it sRGB makes macOS color-match, as browsers do.
@@ -59,6 +65,5 @@ pub fn prepare(window: &Window) {
     let Ok(layer) = layer.downcast::<CAMetalLayer>() else {
         return;
     };
-    let srgb = CGColorSpace::with_name(Some(unsafe { kCGColorSpaceSRGB }));
-    layer.setColorspace(srgb.as_deref());
+    tag_srgb(&layer);
 }

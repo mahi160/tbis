@@ -10,7 +10,7 @@ use gpui_kit::component::{Disableable as _, Icon, Selectable as _, Sizable as _,
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::design::{color, font, gap, input_bg, overlay, radius, sp, text, tokens};
+use crate::design::{color, font, gap, input_bg, opacity, overlay, radius, sp, text, tokens};
 
 /// Vega sizes; chain after a preset. Default size needs no call.
 pub trait VegaSize: Sized {
@@ -32,7 +32,7 @@ pub trait GhostState: Sized {
 impl GhostState for Button {
     fn ghost_disabled(self, disabled: bool, cx: &App) -> Self {
         self.disabled(disabled).when(disabled, |b| {
-            b.text_color(color::muted_foreground(cx).opacity(0.5))
+            b.text_color(color::muted_foreground(cx).opacity(opacity::HALF))
         })
     }
     fn ghost_selected(self, selected: bool, cx: &App) -> Self {

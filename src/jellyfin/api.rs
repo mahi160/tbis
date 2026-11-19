@@ -7,7 +7,7 @@ use serde::{Deserialize, de::DeserializeOwned};
 
 use super::types::{
     ExternalSubtitle, Item, Kind, Library, PlaybackItem, Report, Segment, SegmentKind, Session,
-    Sort, Stream, TrickplayInfo, seconds_to_ticks, ticks_to_seconds,
+    Sort, Stream, seconds_to_ticks, ticks_to_seconds,
 };
 use super::{HttpStatus, SessionExpired, auth_header, read_json, send};
 
@@ -196,10 +196,6 @@ impl Api {
         read_json(self.send(request).await?).await
     }
 
-    async fn post(&self, path: &str, body: serde_json::Value) -> Result<()> {
-        self.request(Method::POST, path, body).await
-    }
-
     async fn request(&self, method: Method, path: &str, body: serde_json::Value) -> Result<()> {
         self.send(self.json_request(method, path, body)?).await?;
         Ok(())
@@ -380,11 +376,6 @@ impl Api {
             .collect()
     }
 
-    /// Widest scrub-preview sprite sheet the server generated for this item, if any.
-    pub fn trickplay(&self, item: &PlaybackItem) -> Option<TrickplayInfo> {
-        item.trickplay()
-    }
-
     pub async fn report(
         &self,
         report: Report,
@@ -409,11 +400,13 @@ impl Api {
             "PlayMethod": if item.stream.transcode.is_some() { "Transcode" } else { "DirectPlay" },
             "CanSeek": true,
         });
-        self.post(path, body).await?;
+        let reported = self.request(Method::POST, path, body).await;
         if let (Report::Stopped, Some(session)) = (report, &item.stream.transcode) {
-            self.stop_transcode(session).await?;
+            // Stopped alone does not end the server's ffmpeg job, even when it fails.
+            let stopped = self.stop_transcode(session).await;
+            return reported.and(stopped);
         }
-        Ok(())
+        reported
     }
 
     /// Marks played (a Series: every Episode) or unplayed; either way the server
@@ -637,6 +630,81 @@ mod tests {
             library_query(Kind::Movie, Sort::DateAdded, Some(&movies)),
             format!("ParentId=m&{sort}")
         );
+    }
+
+    #[test]
+    fn stopped_transcodes_are_deleted_even_when_the_report_fails() {
+        use std::io::{Read as _, Write as _};
+        use std::net::TcpListener;
+        use std::time::Duration;
+
+        for (reported, stopped) in [(500, 204), (204, 500), (204, 204)] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let server = format!("http://{}", listener.local_addr().unwrap());
+            let (requests_tx, requests_rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                for status in [reported, stopped] {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    let mut buf = [0; 4096];
+                    let n = stream.read(&mut buf).unwrap();
+                    let request = String::from_utf8_lossy(&buf[..n]);
+                    requests_tx
+                        .send(request.lines().next().unwrap().to_string())
+                        .unwrap();
+                    write!(
+                        stream,
+                        "HTTP/1.1 {status} Test\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                    .unwrap();
+                }
+            });
+            let (tx, _rx) = futures::channel::mpsc::unbounded();
+            let session = Session {
+                server: server.clone(),
+                user_id: "user".into(),
+                user_name: "test".into(),
+                token: "test-token".into(),
+            };
+            let api = Api::new(
+                Arc::new(reqwest_client::ReqwestClient::new()),
+                session,
+                server,
+                "device".into(),
+                tx,
+            );
+            let mut item: PlaybackItem =
+                serde_json::from_value(serde_json::json!({"Id": "item"})).unwrap();
+            item.stream.transcode = Some("transcode-session".into());
+            let result = futures::executor::block_on(api.report(
+                crate::jellyfin::Report::Stopped,
+                &item,
+                "fallback-session",
+                12.,
+                false,
+            ));
+            assert_eq!(result.is_ok(), reported == 204 && stopped == 204);
+            assert_eq!(
+                requests_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+                "POST /Sessions/Playing/Stopped HTTP/1.1"
+            );
+            assert_eq!(
+                requests_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+                "DELETE /Videos/ActiveEncodings?deviceId=device&playSessionId=transcode-session HTTP/1.1"
+            );
+            if reported == 500 {
+                assert_eq!(
+                    result
+                        .unwrap_err()
+                        .downcast_ref::<super::HttpStatus>()
+                        .unwrap()
+                        .0,
+                    500
+                );
+            }
+        }
     }
 
     #[test]

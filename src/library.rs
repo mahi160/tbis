@@ -136,7 +136,10 @@ impl LibraryView {
                 .background_spawn(async move {
                     // the grid can still show All without the tabs
                     let libraries = if separate {
-                        let mut libraries = api.libraries().await.unwrap_or_default();
+                        let mut libraries = api.libraries().await.unwrap_or_else(|err| {
+                            crate::log::write(&format!("libraries lookup failed: {err}"));
+                            Vec::new()
+                        });
                         libraries.retain(|library| library.kind == kind);
                         libraries
                     } else {

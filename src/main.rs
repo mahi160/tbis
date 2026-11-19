@@ -61,18 +61,26 @@ fn raise_open_file_limit() {
     }
 }
 
+/// Give up on a response after this long without receiving data.
+const HTTP_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn http_client() -> reqwest_client::ReqwestClient {
+    reqwest_client::ReqwestClient::proxy_user_agent_and_read_timeout(
+        None,
+        concat!("tbis/", env!("CARGO_PKG_VERSION")),
+        Some(HTTP_IDLE_TIMEOUT),
+    )
+    .expect("failed to build HTTP client")
+}
+
 fn main() {
     let _platform = platform::init();
 
     #[cfg(unix)]
     raise_open_file_limit();
 
-    let http =
-        reqwest_client::ReqwestClient::user_agent(concat!("tbis/", env!("CARGO_PKG_VERSION")))
-            .expect("failed to build HTTP client");
-
     gpui_kit::application()
-        .with_http_client(Arc::new(http))
+        .with_http_client(Arc::new(http_client()))
         .with_assets(assets::Assets)
         .run(|cx| {
             gpui_kit::init(cx);
@@ -144,4 +152,31 @@ fn main() {
             })
             .detach();
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui_kit::http_client::HttpClient as _;
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn stalled_http_response_times_out() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let server = std::thread::spawn(move || {
+            let (_stream, _) = listener.accept().unwrap();
+            let _ = wait.recv_timeout(Duration::from_secs(45));
+        });
+        let start = Instant::now();
+        let result =
+            futures::executor::block_on(super::http_client().get(&url, Default::default(), false));
+        let elapsed = start.elapsed();
+        let _ = release.send(());
+        server.join().unwrap();
+        assert!(result.is_err(), "a stalled response must time out");
+        assert!(elapsed >= super::HTTP_IDLE_TIMEOUT - Duration::from_secs(1));
+        assert!(elapsed < Duration::from_secs(45));
+    }
 }

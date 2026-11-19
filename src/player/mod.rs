@@ -26,7 +26,7 @@ use crate::platform::cursor::hide as hide_cursor;
 use crate::platform::power::Awake;
 use crate::platform::video::SUPPORTS_PIP;
 use crate::shaders::ShaderProfile;
-use playback::Playback;
+use playback::{LOAD_FAILED, Playback, PlayerError, START_FAILED, STOPPED};
 
 actions!(
     player,
@@ -148,6 +148,8 @@ pub struct PlayerView {
     controls_visible: bool,
     /// Volume slider forced open by VolumeUp/VolumeDown, independent of mute-button hover.
     volume_hud: bool,
+    /// Trackpad scroll not yet turned into a volume step, in px.
+    wheel: f32,
     /// Short banner after a key (seek, speed, mute, sync); see `flash`.
     hud: Option<SharedString>,
     menu_open: bool,
@@ -199,7 +201,7 @@ impl PlayerView {
             }),
             cx.subscribe_in(&volume_slider, window, |this, _, event, window, cx| {
                 let (SliderEvent::Change(value) | SliderEvent::Release(value)) = event;
-                if let Some(mpv) = this.active_mpv() {
+                if let Some(mpv) = this.mpv.as_ref() {
                     logged("set_volume", mpv.set_volume(value.end() as f64));
                 }
                 this.show_controls(window, cx);
@@ -231,7 +233,13 @@ impl PlayerView {
             Err(err) => {
                 let message = format!("Cannot start player: {err}");
                 crate::log::write(&format!("player error: {message}"));
-                (None, Some(message.into()))
+                (
+                    None,
+                    Some(PlayerError {
+                        title: START_FAILED,
+                        detail: message.into(),
+                    }),
+                )
             }
         };
         playback.error = mpv_error;
@@ -303,6 +311,7 @@ impl PlayerView {
             focus,
             controls_visible: true,
             volume_hud: false,
+            wheel: 0.,
             hud: None,
             menu_open: false,
             track_prefs: config.track_prefs.clone(),
@@ -331,7 +340,8 @@ impl PlayerView {
     }
 
     /// Fetches fresh play details, starts playback at `start_at` (else the server's
-    /// resume point), then looks up the next Episode.
+    /// resume point), then looks up segments and neighbouring Episodes together,
+    /// and the Now Playing artwork last.
     fn load(&mut self, item_id: String, start_at: Option<f64>, cx: &mut Context<Self>) {
         if self.mpv.is_none() {
             return;
@@ -351,47 +361,48 @@ impl PlayerView {
             {
                 return;
             }
-            if let Some(url) = artwork_url {
-                match api.image_bytes(&url).await {
-                    Ok(bytes) => {
-                        let Ok(()) = this.update(cx, |this, _| {
-                            if let Some(now_playing) = &this.now_playing {
-                                now_playing.set_artwork(&bytes);
-                            }
-                            this.playback.artwork = Some(bytes);
-                        }) else {
-                            return;
-                        };
-                    }
-                    Err(err) => crate::log::write(&format!("artwork fetch failed: {err}")),
+            // Skip and Autoplay metadata must not wait for artwork.
+            let episodes = async {
+                match &series_id {
+                    Some(series_id) => Some(api.adjacent_episodes(series_id, &item_id).await),
+                    None => None,
                 }
-            }
-            match api.segments(&item_id).await {
-                Ok(segments) => {
-                    let Ok(()) = this.update(cx, |this, cx| {
-                        this.playback.segments = segments;
-                        cx.notify();
-                    }) else {
-                        return;
-                    };
-                }
-                // pre-10.10 servers 404 here: just no skip button
-                Err(err) => crate::log::write(&format!("media segments lookup failed: {err}")),
-            }
-            let Some(series_id) = series_id else {
-                return;
             };
-            match api.adjacent_episodes(&series_id, &item_id).await {
-                Ok((previous, next)) => {
-                    this.update(cx, |this, cx| {
+            let (segments, episodes) = futures::join!(api.segments(&item_id), episodes);
+            let Ok(()) = this.update(cx, |this, cx| {
+                match segments {
+                    Ok(segments) => this.playback.segments = segments,
+                    // pre-10.10 servers 404 here: just no skip button
+                    Err(err) => crate::log::write(&format!("media segments lookup failed: {err}")),
+                }
+                match episodes {
+                    Some(Ok((previous, next))) => {
                         this.playback.previous = previous;
                         this.playback.next = next;
-                        cx.notify();
+                    }
+                    Some(Err(err)) => {
+                        crate::log::write(&format!("next episode lookup failed: {err}"))
+                    }
+                    None => {}
+                }
+                cx.notify();
+            }) else {
+                return;
+            };
+            let Some(url) = artwork_url else {
+                return;
+            };
+            match api.image_bytes(&url).await {
+                Ok(bytes) => {
+                    this.update(cx, |this, _| {
+                        if let Some(now_playing) = &this.now_playing {
+                            now_playing.set_artwork(&bytes);
+                        }
+                        this.playback.artwork = Some(bytes);
                     })
                     .ok();
                 }
-                // no Autoplay; playback unaffected
-                Err(err) => crate::log::write(&format!("next episode lookup failed: {err}")),
+                Err(err) => crate::log::write(&format!("artwork fetch failed: {err}")),
             }
         });
     }
@@ -404,7 +415,7 @@ impl PlayerView {
     ) {
         let (Some(mpv), Ok(item)) = (&self.mpv, result.as_ref()) else {
             if let Err(err) = result {
-                self.fail(format!("Cannot load item: {err}"));
+                self.fail(LOAD_FAILED, format!("Cannot load item: {err}"));
             }
             cx.notify();
             return;
@@ -412,7 +423,7 @@ impl PlayerView {
         let start = start_at.unwrap_or_else(|| item.resume_seconds());
         match mpv.load(&item.stream.url, start) {
             Ok(load) => self.playback.load = Some(load),
-            Err(err) => self.fail(err),
+            Err(err) => self.fail(STOPPED, err),
         }
         self.playback.item = result.ok().map(std::sync::Arc::new);
         cx.notify();
@@ -431,12 +442,11 @@ impl PlayerView {
         let session = self.playback.play_session_id.clone();
         let (time, paused, finished) = (self.playback.time, self.paused, self.playback.finished);
         Some(async move {
+            let _ = api
+                .report(Report::Stopped, &item, &session, time, paused)
+                .await;
             if finished {
                 let _ = api.set_played(&item.id, true).await;
-            } else {
-                let _ = api
-                    .report(Report::Stopped, &item, &session, time, paused)
-                    .await;
             }
         })
     }
@@ -471,10 +481,6 @@ fn fit_video(video: &VideoSize, window: &Window) {
 }
 
 impl PlayerView {
-    fn active_mpv(&self) -> Option<&Mpv> {
-        self.mpv.as_ref()
-    }
-
     /// Reports stop and asks the app to leave the Player. Tears down mpv on drop.
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if window.is_fullscreen() {

@@ -165,9 +165,7 @@ impl PlayerView {
                     play_label,
                 )
                 .tooltip_with_action(play_label, &TogglePause, Some(CONTEXT))
-                .on_click(
-                    cx.listener(|this, _, window, cx| this.toggle_pause(&TogglePause, window, cx)),
-                ),
+                .on_click(cx.listener(|this, _, window, cx| this.pause_toggle(window, cx))),
             )
             // Episodes only; disabled at the Series' first/last Episode
             .when(is_episode, |this| {
@@ -248,9 +246,7 @@ impl PlayerView {
                 fullscreen_label,
             )
             .tooltip_with_action(fullscreen_label, &ToggleFullscreen, Some(CONTEXT))
-            .on_click(cx.listener(|this, _, window, cx| {
-                this.toggle_fullscreen(&ToggleFullscreen, window, cx)
-            })),
+            .on_click(cx.listener(|this, _, window, cx| this.fullscreen_toggle(window, cx))),
         );
 
         bottom_bar(v_flex().w_full().child(timeline).child(controls)).into_any_element()
@@ -259,10 +255,7 @@ impl PlayerView {
     /// Scrub-preview thumbnail for `seconds`, cropped from the server's sprite sheet.
     fn trickplay_preview(&self, seconds: f64) -> Option<AnyElement> {
         let item = self.playback.item.as_ref()?;
-        let info = self
-            .api
-            .trickplay(item)
-            .filter(|i| i.width > 0 && i.height > 0)?;
+        let info = item.trickplay().filter(|i| i.width > 0 && i.height > 0)?;
         let (tile, x, y) = info.thumbnail_at(seconds);
         let tile_w = f32::from(design::size::trickplay_w());
         let scale = tile_w / info.width as f32;
@@ -369,7 +362,7 @@ impl PlayerView {
             move |ix, cx| {
                 let seconds = chapters[ix].start_seconds();
                 this.update(cx, |this, _| {
-                    if let Some(mpv) = this.active_mpv() {
+                    if let Some(mpv) = this.mpv.as_ref() {
                         logged("seek", mpv.seek(seconds));
                     }
                 })
