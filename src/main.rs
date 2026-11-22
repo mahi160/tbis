@@ -33,9 +33,13 @@ mod support_dir;
 mod theme;
 mod update;
 
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context as TaskContext, Poll};
 
+use futures::{AsyncRead, future::BoxFuture};
 use gpui_kit::component::{Root, TitleBar};
+use gpui_kit::http_client::{AsyncBody, HttpClient, Request, Response, Url, http::HeaderValue};
 use gpui_kit::*;
 
 actions!(tbis, [Quit, CloseWindow, Hide]);
@@ -64,13 +68,53 @@ fn raise_open_file_limit() {
 /// Give up on a response after this long without receiving data.
 const HTTP_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-fn http_client() -> reqwest_client::ReqwestClient {
-    reqwest_client::ReqwestClient::proxy_user_agent_and_read_timeout(
-        None,
-        concat!("tbis/", env!("CARGO_PKG_VERSION")),
-        Some(HTTP_IDLE_TIMEOUT),
+struct TimedHttpClient(reqwest_client::ReqwestClient);
+
+impl HttpClient for TimedHttpClient {
+    fn user_agent(&self) -> Option<&HeaderValue> {
+        self.0.user_agent()
+    }
+
+    fn proxy(&self) -> Option<&Url> {
+        self.0.proxy()
+    }
+
+    fn send(
+        &self,
+        request: Request<AsyncBody>,
+    ) -> BoxFuture<'static, anyhow::Result<Response<AsyncBody>>> {
+        let response = self.0.send(request);
+        Box::pin(async move {
+            Ok(response
+                .await?
+                .map(|body| AsyncBody::from_reader(TimedBody(body))))
+        })
+    }
+}
+
+struct TimedBody(AsyncBody);
+
+impl AsyncRead for TimedBody {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+        buf: &mut [u8],
+    ) -> Poll<std::io::Result<usize>> {
+        // Reqwest sends on Tokio, but GPUI polls the response body on its own executor.
+        let _runtime = reqwest_client::runtime().enter();
+        Pin::new(&mut self.0).poll_read(cx, buf)
+    }
+}
+
+fn http_client() -> TimedHttpClient {
+    TimedHttpClient(
+        reqwest_client::ReqwestClient::proxy_user_agent_and_read_timeout(
+            None,
+            concat!("tbis/", env!("CARGO_PKG_VERSION")),
+            Some(HTTP_IDLE_TIMEOUT),
+        )
+        .expect("failed to build HTTP client"),
     )
-    .expect("failed to build HTTP client")
 }
 
 fn main() {
@@ -159,6 +203,42 @@ mod tests {
     use gpui_kit::http_client::HttpClient as _;
     use std::net::TcpListener;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn reads_http_response_body_outside_tokio() {
+        use futures::AsyncReadExt as _;
+        use std::io::{BufRead, BufReader, Write};
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut request = BufReader::new(stream);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                assert_ne!(request.read_line(&mut line).unwrap(), 0);
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            request
+                .get_mut()
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                .unwrap();
+        });
+        let body = futures::executor::block_on(async {
+            let mut response = super::http_client()
+                .get(&url, Default::default(), false)
+                .await
+                .unwrap();
+            let mut body = String::new();
+            response.body_mut().read_to_string(&mut body).await.unwrap();
+            body
+        });
+        server.join().unwrap();
+        assert_eq!(body, "ok");
+    }
 
     #[test]
     fn stalled_http_response_times_out() {
