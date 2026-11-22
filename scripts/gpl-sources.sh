@@ -9,6 +9,7 @@ cd "$(dirname "$0")/.."
 
 out=$(realpath "$(dirname "$1")")/$(basename "$1")
 list=target/tbis.app/Contents/Resources/bundled-components.txt
+cellar=$(brew --cellar)
 work=$(mktemp -d)
 dir="$work/sources"
 mkdir -p "$dir/formulae"
@@ -31,7 +32,8 @@ while read -r component; do
     else
         cp "$src" "$dir/"
     fi
-    brew cat --formula "$formula" > "$dir/formulae/$formula.rb"
+    # The installed keg has the recipe even when Homebrew uses API-only metadata.
+    cp "$cellar/$formula/${component##*-}/.brew/$formula.rb" "$dir/formulae/"
 done < "$list"
 
 tar -cf "$out" -C "$work" sources
