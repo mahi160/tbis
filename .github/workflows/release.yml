@@ -54,7 +54,10 @@ jobs:
         with:
           prepared: true
       - name: Install mpv
-        run: brew install mpv pkgconf
+        run: |
+          brew install mpv pkgconf
+          # mpv.pc requires libarchive, which Homebrew does not link into its prefix.
+          echo "PKG_CONFIG_PATH=$(brew --prefix libarchive)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Test
