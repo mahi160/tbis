@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=tbis
+Comment=Watch your Jellyfin library
+Exec=tbis
+Icon=io.github.mahi160.tbis
+Terminal=false
+Categories=AudioVideo;Video;Player;

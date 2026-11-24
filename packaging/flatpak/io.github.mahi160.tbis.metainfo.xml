@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.mahi160.tbis</id>
+  <name>tbis</name>
+  <summary>Watch your Jellyfin library</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <description>
+    <p>Browse your Jellyfin library and play movies and series with embedded mpv.</p>
+  </description>
+  <launchable type="desktop-id">io.github.mahi160.tbis.desktop</launchable>
+  <url type="homepage">https://github.com/mahi160/tbis</url>
+</component>

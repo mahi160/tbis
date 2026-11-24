@@ -1,0 +1,31 @@
+# Linux support: one player, two native backends, one Flatpak
+
+Ship an x86-64 Flatpak attached to the project release. Support native Wayland and native X11; exercise the X11 backend under XWayland as a third runtime configuration. Do not require XWayland on a native Wayland system. Flathub, ARM64 and a Linux self-updater are out of scope for v1.
+
+## Starting evidence, not implementation instructions
+
+`src/platform/linux/video/mod.rs` selects the renderer from GPUI's actual window handle. `wayland.rs` has an EGL subsurface implementation marked runtime-unverified; `x11.rs` rejects attachment. Neither a passing Rust build nor an older checklist establishes working playback. Inspect the current checkout before changing it. For example, ADR-0006 supersedes the standalone mpv PiP design: do not package the mpv CLI merely to support PiP.
+
+Keep player state, UI, preferences, playback commands and mpv lifecycle shared. Put display-specific code in the existing Linux video files, Linux-wide integration in `src/platform/linux/`, and packaging outside the player. Do not create parallel pages or split identical code by OS. If a backend needs a change to the shared surface contract, stop with a reproducer and a proposed contract before touching the working macOS and Windows implementations.
+
+## Tickets and handoffs
+
+Take one ticket at a time. Record the revision, commands actually run, outcome, and any missing runtime evidence. A missing Linux machine means **awaiting runtime test**, not passed. Never include account tokens or private server URLs in evidence.
+
+1. **L1 — Reproduce a clean Linux build.** Start with `Cargo.toml`, `Cargo.lock`, `build.rs`, `.gitmodules` and `.github/workflows/release.yml`. On a clean x86-64 Linux runner, establish the native compiler, GPUI/display, libmpv and tailnet build requirements from the actual dependency tree. Run `cargo build --release --locked` and `cargo test --release --locked`. Deliver a repeatable setup command, documented toolchain and a Linux CI check running both commands on fresh checkout. Stop on the first unresolved dependency; do not bypass it by disabling a product feature. Keep the existing desktop jobs intact.
+2. **L2 — Prove native Wayland (after L1).** Start at `src/platform/linux/video/wayland.rs`. Launch the L1 binary on a real compositor; record which window handle was selected. Run the playback checklist below **before editing**. Fix only observed failures; pay particular attention to input passing to GPUI, decoration insets and teardown. Deliver a completed native Wayland row or the smallest reproducible failure. Do not switch the session to XWayland to obtain a pass.
+3. **L3 — Prove X11 composition, then finish X11 (after L1; independent of L2).** Start at `src/platform/linux/video/x11.rs` and its parent dispatcher. Inspect the locked GPUI backend, actual handle and available visuals. First demonstrate moving video beneath visible, clickable GPUI controls during resize. Do not assume the Wayland stacking strategy works on X11. If the spike fails, report the visual/input result and stop before building out PiP or proposing another player. Once proven, implement attachment, rendering, resize and cleanup against the existing interface. Deliver separate playback rows for native X11 and XWayland.
+4. **L4 — Close product gaps (after L2/L3).** Start at `src/platform/linux/mod.rs` and follow the actual callers for any failure. Exercise sign-in, library browsing, server streaming, settings persistence after restart and sleep inhibition during playback/release on stop. Test PiP entry, return and player close wherever offered; if moving the surface is broken, don't expose a broken action. Compositor-controlled stacking, media keys and cursor hiding may be documented limitations. Deliver a pass or an explicit limitation for each item. Do not expand this ticket into desktop integration parity.
+5. **L5 — Produce, test, then publish the Flatpak (after core playback works).** Use `.github/workflows/release.yml` as the entry point: build the candidate from the prepared release revision, not an independent checkout of a moving branch. Pin the runtime/SDK and sources, account for Cargo and native dependencies, and package libmpv and the libraries not supplied by the runtime. Include launcher metadata, icon and required license notices. Document each sandbox permission against a tested need (display sockets, graphics, audio, network, portal or bus access); do not use blanket host access to pass a test. Deliver exact build/install/launch commands alongside the manifest. Upload a candidate and its digest. On a clean Linux install without host mpv, repeat L4 and all three playback rows **inside that candidate**. Attach those same bytes to the matching release only after human approval and digest verification. If approval is unavailable, keep the candidate unpublished; do not rebuild it during promotion or block existing desktop assets on an unapproved Linux candidate.
+
+## Runtime acceptance card
+
+Use the same redistributable reference clip for all rows. Before testing, record its identifier, resolution, frame rate, codec, reference machine/GPU, driver and compositor. Play with audio for at least one minute; pause, seek and resume, click an overlay control, resize, toggle fullscreen twice, close and reopen playback. Require visible moving video, responsive controls, synchronized audio and no sustained stutter, stranded surface or crash. Record decoder and playback observations. Smooth software decoding passes: explicitly exercise that fallback on the reference machine rather than treating a hardware decoder name as evidence of playback.
+
+| Desktop session | Actual client backend required | Native build result | Flatpak digest and result |
+| --- | --- | --- | --- |
+| Wayland | Wayland | Pending | Pending |
+| X11 | X11 | Pending | Pending |
+| Wayland with XWayland | X11 | Pending | Pending |
+
+Record handle selection at the surface dispatcher if the app does not already expose it. Session environment alone cannot distinguish the two Wayland-session rows. Document tested launch commands as part of L2/L3; do not guess backend-selection flags. A headless build proves compilation, not GPU composition, input hit testing or sandboxed audio.

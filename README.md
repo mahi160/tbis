@@ -120,6 +120,29 @@ On Windows, run this in PowerShell 7 from an x64 Visual Studio developer environ
 cargo run --release --locked
 ```
 
+### Linux build and test (Ubuntu 24.04, x86-64)
+
+From a fresh Ubuntu 24.04 x86-64 machine, run:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y git curl ca-certificates
+git clone https://github.com/mahi160/tbis.git
+cd tbis
+sudo sh scripts/setup-linux-deps.sh
+installer=$(mktemp)
+curl --proto '=https' --tlsv1.2 -fsSLo "$installer" https://sh.rustup.rs &&
+    sh "$installer" -y --profile minimal --default-toolchain 1.99.1
+rm -f "$installer"
+. "$HOME/.cargo/env"
+cargo build --release --locked
+cargo test --release --locked
+```
+
+The Linux CI job uses the same Ubuntu version, native dependencies, and Rust toolchain. The setup installs the native compiler, CMake for AWS-LC, Fontconfig and XCB/XKB for GPUI, and libmpv for playback. Ubuntu's `libmpv-dev` also pulls in the Wayland and EGL development packages. The current Cargo build does not use `vendor/libtailscale`, so submodule initialization and Go are not required.
+
+This is a build and test check, not verification of playback on a Linux desktop. See the [unpublished Flatpak candidate instructions](docs/linux-flatpak-candidate.md) for native Wayland testing.
+
 ## Releases
 
 Pushing to the `prod` branch (or deliberately dispatching Release on `prod`) builds both platforms and publishes one release only after both application bundles and the macOS GPL source archive succeed through GitHub Actions (`.github/workflows/release.yml`). The macOS and Windows builds use the same prepared version and Git revision. The version is bumped from the commit messages since the last release:
